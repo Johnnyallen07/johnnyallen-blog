@@ -17,6 +17,10 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
+
+# Ensure node artifacts are in PATH
+ENV PATH="/app/node_modules/.bin:${PATH}"
+
 RUN pnpm --filter api build
 RUN pnpm --filter api deploy --prod /prod/api
 
