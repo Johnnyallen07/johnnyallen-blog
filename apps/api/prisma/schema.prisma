@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  password  String
+  posts     Post[]
+  series    Series[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Post {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  title        String
+  excerpt      String?  // Short preview (200-300 chars)
+  content      String?  // Markdown content
+  thumbnailUrl String?  // R2 URL for preview image
+  published    Boolean  @default(false)
+  featured     Boolean  @default(false)
+  views        Int      @default(0)
+  likes        Int      @default(0)
+  category     Category @relation(fields: [categoryId], references: [id])
+  categoryId   String
+  author       User     @relation(fields: [authorId], references: [id])
+  authorId     String
+  media        Media[]
+  seriesItems  SeriesItem[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@index([featured])
+}
+
+model Category {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  name         String   @unique
+  description  String?
+  thumbnailUrl String?  // R2 URL for category image
+  icon         String?  // Lucide icon identifier (e.g., "Gamepad2", "Music")
+  
+  parentId     String?
+  parent       Category? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children     Category[] @relation("CategoryHierarchy")
+
+  posts        Post[]
+  series       Series[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([slug])
+  @@index([parentId])
+}
+
+model Media {
+  id        String   @id @default(uuid())
+  url       String
+  key       String   // Cloudflare R2 key
+  type      MediaType
+  post      Post?    @relation(fields: [postId], references: [id])
+  postId    String?
+  createdAt    DateTime @default(now())
+}
+
+model Series {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  title        String
+  description  String?
+  thumbnailUrl String?
+  emoji        String?  @default("📝")
+  published    Boolean  @default(false)
+  
+  categoryId   String
+  category     Category @relation(fields: [categoryId], references: [id])
+  
+  authorId     String
+  author       User     @relation(fields: [authorId], references: [id])
+
+  items        SeriesItem[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([slug])
+  @@index([categoryId])
+}
+
+model SeriesItem {
+  id        String   @id @default(uuid())
+  
+  seriesId  String
+  series    Series   @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  
+  title     String?  // Folder name or override post title
+  
+  // A SeriesItem can point to a Post, or just be a structural node (folder)
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id])
+  
+  // Tree structure
+  parentId  String?
+  parent    SeriesItem? @relation("SeriesTree", fields: [parentId], references: [id])
+  children  SeriesItem[] @relation("SeriesTree")
+  
+  order     Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([seriesId])
+  @@index([parentId])
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
