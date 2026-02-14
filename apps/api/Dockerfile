@@ -18,13 +18,14 @@ WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN pnpm --filter api build
+RUN pnpm --filter api deploy --prod /prod/api
 
 # Runtime stage
 FROM base AS runner
 WORKDIR /app
+COPY --from=builder /prod/api/node_modules ./node_modules
+COPY --from=builder /prod/api/package.json ./package.json
 COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/api/package.json ./package.json
 
 EXPOSE 3001
-CMD ["node", "dist/main"]
+CMD ["node", "dist/src/main"]

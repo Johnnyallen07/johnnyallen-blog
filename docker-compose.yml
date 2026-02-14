@@ -30,9 +30,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - ./apps/api:/app/apps/api
-      - ./packages:/app/packages
 
   web:
     build:
@@ -46,9 +43,6 @@ services:
       # Monitor docker internal networking if needed
     depends_on:
       - api
-    volumes:
-      - ./apps/web:/app/apps/web
-      - ./packages:/app/packages
 
 volumes:
   db_data:
