@@ -148,3 +148,4 @@ test-data/
 
 # Seed file with local test data
 apps/api/prisma/seed.ts
+.agent
