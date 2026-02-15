@@ -5,7 +5,11 @@ const nextConfig = {
         remotePatterns: [
             {
                 protocol: "https",
-                hostname: "pub-5b647118ac394cf4be1b0263b1327b52.r2.dev",
+                hostname: "static.johnnyallen.blog",
+            },
+            {
+                protocol: "https",
+                hostname: "johnnyallenblog-1335108053.cos.ap-hongkong.myqcloud.com",
             },
             {
                 protocol: "http",

@@ -10,6 +10,7 @@ export interface SeriesTreeItem {
   parentId: string | null;
   postId: string | null;
   title: string | null;
+  published: boolean;
   order: number;
   children: SeriesTreeItem[];
   post?: {
@@ -25,60 +26,8 @@ export class SeriesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(createSeriesDto: CreateSeriesDto) {
-    const { withDefaults, ...data } = createSeriesDto;
-    const series = await this.prisma.series.create({
-      data,
-    });
-
-    if (withDefaults) {
-      // Create default structure:
-      // 1. "Getting Started" folder
-      //    - "Welcome" post
-      // 2. "Drafts" folder
-
-      // Root "Getting Started" folder
-      const gettingStarted = await this.prisma.seriesItem.create({
-        data: {
-          seriesId: series.id,
-          title: 'Getting Started',
-          order: 0,
-        },
-      });
-
-      // "Welcome" post inside "Getting Started"
-      // First create the post
-      const welcomePost = await this.prisma.post.create({
-        data: {
-          title: 'Welcome to your new Series',
-          slug: `${series.slug}-welcome`,
-          content: '# Welcome\n\nThis is the start of your new series.',
-          authorId: data.authorId,
-          categoryId: data.categoryId,
-          published: true,
-        },
-      });
-
-      // Link post to series item
-      await this.prisma.seriesItem.create({
-        data: {
-          seriesId: series.id,
-          parentId: gettingStarted.id,
-          postId: welcomePost.id,
-          order: 0,
-        },
-      });
-
-      // Root "Drafts" folder
-      await this.prisma.seriesItem.create({
-        data: {
-          seriesId: series.id,
-          title: 'Drafts',
-          order: 1,
-        },
-      });
-    }
-
-    return series;
+    const { ...data } = createSeriesDto;
+    return this.prisma.series.create({ data });
   }
 
   async update(id: string, updateSeriesDto: UpdateSeriesDto) {
@@ -112,6 +61,9 @@ export class SeriesService {
     });
   }
 
+  /**
+   * findOne - 管理后台使用，返回所有 items（不过滤 published）
+   */
   async findOne(id: string) {
     const series = await this.prisma.series.findUnique({
       where: { id },
@@ -137,8 +89,29 @@ export class SeriesService {
       throw new NotFoundException(`Series with ID ${id} not found`);
     }
 
-    // Build tree structure
-    const items = series.items;
+    return { ...series, tree: this.buildTree(series.items) };
+  }
+
+  /**
+   * 构建树形结构
+   */
+  private buildTree(
+    items: Array<{
+      id: string;
+      seriesId: string;
+      parentId: string | null;
+      postId: string | null;
+      title: string | null;
+      published: boolean;
+      order: number;
+      post?: {
+        id: string;
+        title: string;
+        slug: string;
+        published: boolean;
+      } | null;
+    }>,
+  ): SeriesTreeItem[] {
     const itemMap = new Map<string, SeriesTreeItem>(
       items.map((item) => [
         item.id,
@@ -155,7 +128,6 @@ export class SeriesService {
           if (parent) {
             parent.children.push(node);
           } else {
-            // Orphaned node, treat as root
             rootItems.push(node);
           }
         } else {
@@ -164,7 +136,7 @@ export class SeriesService {
       }
     }
 
-    return { ...series, tree: rootItems };
+    return rootItems;
   }
 
   async addItem(
@@ -182,11 +154,10 @@ export class SeriesService {
   }
 
   async updateStructure(id: string, dto: UpdateSeriesStructureDto) {
-    // Use transaction to ensure consistency
     return this.prisma.$transaction(async (tx) => {
       for (const item of dto.items) {
         await tx.seriesItem.update({
-          where: { id: item.id, seriesId: id }, // Ensure item belongs to series
+          where: { id: item.id, seriesId: id },
           data: {
             parentId: item.parentId,
             order: item.order,
@@ -212,15 +183,9 @@ export class SeriesService {
       throw new Error('Title is required for FOLDER type items');
     }
 
-    // Get max order in the parent
     const lastItem = await this.prisma.seriesItem.findFirst({
-      where: {
-        seriesId,
-        parentId,
-      },
-      orderBy: {
-        order: 'desc',
-      },
+      where: { seriesId, parentId },
+      orderBy: { order: 'desc' },
     });
 
     const newOrder = (lastItem?.order ?? -1) + 1;
@@ -230,8 +195,9 @@ export class SeriesService {
         seriesId,
         parentId,
         postId: type === 'POST' ? postId : null,
-        title: type === 'FOLDER' ? title : null, // If it's a folder, we use the title on SeriesItem
+        title: type === 'FOLDER' ? title : null,
         order: newOrder,
+        published: false, // 新建默认为未发布
       },
       include: {
         post: true,
@@ -244,24 +210,16 @@ export class SeriesService {
   }
 
   async removeSeriesItem(itemId: string) {
-    // 1. Check if item exists
     const item = await this.prisma.seriesItem.findUnique({
       where: { id: itemId },
       include: { children: true },
     });
 
+    // 如果 item 已被删除（快速连续操作），直接返回成功
     if (!item) {
-      throw new NotFoundException(`Series Item ${itemId} not found`);
+      return { success: true, id: itemId };
     }
 
-    // 2. If it's a folder with children, we might want to prevent delete or cascade.
-    // Ideally, for a "Folder", we delete all children (recursive) or move them up.
-    // For simplicity, let's use Prisma's cascade delete if configured, or delete manually.
-    // Since we don't have explicit cascade keys in code visible, let's just delete the item.
-    // Prisma usually requires defining behavior in schema. If not defined, this might fail if children exist.
-    // Let's assume we want to delete this specific item. If it has children, we should probably delete them too.
-
-    // Recursive delete helper (if not using DB cascade)
     const deleteRecursive = async (id: string) => {
       const children = await this.prisma.seriesItem.findMany({
         where: { parentId: id },
@@ -269,18 +227,66 @@ export class SeriesService {
       for (const child of children) {
         await deleteRecursive(child.id);
       }
-      await this.prisma.seriesItem.delete({ where: { id } });
+      // 使用 deleteMany 避免 item 不存在时抛出异常
+      await this.prisma.seriesItem.deleteMany({ where: { id } });
     };
 
     await deleteRecursive(itemId);
     return { success: true, id: itemId };
   }
 
-  async updateSeriesItem(itemId: string, dto: { title?: string }) {
+  /**
+   * 更新 SeriesItem（标题 / 发布状态 / 移动到其他父级）
+   */
+  async updateSeriesItem(
+    itemId: string,
+    dto: { title?: string; published?: boolean; parentId?: string | null },
+  ) {
+    const data: {
+      title?: string;
+      published?: boolean;
+      parentId?: string | null;
+      order?: number;
+    } = {};
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.published !== undefined) data.published = dto.published;
+
+    // 移动到其他文件夹（parentId: string 或 null 表示移到根级）
+    if (dto.parentId !== undefined) {
+      // 防止将文件夹移到自身内部
+      if (dto.parentId === itemId) {
+        throw new Error('Cannot move item into itself');
+      }
+
+      data.parentId = dto.parentId;
+
+      // 获取目标文件夹下的最大 order
+      const item = await this.prisma.seriesItem.findUnique({
+        where: { id: itemId },
+      });
+      if (!item) {
+        throw new NotFoundException(`Series Item ${itemId} not found`);
+      }
+
+      const lastItem = await this.prisma.seriesItem.findFirst({
+        where: { seriesId: item.seriesId, parentId: dto.parentId },
+        orderBy: { order: 'desc' },
+      });
+      data.order = (lastItem?.order ?? -1) + 1;
+    }
+
     return this.prisma.seriesItem.update({
       where: { id: itemId },
-      data: {
-        title: dto.title,
+      data,
+      include: {
+        post: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            published: true,
+          },
+        },
       },
     });
   }

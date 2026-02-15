@@ -105,6 +105,21 @@ export function useAutoSave<T>({
         }
     }, [localStorageKey]);
 
+    // Manual save: always saves (bypasses hasUnsavedChanges check), throws on error
+    const manualSave = useCallback(async () => {
+        if (isSaving) return;
+
+        setIsSaving(true);
+        try {
+            await onSave(data);
+            setLastSaved(new Date());
+            setHasUnsavedChanges(false);
+            previousDataRef.current = data;
+        } finally {
+            setIsSaving(false);
+        }
+    }, [data, isSaving, onSave]);
+
     // Warn before unload if unsaved changes
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -123,6 +138,7 @@ export function useAutoSave<T>({
         isSaving,
         hasUnsavedChanges,
         triggerSave,
+        manualSave,
         loadFromLocalStorage,
         clearLocalStorage,
     };

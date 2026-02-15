@@ -43,7 +43,6 @@ async function main() {
             emoji: '🎥',
             description: 'A series about video coding.',
             categoryId: category.id,
-            authorId: user.id,
             published: true,
         },
     });
@@ -66,7 +65,6 @@ async function main() {
             title: 'Introduction to Video',
             slug: 'video-intro',
             content: '# Introduction\n\nWelcome to video coding.',
-            authorId: user.id,
             categoryId: category.id,
             published: true,
         },

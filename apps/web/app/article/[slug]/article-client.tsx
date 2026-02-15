@@ -54,7 +54,6 @@ interface PostData {
   views?: number;
   likes?: number;
   tags?: string[];
-  author?: { name: string };
   category?: { id: string; name: string };
   seriesItems?: {
     series: {
@@ -181,7 +180,6 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
         }
       });
       setPost(data);
-
       // Increment view count (only once, guard against StrictMode double-invoke)
       if (!viewCountedRef.current) {
         viewCountedRef.current = true;
@@ -337,7 +335,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
             <ArticleContent
               postId={post?.id}
               title={post?.title || ""}
-              author={post?.author?.name || "Johnny"}
+              author="Johnny"
               date={post?.createdAt ? getRelativeTime(post.createdAt) : ""}
               views={post?.views || 0}
               likes={post?.likes || 0}

@@ -63,7 +63,8 @@ export class SeriesController {
   @Patch('items/:itemId')
   updateSeriesItem(
     @Param('itemId') itemId: string,
-    @Body() dto: { title?: string },
+    @Body()
+    dto: { title?: string; published?: boolean; parentId?: string | null },
   ) {
     return this.seriesService.updateSeriesItem(itemId, dto);
   }

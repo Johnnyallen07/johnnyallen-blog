@@ -172,9 +172,6 @@ export class CategoriesService {
         },
         posts: {
           where: { published: true, seriesItems: { none: {} } }, // Only independent posts
-          include: {
-            author: { select: { name: true } },
-          },
           orderBy: { createdAt: 'desc' },
           take: 20, // Limit for now, pagination can be added later
         },

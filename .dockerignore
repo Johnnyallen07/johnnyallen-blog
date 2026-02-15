@@ -8,3 +8,11 @@ dist
 build
 .next
 coverage
+.turbo
+*.log
+*.md
+!apps/api/README.md
+!apps/web/README.md
+devops
+test-ignore.db
+.agent

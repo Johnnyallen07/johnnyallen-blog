@@ -17,6 +17,9 @@ interface PropertyPanelProps {
   onSave: () => void;
   onPublish: () => void;
   lastSaved: Date | null;
+  isSaving?: boolean;
+  isSlugDuplicate?: boolean;
+  isCheckingSlug?: boolean;
 }
 
 export function PropertyPanel({
@@ -30,6 +33,9 @@ export function PropertyPanel({
   onSave,
   onPublish,
   lastSaved,
+  isSaving,
+  isSlugDuplicate,
+  isCheckingSlug,
 }: PropertyPanelProps) {
   return (
     <div className="h-full flex flex-col bg-white border-l border-gray-200">
@@ -60,9 +66,17 @@ export function PropertyPanel({
               value={slug}
               onChange={(e) => onSlugChange(e.target.value)}
               placeholder="article-slug"
-              className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+              className={`border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30 ${
+                isSlugDuplicate ? "border-red-400 focus:border-red-500" : ""
+              }`}
             />
           </div>
+          {isSlugDuplicate && (
+            <p className="text-xs text-red-500">该 Slug 已被其他文章占用</p>
+          )}
+          {isCheckingSlug && (
+            <p className="text-xs text-gray-400">检查中...</p>
+          )}
         </div>
 
         {/* 标签 */}
@@ -75,7 +89,7 @@ export function PropertyPanel({
         <div className="space-y-3 pt-4 border-t border-gray-200">
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Calendar className="h-4 w-4" />
-            <span>创建：2026-02-12</span>
+            <span>创建：{new Date().toLocaleDateString("zh-CN")}</span>
           </div>
           {lastSaved && (
             <div className="text-xs text-gray-500">
@@ -120,9 +134,10 @@ export function PropertyPanel({
             onClick={onSave}
             variant="outline"
             className="flex-1 border-gray-300 hover:bg-gray-50"
+            disabled={isSaving}
           >
             <Save className="h-4 w-4 mr-2" />
-            保存
+            {isSaving ? "保存中..." : "保存"}
           </Button>
           <Button
             onClick={onPreview}
@@ -135,6 +150,7 @@ export function PropertyPanel({
         </div>
         <Button
           onClick={onPublish}
+          disabled={isSaving}
           className="w-full relative overflow-hidden bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/40 hover:scale-[1.02]"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 -translate-x-full animate-[shimmer_2s_infinite]" />
