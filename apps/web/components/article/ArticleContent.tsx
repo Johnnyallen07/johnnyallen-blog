@@ -50,7 +50,7 @@ export function ArticleContent({
     }
   };
   return (
-    <article className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+    <article className="bg-transparent backdrop-blur-sm border border-white/20 rounded-2xl shadow-sm overflow-hidden">
       {/* 顶部装饰条 */}
       <div className="h-1.5 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500" />
 
@@ -72,7 +72,7 @@ export function ArticleContent({
           </div>
 
           {/* 标题 */}
-          <h1 className="text-4xl font-bold text-gray-900 mb-4 leading-tight">
+          <h1 className="text-4xl font-bold text-gray-900 mb-6 leading-tight tracking-wide">
             {title}
           </h1>
 
@@ -115,22 +115,16 @@ export function ArticleContent({
           )}
         </header>
 
-        {/* 文章内容 */}
+        {/* 文章内容 - 增加行高和字间距 */}
         <div
-          className="prose prose-gray max-w-none
+          className="prose prose-gray prose-lg max-w-none
             prose-headings:font-bold prose-headings:text-gray-900
-            prose-h1:text-3xl prose-h1:mb-4 prose-h1:mt-8
-            prose-h2:text-2xl prose-h2:mb-3 prose-h2:mt-6
-            prose-h3:text-xl prose-h3:mb-2 prose-h3:mt-5
-            prose-p:text-gray-700 prose-p:leading-relaxed prose-p:mb-4
             prose-a:text-cyan-600 prose-a:no-underline hover:prose-a:underline
             prose-strong:text-gray-900 prose-strong:font-semibold
             prose-code:text-pink-600 prose-code:bg-pink-50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded
             prose-pre:bg-gray-900 prose-pre:text-gray-100
             prose-img:rounded-xl prose-img:shadow-md
-            prose-blockquote:border-l-4 prose-blockquote:border-cyan-500 prose-blockquote:bg-cyan-50 prose-blockquote:py-2
-            prose-ul:my-4 prose-ol:my-4
-            prose-li:text-gray-700"
+            prose-blockquote:border-l-4 prose-blockquote:border-cyan-500 prose-blockquote:bg-cyan-50"
           dangerouslySetInnerHTML={{ __html: content }}
         />
 

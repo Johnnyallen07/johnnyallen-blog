@@ -7,6 +7,7 @@ import { PostsModule } from './posts/posts.module';
 
 import { MediaModule } from './media/media.module';
 import { SeriesModule } from './series/series.module';
+import { MusicModule } from './music/music.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { SeriesModule } from './series/series.module';
     PostsModule,
     MediaModule,
     SeriesModule,
+    MusicModule,
   ],
   controllers: [AppController],
   providers: [AppService],

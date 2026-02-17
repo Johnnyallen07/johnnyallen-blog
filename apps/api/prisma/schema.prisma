@@ -1,5 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Docker 使用 node:20-alpine（OpenSSL 3），需明确指定否则默认 openssl-1.1 导致 libssl.so.1.1 找不到
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -12,8 +14,6 @@ model User {
   email     String   @unique
   name      String?
   password  String
-  posts     Post[]
-  series    Series[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -31,8 +31,6 @@ model Post {
   likes        Int      @default(0)
   category     Category @relation(fields: [categoryId], references: [id])
   categoryId   String
-  author       User     @relation(fields: [authorId], references: [id])
-  authorId     String
   media        Media[]
   seriesItems  SeriesItem[]
   createdAt    DateTime @default(now())
@@ -86,9 +84,6 @@ model Series {
   
   categoryId   String
   category     Category @relation(fields: [categoryId], references: [id])
-  
-  authorId     String
-  author       User     @relation(fields: [authorId], references: [id])
 
   items        SeriesItem[]
   
@@ -106,6 +101,7 @@ model SeriesItem {
   series    Series   @relation(fields: [seriesId], references: [id], onDelete: Cascade)
   
   title     String?  // Folder name or override post title
+  published Boolean  @default(false) // 控制是否对外展示
   
   // A SeriesItem can point to a Post, or just be a structural node (folder)
   postId    String?
@@ -125,7 +121,66 @@ model SeriesItem {
   @@index([parentId])
 }
 
+model MusicTrack {
+  id          String   @id @default(uuid())
+  title       String
+  musician    String
+  performer   String
+  category    String
+  series      String?
+  duration    Int      @default(0)
+  fileKey     String
+  fileUrl     String
+  fileSize    Int      @default(0)
+  coverUrl    String?
+  order       Int      @default(0)
+  playCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([musician])
+  @@index([category])
+  @@index([order])
+}
+
+model MusicCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+}
+
+model MusicArtist {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+}
+
+model MusicSeries {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+}
+
 enum MediaType {
   IMAGE
   VIDEO
+  AUDIO
 }

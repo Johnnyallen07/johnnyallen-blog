@@ -20,26 +20,27 @@ export class PostsService {
       take = 20,
       categoryId,
       featured,
-      published = true,
       standalone,
     } = options || {};
+
+    // standalone=true 是管理后台调用，不过滤 published（显示草稿 + 已发布）
+    // 其他情况默认只展示 published=true（公开页面）
+    const published =
+      options?.published !== undefined
+        ? options.published
+        : standalone
+          ? undefined
+          : true;
 
     return this.prisma.post.findMany({
       where: {
         ...(categoryId && { categoryId }),
         ...(featured !== undefined && { featured }),
-        published,
+        ...(published !== undefined && { published }),
         ...(standalone && { seriesItems: { none: {} } }),
       },
       include: {
         category: true,
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
         media: true,
         _count: {
           select: { seriesItems: true },
@@ -67,12 +68,6 @@ export class PostsService {
             icon: true,
           },
         },
-        author: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -94,12 +89,6 @@ export class PostsService {
             name: true,
             slug: true,
             icon: true,
-          },
-        },
-        author: {
-          select: {
-            id: true,
-            name: true,
           },
         },
         media: true,
@@ -130,19 +119,17 @@ export class PostsService {
       where: { slug },
       include: {
         category: true,
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
         media: true,
         seriesItems: {
+          where: { published: true }, // 只返回已发布的 SeriesItem
           include: {
             series: {
               include: {
                 items: {
+                  where: {
+                    parentId: null,
+                    published: true,
+                  },
                   orderBy: {
                     order: 'asc',
                   },
@@ -156,6 +143,7 @@ export class PostsService {
                       },
                     },
                     children: {
+                      where: { published: true },
                       orderBy: {
                         order: 'asc',
                       },
@@ -169,7 +157,7 @@ export class PostsService {
                           },
                         },
                         children: {
-                          // Level 3
+                          where: { published: true },
                           orderBy: { order: 'asc' },
                           include: {
                             post: {
@@ -180,22 +168,11 @@ export class PostsService {
                                 published: true,
                               },
                             },
-                            children: true, // Level 4 exists?
+                            children: true,
                           },
                         },
                       },
                     },
-                  },
-                  where: {
-                    parentId: null, // Only fetch root items here, children are fetched recursively?
-                    // actually Prisma needs recursive include or raw query for unlimited depth.
-                    // For now, let's include items and handle tree in code or just 3 levels deep.
-                    // Wait, if I include `items` on series, it includes ALL items if I don't filter by parentId.
-                    // But the tree structure is defined by `parentId`.
-                    // It's better to fetch ALL items for the series and construct tree on frontend or service.
-                    // Let's fetch all items flat and let frontend build tree? Or build it here.
-                    // The previous implementation in SeriesEditor uses `tree` property? No, it uses `items`?
-                    // Let's rely on fetching all items for the series.
                   },
                 },
               },
@@ -217,14 +194,19 @@ export class PostsService {
       where: { id },
       include: {
         category: true,
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+        media: true,
+        seriesItems: {
+          include: {
+            series: {
+              select: {
+                id: true,
+                title: true,
+                slug: true,
+                emoji: true,
+              },
+            },
           },
         },
-        media: true,
       },
     });
 
@@ -240,38 +222,113 @@ export class PostsService {
       data: createPostDto,
       include: {
         category: true,
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
       },
     });
   }
 
   async update(id: string, updatePostDto: UpdatePostDto) {
-    await this.findOne(id); // Check if exists
+    await this.findOne(id);
 
-    return this.prisma.post.update({
+    // Extract seriesId from DTO (it's not a direct Post field)
+    const { seriesId, ...postData } = updatePostDto;
+
+    // Update the post data
+    await this.prisma.post.update({
       where: { id },
-      data: updatePostDto,
-      include: {
-        category: true,
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+      data: postData,
+    });
+
+    // Handle series binding/unbinding if seriesId is explicitly provided
+    if (seriesId !== undefined) {
+      await this.handleSeriesBinding(id, seriesId);
+    }
+
+    // Re-fetch to get updated data including series info
+    return this.findOne(id);
+  }
+
+  /**
+   * 处理文章与系列的绑定关系
+   * @param postId 文章 ID
+   * @param seriesId 目标 Series ID（null 表示解除所有绑定）
+   */
+  private async handleSeriesBinding(
+    postId: string,
+    seriesId: string | null,
+  ): Promise<void> {
+    // Get current series bindings for this post
+    const currentItems = await this.prisma.seriesItem.findMany({
+      where: { postId },
+    });
+
+    if (seriesId === null) {
+      // Unbind from all series → post becomes standalone
+      if (currentItems.length > 0) {
+        await this.prisma.seriesItem.deleteMany({
+          where: { postId },
+        });
+      }
+      return;
+    }
+
+    // Check if already bound to the target series
+    const alreadyBound = currentItems.some(
+      (item) => item.seriesId === seriesId,
+    );
+    if (alreadyBound) {
+      return; // No change needed
+    }
+
+    // Remove from any other series first
+    if (currentItems.length > 0) {
+      await this.prisma.seriesItem.deleteMany({
+        where: { postId },
+      });
+    }
+
+    // Get max order for root items in target series
+    const lastItem = await this.prisma.seriesItem.findFirst({
+      where: { seriesId, parentId: null },
+      orderBy: { order: 'desc' },
+    });
+
+    // Bind to new series at root level
+    await this.prisma.seriesItem.create({
+      data: {
+        seriesId,
+        postId,
+        order: (lastItem?.order ?? -1) + 1,
       },
     });
   }
 
+  /**
+   * 检查 slug 是否已被其他文章占用
+   * @param slug 要检查的 slug
+   * @param excludeId 排除的文章 ID（编辑时排除自身）
+   */
+  async checkSlug(
+    slug: string,
+    excludeId?: string,
+  ): Promise<{ available: boolean; existingId?: string }> {
+    const existing = await this.prisma.post.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return { available: true };
+    }
+
+    if (excludeId && existing.id === excludeId) {
+      return { available: true };
+    }
+
+    return { available: false, existingId: existing.id };
+  }
+
   async remove(id: string) {
-    await this.findOne(id); // Check if exists
+    await this.findOne(id);
 
     return this.prisma.post.delete({
       where: { id },

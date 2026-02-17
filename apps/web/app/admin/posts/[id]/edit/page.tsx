@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, use, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, Eye, Sparkles, Calendar } from "lucide-react";
+import { ArrowLeft, Save, Eye, Sparkles, Calendar, BookOpen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,12 +18,29 @@ import { TagInput } from "@/components/admin/series/TagInput";
 import { PostPreview } from "@/components/admin/series/PostPreview";
 import { toast } from "sonner";
 import { fetchClient } from "@/lib/api";
-import { useAutoSave } from "@/hooks/useAutoSave";
+import { useDebounce } from "@/hooks/use-debounce";
+import { useSlugCheck } from "@/hooks/useSlugCheck";
 
 interface CategoryOption {
   id: string;
   name: string;
   icon?: string;
+}
+
+interface SeriesOption {
+  id: string;
+  title: string;
+  emoji?: string;
+  slug: string;
+}
+
+interface SeriesItemInfo {
+  series: {
+    id: string;
+    title: string;
+    slug: string;
+    emoji?: string;
+  };
 }
 
 interface EditPostPageProps {
@@ -45,11 +62,55 @@ export default function EditPostPage({ params }: EditPostPageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [createdAt, setCreatedAt] = useState("");
 
+  // ---- Stable refs for all frequently-changing state ----
+  // This prevents closure cascade: handleSave reads from refs, not deps.
+  const titleRef = useRef(title);
+  const slugRef = useRef(slug);
+  const contentRef = useRef(content);
+  const categoryIdRef = useRef(categoryId);
+  const tagsRef = useRef(tags);
+  const publishedRef = useRef(published);
+
+  useEffect(() => { titleRef.current = title; }, [title]);
+  useEffect(() => { slugRef.current = slug; }, [slug]);
+  useEffect(() => { contentRef.current = content; }, [content]);
+  useEffect(() => { categoryIdRef.current = categoryId; }, [categoryId]);
+  useEffect(() => { tagsRef.current = tags; }, [tags]);
+  useEffect(() => { publishedRef.current = published; }, [published]);
+
+  // Version counter for debounced auto-save trigger (avoids copying large HTML)
+  const [contentVersion, setContentVersion] = useState(0);
+  const debouncedVersion = useDebounce(contentVersion, 2000);
+
+  // Refs for save lifecycle
+  const isLoaded = useRef(false);
+  const isDirty = useRef(false);
+  const isSavingRef = useRef(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Series binding
+  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const seriesIdRef = useRef(seriesId);
+  useEffect(() => { seriesIdRef.current = seriesId; }, [seriesId]);
+  const [seriesList, setSeriesList] = useState<SeriesOption[]>([]);
+  const [seriesSearch, setSeriesSearch] = useState("");
+
+  // Slug 查重
+  const { isChecking: isCheckingSlug, isDuplicate: isSlugDuplicate, getUniqueSlug } = useSlugCheck({
+    slug,
+    excludeId: postId,
+    enabled: !isLoading && !!slug.trim(),
+  });
+  const isSlugDuplicateRef = useRef(isSlugDuplicate);
+  useEffect(() => { isSlugDuplicateRef.current = isSlugDuplicate; }, [isSlugDuplicate]);
+
   const fetchPost = useCallback(async () => {
     try {
-      const [postData, categoriesData] = await Promise.all([
+      const [postData, categoriesData, seriesData] = await Promise.all([
         fetchClient(`/posts/${postId}`),
         fetchClient("/categories").catch(() => []),
+        fetchClient("/series").catch(() => []),
       ]);
 
       interface CategoryDTO {
@@ -68,6 +129,17 @@ export default function EditPostPage({ params }: EditPostPageProps) {
         );
       }
 
+      if (Array.isArray(seriesData)) {
+        setSeriesList(
+          seriesData.map((s: SeriesOption) => ({
+            id: s.id,
+            title: s.title,
+            emoji: s.emoji || "📝",
+            slug: s.slug,
+          }))
+        );
+      }
+
       setTitle(postData.title || "");
       setSlug(postData.slug || "");
       setContent(postData.content || "");
@@ -75,6 +147,10 @@ export default function EditPostPage({ params }: EditPostPageProps) {
       setPublished(postData.published || false);
       setCreatedAt(postData.createdAt || "");
       setTags(postData.tags || []);
+
+      // Extract current series binding
+      const currentSeriesItem = postData.seriesItems?.[0] as SeriesItemInfo | undefined;
+      setSeriesId(currentSeriesItem?.series?.id || null);
     } catch (error) {
       console.error(error);
       toast.error("加载文章失败");
@@ -88,71 +164,123 @@ export default function EditPostPage({ params }: EditPostPageProps) {
     fetchPost();
   }, [fetchPost]);
 
-  // --- Auto-Save Logic ---
-  const saveToBackend = useCallback(async () => {
+  // ---- Save handler (STABLE — reads from refs, never captures state) ----
+  const handleSave = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!titleRef.current.trim()) {
+      if (!options.silent) toast.error("请先填写文章标题");
+      return;
+    }
+    if (isSavingRef.current) return;
+
+    // 自动保存时如果 slug 重复，使用随机后缀
+    let safeSlug = slugRef.current;
+    if (isSlugDuplicateRef.current) {
+      safeSlug = getUniqueSlug(safeSlug);
+      setSlug(safeSlug);
+    }
+
+    isSavingRef.current = true;
+    setIsSaving(true);
     try {
       await fetchClient(`/posts/${postId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          title: title || "Untitled",
-          slug,
-          content,
-          published,
+          title: titleRef.current || "Untitled",
+          slug: safeSlug,
+          content: contentRef.current,
+          categoryId: categoryIdRef.current,
+          tags: tagsRef.current,
+          published: publishedRef.current,
+          seriesId: seriesIdRef.current,
         }),
       });
+      setLastSaved(new Date());
+      isDirty.current = false;
+      if (!options.silent) toast.success("保存成功");
     } catch (error) {
-      console.error("Auto-save failed", error);
-      throw error;
+      console.error("Save failed", error);
+      if (!options.silent) toast.error("保存失败");
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
-  }, [postId, title, slug, content, published]);
+  }, [postId, getUniqueSlug]); // Stable — postId rarely changes
 
-  // Use a unique local storage key for each post so drafts don't collide
-  const LOCAL_STORAGE_KEY = `draft-post-${postId}`;
-
-  const {
-    lastSaved,
-    isSaving,
-    hasUnsavedChanges,
-    loadFromLocalStorage
-  } = useAutoSave({
-    data: { title, slug, content, tags, categoryId, published },
-    onSave: async () => {
-      await saveToBackend();
-    },
-    localStorageKey: LOCAL_STORAGE_KEY,
-    enabled: !isLoading, // Don't auto-save while loading initial data
-  });
-
-  // Check for newer local draft on mount
+  // Mark loaded after initial fetch
   useEffect(() => {
-    if (isLoading) return;
-
-    const localDraft = loadFromLocalStorage();
-    if (localDraft && localDraft.timestamp > new Date(createdAt)) {
-      // Logic to prompt user could go here. 
-      // For now, we'll just log it or maybe automatically restore if it's very recent?
-      // Let's notify the user widely
-      toast.info("发现未保存的本地草稿", {
-        description: `时间: ${localDraft.timestamp.toLocaleString()}`,
-        action: {
-          label: "恢复",
-          onClick: () => {
-            const d = localDraft.data as {
-              title: string;
-              content: string;
-              slug: string;
-              [key: string]: unknown;
-            };
-            setTitle(d.title);
-            setContent(d.content);
-            setSlug(d.slug);
-            // ... restore other fields
-            toast.success("已恢复本地草稿");
-          }
-        }
-      });
+    if (!isLoading) {
+      setTimeout(() => { isLoaded.current = true; }, 500);
     }
-  }, [isLoading, loadFromLocalStorage, createdAt]);
+  }, [isLoading]);
+
+  // Bump version counter on content/title/slug changes (lightweight, no copying)
+  useEffect(() => {
+    if (isLoaded.current) {
+      isDirty.current = true;
+      setContentVersion(v => v + 1);
+    }
+  }, [content, title, slug, tags, categoryId, seriesId]);
+
+  // Auto-save effect — fires on debounced version change
+  useEffect(() => {
+    if (isLoaded.current && isDirty.current) {
+      handleSave({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedVersion]);
+
+  // Global Ctrl+S / Cmd+S keyboard shortcut (stable — handleSave is stable)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleSave]);
+
+
+
+  // 页面离开 / 关闭时使用 keepalive fetch 保存 (STABLE — reads refs, registers once)
+  useEffect(() => {
+    const saveOnExit = () => {
+      if (!titleRef.current || !categoryIdRef.current) return;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+      try {
+        fetch(`${apiUrl}/posts/${postId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: titleRef.current || "Untitled",
+            slug: slugRef.current,
+            content: contentRef.current,
+            categoryId: categoryIdRef.current,
+            tags: tagsRef.current,
+            published: publishedRef.current,
+            seriesId: seriesIdRef.current,
+          }),
+          keepalive: true,
+        });
+      } catch {
+        // 静默失败 — 页面已在卸载
+      }
+    };
+
+    window.addEventListener("beforeunload", saveOnExit);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        saveOnExit();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", saveOnExit);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [postId]); // Only re-registers when postId changes (practically never)
 
 
   const handlePublish = async () => {
@@ -164,11 +292,12 @@ export default function EditPostPage({ params }: EditPostPageProps) {
       toast.error("请添加文章内容");
       return;
     }
+    if (isSlugDuplicate) {
+      toast.error("Slug 已被占用，请先修改");
+      return;
+    }
 
     try {
-      // Manually set saving state for UI feedback if reused
-      // But separate isLoading is better for full blocking
-
       await fetchClient(`/posts/${postId}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -176,6 +305,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
           slug,
           content,
           published: true,
+          seriesId,
         }),
       });
 
@@ -184,15 +314,32 @@ export default function EditPostPage({ params }: EditPostPageProps) {
         description: "您的文章已发布，读者现在可以看到了。",
       });
 
-      // Clear local draft
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
     } catch (error) {
       console.error(error);
       toast.error("发布失败");
     }
   };
 
+  // Handle series change
+  const handleSeriesChange = (value: string) => {
+    if (value === "__standalone__") {
+      setSeriesId(null);
+    } else {
+      setSeriesId(value);
+    }
+  };
+
   const selectedCategory = categories.find((c) => c.id === categoryId);
+  const selectedSeries = seriesList.find((s) => s.id === seriesId);
+
+  // Filtered series list for search
+  const filteredSeries = seriesSearch
+    ? seriesList.filter(
+      (s) =>
+        s.title.toLowerCase().includes(seriesSearch.toLowerCase()) ||
+        s.slug.toLowerCase().includes(seriesSearch.toLowerCase())
+    )
+    : seriesList;
 
   if (isLoading) {
     return (
@@ -212,8 +359,10 @@ export default function EditPostPage({ params }: EditPostPageProps) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => {
-            if (hasUnsavedChanges && !confirm("您有未保存的更改，确定要离开吗？")) return;
+          onClick={async () => {
+            if (isDirty.current) {
+              await handleSave({ silent: true });
+            }
             router.push("/admin/posts");
           }}
           className="text-gray-600 hover:text-gray-900 hover:bg-gray-100"
@@ -230,6 +379,11 @@ export default function EditPostPage({ params }: EditPostPageProps) {
           >
             {published ? "已发布" : "草稿"}
           </span>
+          {selectedSeries && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+              {selectedSeries.emoji} {selectedSeries.title}
+            </span>
+          )}
           <span className="text-sm text-gray-500">编辑文章</span>
           {isSaving ? (
             <span className="text-xs text-cyan-600 animate-pulse">正在保存...</span>
@@ -238,7 +392,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
               · 已保存于 {lastSaved.toLocaleTimeString("zh-CN")}
             </span>
           ) : (
-            hasUnsavedChanges && <span className="text-xs text-amber-500">未保存更改</span>
+            isDirty.current && <span className="text-xs text-amber-500">未保存更改</span>
           )}
         </div>
       </div>
@@ -256,7 +410,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
               </div>
             </div>
 
-            <RichTextEditor content={content} onChange={setContent} />
+            <RichTextEditor content={content} onChange={setContent} onSave={() => handleSave()} articleTitle={title} />
           </div>
         </main>
 
@@ -268,7 +422,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              {/* 分类（只读显示） */}
+              {/* 分类 */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-gray-700">
                   所属分类
@@ -285,6 +439,73 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* 所属专栏 */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">
+                  <BookOpen className="h-3.5 w-3.5 inline-block mr-1 -mt-0.5" />
+                  所属专栏
+                  <span className="text-xs text-gray-400 font-normal ml-1">（可选）</span>
+                </Label>
+                {selectedSeries ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-md">
+                    <span className="text-base">{selectedSeries.emoji}</span>
+                    <span className="text-sm font-medium text-purple-800 flex-1 truncate">
+                      {selectedSeries.title}
+                    </span>
+                    <button
+                      onClick={() => setSeriesId(null)}
+                      className="text-purple-400 hover:text-purple-600 transition-colors"
+                      title="从专栏中分离"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <Select
+                    value={seriesId || "__standalone__"}
+                    onValueChange={handleSeriesChange}
+                  >
+                    <SelectTrigger className="border-gray-300 focus:border-purple-500 focus:ring-purple-500/30">
+                      <SelectValue placeholder="选择专栏..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-gray-200">
+                      {/* Search input */}
+                      <div className="px-2 pb-2">
+                        <Input
+                          value={seriesSearch}
+                          onChange={(e) => setSeriesSearch(e.target.value)}
+                          placeholder="搜索专栏..."
+                          className="h-8 text-sm border-gray-200"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      <SelectItem value="__standalone__">
+                        <span className="text-gray-500">无（独立文章）</span>
+                      </SelectItem>
+                      {filteredSeries.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          <span className="flex items-center gap-1.5">
+                            <span>{s.emoji}</span>
+                            <span>{s.title}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                      {filteredSeries.length === 0 && seriesSearch && (
+                        <div className="px-3 py-2 text-sm text-gray-400">
+                          未找到匹配的专栏
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-xs text-gray-400">
+                  {seriesId
+                    ? "此文章属于专栏，文章列表中将不显示"
+                    : "绑定专栏后文章将归属于该专栏"}
+                </p>
               </div>
 
               {/* 文章标题 */}
@@ -311,9 +532,18 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                     value={slug}
                     onChange={(e) => setSlug(e.target.value)}
                     placeholder="article-slug"
-                    className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                    className={`border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30 ${isSlugDuplicate ? "border-red-400 focus:border-red-500" : ""
+                      }`}
                   />
                 </div>
+                {isSlugDuplicate && (
+                  <p className="text-xs text-red-500">
+                    该 Slug 已被其他文章占用，请修改
+                  </p>
+                )}
+                {isCheckingSlug && (
+                  <p className="text-xs text-gray-400">检查中...</p>
+                )}
               </div>
 
               {/* 标签 */}
@@ -353,7 +583,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
             <div className="p-4 border-t border-gray-200 space-y-2">
               <div className="flex gap-2">
                 <Button
-                  onClick={() => saveToBackend()}
+                  onClick={() => handleSave()}
                   variant="outline"
                   className="flex-1 border-gray-300 hover:bg-gray-50"
                   disabled={isSaving}

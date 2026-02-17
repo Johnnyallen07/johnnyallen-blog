@@ -1,0 +1,15 @@
+{
+  "registry-mirrors": [
+    "https://docker.1panel.live",
+    "https://docker.m.daocloud.io",
+    "https://dockerpull.org",
+    "https://docker.chenby.cn"
+  ],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "storage-driver": "overlay2",
+  "live-restore": true
+}

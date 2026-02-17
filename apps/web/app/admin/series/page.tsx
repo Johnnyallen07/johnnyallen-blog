@@ -171,8 +171,6 @@ export default function SeriesListPage() {
           description: formData.description,
           emoji: formData.emoji,
           categoryId: formData.category,
-          authorId: "123e4567-e89b-12d3-a456-426614174000", // TODO: 从 auth context 获取真实用户 ID
-          withDefaults: true,
         };
 
         const res = await fetch(`${API_BASE_URL}/series`, {

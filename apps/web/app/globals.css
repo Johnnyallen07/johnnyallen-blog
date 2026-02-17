@@ -181,8 +181,465 @@
     0% {
       transform: translateX(-100%) skewX(-12deg);
     }
+
     100% {
       transform: translateX(200%) skewX(-12deg);
     }
+  }
+}
+
+/* ========================================
+   ProseMirror (TipTap) 编辑器标题与列表样式
+   Typography: Google Docs / Notion 最佳实践
+   - 正文行高 1.8, 字间距 0.02em
+   - 标题间距更宽松，段落间距充足
+   ======================================== */
+
+/* 正文段落 */
+.ProseMirror p {
+  line-height: 1.8;
+  letter-spacing: 0.02em;
+  margin-bottom: 1.2em;
+  color: #374151;
+}
+
+/* 标题间距 */
+.ProseMirror h1 {
+  font-size: 2em;
+  font-weight: 700;
+  margin-top: 2em;
+  margin-bottom: 0.8em;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.3em;
+}
+
+.ProseMirror h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin-top: 1.8em;
+  margin-bottom: 0.6em;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+.ProseMirror h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+}
+
+/* 第一个标题不需要顶部间距 */
+.ProseMirror>h1:first-child,
+.ProseMirror>h2:first-child,
+.ProseMirror>h3:first-child {
+  margin-top: 0;
+}
+
+/* 无序列表 */
+.ProseMirror ul {
+  list-style-type: disc;
+  padding-left: 1.625em;
+  margin: 1em 0;
+}
+
+/* 有序列表 */
+.ProseMirror ol {
+  list-style-type: decimal;
+  padding-left: 1.625em;
+  margin: 1em 0;
+}
+
+/* 列表项 */
+.ProseMirror li {
+  margin: 0.4em 0;
+  display: list-item;
+  line-height: 1.75;
+  letter-spacing: 0.02em;
+}
+
+/* 列表项内 p 标签去除多余间距 */
+.ProseMirror li>p {
+  margin: 0;
+}
+
+/* 嵌套无序列表样式 */
+.ProseMirror ul ul {
+  list-style-type: circle;
+  margin: 0.3em 0;
+}
+
+.ProseMirror ul ul ul {
+  list-style-type: square;
+  margin: 0.3em 0;
+}
+
+/* 嵌套有序列表样式 */
+.ProseMirror ol ol {
+  list-style-type: lower-alpha;
+  margin: 0.3em 0;
+}
+
+.ProseMirror ol ol ol {
+  list-style-type: lower-roman;
+  margin: 0.3em 0;
+}
+
+/* 列表项前导标记颜色 */
+.ProseMirror ul li::marker {
+  color: #6b7280;
+}
+
+.ProseMirror ol li::marker {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* 引用块 */
+.ProseMirror blockquote {
+  margin: 1.5em 0;
+  padding: 0.8em 1.2em;
+  border-left: 4px solid #06b6d4;
+  background: #ecfeff;
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.ProseMirror blockquote p {
+  margin-bottom: 0.5em;
+}
+
+.ProseMirror blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* ========================================
+   文章展示页样式（与编辑器保持一致）
+   Typography: Google Docs / Notion 最佳实践
+   ======================================== */
+
+/* 正文段落 */
+.prose p {
+  line-height: 1.8 !important;
+  letter-spacing: 0.02em !important;
+  margin-bottom: 1.2em !important;
+  color: #374151 !important;
+}
+
+/* 标题间距 */
+.prose h1 {
+  font-size: 1.875em !important;
+  font-weight: 700 !important;
+  margin-top: 2em !important;
+  margin-bottom: 0.8em !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0.01em !important;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.3em;
+  color: #111827 !important;
+}
+
+.prose h2 {
+  font-size: 1.5em !important;
+  font-weight: 600 !important;
+  margin-top: 1.8em !important;
+  margin-bottom: 0.6em !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.01em !important;
+  color: #111827 !important;
+}
+
+.prose h3 {
+  font-size: 1.25em !important;
+  font-weight: 600 !important;
+  margin-top: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0.01em !important;
+  color: #111827 !important;
+}
+
+/* 第一个标题不需要顶部间距 */
+.prose>h1:first-child,
+.prose>h2:first-child,
+.prose>h3:first-child {
+  margin-top: 0 !important;
+}
+
+/* 列表 */
+.prose ul {
+  list-style-type: disc !important;
+  padding-left: 1.625em !important;
+  margin: 1em 0 !important;
+}
+
+.prose ol {
+  list-style-type: decimal !important;
+  padding-left: 1.625em !important;
+  margin: 1em 0 !important;
+}
+
+.prose li {
+  line-height: 1.75 !important;
+  letter-spacing: 0.02em !important;
+  margin: 0.4em 0 !important;
+}
+
+/* 引用块 */
+.prose blockquote {
+  margin: 1.5em 0 !important;
+  padding: 0.8em 1.2em !important;
+  border-radius: 0 0.5rem 0.5rem 0 !important;
+}
+
+/* 视频样式 */
+.prose video {
+  max-width: 100% !important;
+  border-radius: 0.75rem;
+  margin: 1.5em 0;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* 图片间距 */
+.prose img {
+  margin: 1.5em 0 !important;
+}
+
+.prose li {
+  display: list-item !important;
+}
+
+.prose ul ul {
+  list-style-type: circle !important;
+}
+
+.prose ul ul ul {
+  list-style-type: square !important;
+}
+
+.prose ol ol {
+  list-style-type: lower-alpha !important;
+}
+
+.prose ol ol ol {
+  list-style-type: lower-roman !important;
+}
+
+/* ========================================
+   Article Page Background Animations
+   ======================================== */
+
+@keyframes slowSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes floatUpDown {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes rotate3d {
+
+  0%,
+  100% {
+    transform: rotateX(0deg);
+  }
+
+  50% {
+    transform: rotateX(180deg);
+  }
+}
+
+@keyframes recordSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spectrumBar {
+
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  50% {
+    transform: scaleY(0.3);
+  }
+}
+
+@keyframes musicFlow {
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  50% {
+    transform: translateX(30px);
+  }
+}
+
+@keyframes pianoKey {
+
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: scaleY(1);
+  }
+
+  50% {
+    opacity: 0.15;
+    transform: scaleY(0.9);
+  }
+}
+
+@keyframes matrixRain {
+  0% {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+}
+
+@keyframes tetrisFall {
+  0% {
+    transform: translateY(-40px) rotate(0deg);
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 0.1;
+  }
+
+  90% {
+    opacity: 0.1;
+  }
+
+  100% {
+    transform: translateY(100vh) rotate(180deg);
+    opacity: 0;
+  }
+}
+
+@keyframes pacmanMove {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(300px);
+  }
+}
+
+@keyframes compile {
+  0% {
+    width: 0%;
+  }
+
+  50% {
+    width: 100%;
+  }
+
+  100% {
+    width: 0%;
+  }
+}
+
+@keyframes fadeInOut {
+
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 0.1;
+  }
+}
+
+@keyframes textFlicker {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes healthPulse {
+
+  0%,
+  100% {
+    width: 75%;
+  }
+
+  50% {
+    width: 70%;
+  }
+}
+
+@keyframes manaPulse {
+
+  0%,
+  100% {
+    width: 60%;
+  }
+
+  50% {
+    width: 55%;
+  }
+}
+
+@keyframes expGrow {
+
+  0%,
+  100% {
+    width: 45%;
+  }
+
+  50% {
+    width: 55%;
+  }
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
   }
 }

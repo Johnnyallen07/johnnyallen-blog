@@ -46,9 +46,9 @@ export function SeriesSidebar({ title, slug, emoji, items }: SeriesSidebarProps)
     };
 
     return (
-        <div className="w-64 flex-shrink-0 hidden lg:block mr-8">
-            <div className="sticky top-24 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="p-4 bg-gradient-to-r from-cyan-50 to-blue-50 border-b border-gray-100">
+        <div className="lg:sticky lg:top-24">
+            <div className="bg-transparent backdrop-blur-sm border border-white/20 rounded-2xl shadow-sm overflow-hidden">
+                <div className="p-4 bg-gradient-to-r from-cyan-50/80 to-blue-50/80 border-b border-gray-200/50">
                     <div className="text-xs text-gray-500 font-medium mb-1">所属专栏</div>
                     <Link href={`/series/${slug}`} className="block">
                         <h3 className="font-bold text-gray-900 flex items-center gap-2 hover:text-cyan-600 transition-colors">

@@ -49,6 +49,14 @@ export class PostsController {
     return this.postsService.findFeatured();
   }
 
+  @Get('check-slug/:slug')
+  checkSlug(
+    @Param('slug') slug: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    return this.postsService.checkSlug(slug, excludeId);
+  }
+
   @Get('slug/:slug')
   findBySlug(@Param('slug') slug: string) {
     return this.postsService.findBySlug(slug);

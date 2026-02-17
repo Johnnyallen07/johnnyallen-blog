@@ -20,19 +20,32 @@ export function useAutoSave<T>({
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+    // ---- Stable refs so the interval callback never goes stale ----
+    const dataRef = useRef<T>(data);
+    const onSaveRef = useRef(onSave);
+    const hasUnsavedRef = useRef(hasUnsavedChanges);
+    const isSavingRef = useRef(isSaving);
+    const enabledRef = useRef(enabled);
     const previousDataRef = useRef<T>(data);
 
-    // Deep comparison helper (simplified for this use case)
+    // Keep refs in sync
+    useEffect(() => { dataRef.current = data; }, [data]);
+    useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+    useEffect(() => { hasUnsavedRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
+    useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
+    useEffect(() => { enabledRef.current = enabled; }, [enabled]);
+
+    // Deep comparison helper
     const hasChanged = useCallback((prev: T, current: T) => {
         return JSON.stringify(prev) !== JSON.stringify(current);
     }, []);
 
-    // Update hasUnsavedChanges when data changes
+    // Detect data changes → mark dirty + write to localStorage
     useEffect(() => {
         if (enabled && hasChanged(previousDataRef.current, data)) {
             setHasUnsavedChanges(true);
 
-            // Save to local storage immediately (debounced ideally, but direct for simplicity here)
             if (localStorageKey) {
                 try {
                     localStorage.setItem(localStorageKey, JSON.stringify({
@@ -46,42 +59,35 @@ export function useAutoSave<T>({
         }
     }, [data, enabled, hasChanged, localStorageKey]);
 
-    // Function to trigger save
-    const triggerSave = useCallback(async () => {
-        if (!enabled || !hasUnsavedChanges || isSaving) return;
+    // Core save logic (reads from refs, no deps that change frequently)
+    const performSave = useCallback(async () => {
+        if (!enabledRef.current || !hasUnsavedRef.current || isSavingRef.current) return;
 
         setIsSaving(true);
         try {
-            await onSave(data);
+            await onSaveRef.current(dataRef.current);
             setLastSaved(new Date());
             setHasUnsavedChanges(false);
-            previousDataRef.current = data;
-
-            // Clear local storage after successful server save if desired? 
-            // Actually keen it as backup until explicit exit might be safer, 
-            // but standard behavior is usually to clear "draft" once persisted.
-            // For now, we'll keep it as a crash recovery mechanism.
+            previousDataRef.current = dataRef.current;
         } catch (error) {
             console.error("Auto-save failed", error);
-            // Don't show toast on auto-save failure to avoid annoyance, 
-            // or show a subtle one.
         } finally {
             setIsSaving(false);
         }
-    }, [data, enabled, hasUnsavedChanges, isSaving, onSave]);
+    }, []); // Stable — never changes identity
 
-    // Interval timer
+    // ---- Interval timer (stable, never re-created) ----
     useEffect(() => {
         if (!enabled) return;
 
         const timer = setInterval(() => {
-            if (hasUnsavedChanges) {
-                triggerSave();
+            if (hasUnsavedRef.current && !isSavingRef.current) {
+                performSave();
             }
         }, saveInterval);
 
         return () => clearInterval(timer);
-    }, [enabled, saveInterval, hasUnsavedChanges, triggerSave]);
+    }, [enabled, saveInterval, performSave]);
 
     // Load from local storage
     const loadFromLocalStorage = useCallback(() => {
@@ -105,10 +111,25 @@ export function useAutoSave<T>({
         }
     }, [localStorageKey]);
 
+    // Manual save: always saves (bypasses hasUnsavedChanges check), throws on error
+    const manualSave = useCallback(async () => {
+        if (isSavingRef.current) return;
+
+        setIsSaving(true);
+        try {
+            await onSaveRef.current(dataRef.current);
+            setLastSaved(new Date());
+            setHasUnsavedChanges(false);
+            previousDataRef.current = dataRef.current;
+        } finally {
+            setIsSaving(false);
+        }
+    }, []);
+
     // Warn before unload if unsaved changes
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (hasUnsavedChanges) {
+            if (hasUnsavedRef.current) {
                 e.preventDefault();
                 e.returnValue = "";
             }
@@ -116,13 +137,14 @@ export function useAutoSave<T>({
 
         window.addEventListener("beforeunload", handleBeforeUnload);
         return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-    }, [hasUnsavedChanges]);
+    }, []);
 
     return {
         lastSaved,
         isSaving,
         hasUnsavedChanges,
-        triggerSave,
+        triggerSave: performSave,
+        manualSave,
         loadFromLocalStorage,
         clearLocalStorage,
     };

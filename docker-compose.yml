@@ -1,14 +1,20 @@
-version: '3.8'
+# 国内部署建议：先在服务器配置 Docker 镜像加速（见 devops/docker/daemon.json）
+# 构建时启用 BuildKit 以使用 Dockerfile 内缓存：export DOCKER_BUILDKIT=1
+# name 固定项目名，保证卷名始终为 johnnyblog_db_data，避免换目录或多次部署产生多个卷
+name: johnnyblog
 services:
   db:
     image: postgres:15-alpine
+    pull_policy: if_not_present
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_DB:-blog_db}
+    # 只绑定 127.0.0.1，公网无法访问，SSH 隧道可连
+    # 本地开发: ssh -i devops/johnnyallenblog.pem -N -L 15432:localhost:5432 root@43.161.221.87
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,30 +25,83 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+      context: apps/api
+      dockerfile: Dockerfile
+      args: []
+    image: johnny-blog-api:latest
+    pull_policy: if_not_present
     restart: always
+    env_file: .env.production
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-blog_db}
-      # Add other env vars here
+      PORT: 3001
+      COS_BUCKET: ${COS_BUCKET}
+      COS_REGION: ${COS_REGION}
+      COS_SECRET_ID: ${COS_SECRET_ID}
+      COS_SECRET_KEY: ${COS_SECRET_KEY}
+      COS_PUBLIC_DOMAIN: ${COS_PUBLIC_DOMAIN:-}
     ports:
       - '3001:3001'
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+    image: johnny-blog-web:latest
+    pull_policy: if_not_present
     restart: always
+    env_file: .env.production
+    environment:
+      # 浏览器用公网 API；服务端 SSR 用服务名 api 解析，避免解析到容器 ID 导致 EAI_AGAIN
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+      API_SERVER_URL: http://api:3001
+      PORT: 3000
     ports:
       - '3000:3000'
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
-      # Monitor docker internal networking if needed
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  music:
+    build:
+      context: .
+      dockerfile: apps/music/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+    image: johnny-blog-music:latest
+    pull_policy: if_not_present
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+      PORT: 3002
+    ports:
+      - '3002:3002'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
 volumes:
   db_data:

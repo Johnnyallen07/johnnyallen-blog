@@ -31,15 +31,7 @@ export class CreateSeriesDto {
   @IsOptional()
   published?: boolean;
 
-  @IsBoolean()
-  @IsOptional()
-  withDefaults?: boolean;
-
   @IsUUID()
   @IsNotEmpty()
   categoryId: string;
-
-  @IsString()
-  @IsNotEmpty()
-  authorId: string;
 }

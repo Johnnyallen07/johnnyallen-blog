@@ -32,7 +32,6 @@ interface PostItem {
   createdAt: string;
   updatedAt: string;
   category: { id: string; name: string; icon?: string } | null;
-  author: { name: string } | null;
 }
 
 interface CategoryOption {
@@ -80,7 +79,6 @@ export default function PostsManagementPage() {
             createdAt: p.createdAt,
             updatedAt: p.updatedAt,
             category: p.category,
-            author: p.author,
           }))
         );
       }

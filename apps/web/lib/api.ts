@@ -1,8 +1,13 @@
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+/** 服务端用 API_SERVER_URL（Docker 内为 http://api:3001），客户端用 NEXT_PUBLIC_API_URL，避免解析到容器 ID 报 EAI_AGAIN */
+export function getApiBaseUrl(): string {
+    if (typeof window === "undefined" && process.env.API_SERVER_URL) {
+        return process.env.API_SERVER_URL;
+    }
+    return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+}
 
 export async function fetchClient(endpoint: string, options: RequestInit = {}) {
-    const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+    const url = `${getApiBaseUrl()}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
     const headers = {
         "Content-Type": "application/json",

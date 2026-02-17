@@ -8,3 +8,13 @@ dist
 build
 .next
 coverage
+.turbo
+*.log
+*.md
+!apps/api/README.md
+!apps/web/README.md
+devops
+test-ignore.db
+.agent
+# Figma design reference — not needed in Docker image
+apps/web/public/figma

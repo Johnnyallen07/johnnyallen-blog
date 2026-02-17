@@ -11,11 +11,14 @@ import {
   Heading3,
   Link,
   Image,
+  Video,
   Code,
   Quote,
   Undo,
   Redo,
   Strikethrough,
+  Upload,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { LucideIcon } from "lucide-react";
@@ -24,6 +27,86 @@ import { type Editor } from "@tiptap/react";
 interface EditorToolbarProps {
   editor: Editor | null;
   onImageUpload: () => void;
+  onVideoUpload: () => void;
+  onImport: () => void;
+  onExport: () => void;
+}
+
+/**
+ * Smart heading toggle that handles partial text selection.
+ *
+ * Standard Tiptap toggleHeading converts the entire block (paragraph) to a heading.
+ * This function detects when the user has selected only part of a paragraph and:
+ *   1. Splits the block at the selection boundaries to isolate the selected text
+ *   2. Applies the heading to the newly isolated block
+ *
+ * If the selection covers the full block or the cursor is collapsed, it falls back
+ * to the standard toggleHeading behavior.
+ */
+function smartToggleHeading(editor: Editor, level: 1 | 2 | 3) {
+  const { state } = editor;
+  const { from, to, empty } = state.selection;
+
+  // If already a heading at this level, just toggle it off (back to paragraph)
+  if (editor.isActive("heading", { level })) {
+    editor.chain().focus().toggleHeading({ level }).run();
+    return;
+  }
+
+  // If cursor is collapsed (no selection), apply heading to the whole block — standard behavior
+  if (empty) {
+    editor.chain().focus().toggleHeading({ level }).run();
+    return;
+  }
+
+  // Determine the block that contains the selection start
+  const $from = state.doc.resolve(from);
+  const $to = state.doc.resolve(to);
+  const blockStart = $from.start($from.depth);
+  const blockEnd = $from.end($from.depth);
+
+  // If selection spans multiple blocks, or covers the full block, use standard behavior
+  if ($from.depth !== $to.depth || $from.parent !== $to.parent) {
+    editor.chain().focus().toggleHeading({ level }).run();
+    return;
+  }
+
+  const selectionCoversFullBlock = from <= blockStart && to >= blockEnd;
+  if (selectionCoversFullBlock) {
+    editor.chain().focus().toggleHeading({ level }).run();
+    return;
+  }
+
+  // Partial selection within a single block — split and isolate
+  const hasTextBefore = from > blockStart;
+  const hasTextAfter = to < blockEnd;
+
+  // Build a transaction with the necessary splits
+  const { tr } = editor.state;
+
+  if (hasTextAfter) {
+    // Split at the end of the selection first (preserves earlier positions)
+    tr.split(to);
+  }
+  if (hasTextBefore) {
+    // Split at the beginning of the selection
+    tr.split(from);
+  }
+
+  editor.view.dispatch(tr);
+
+  // After splitting, the selected text is now in its own block.
+  // Use requestAnimationFrame to let the DOM update, then apply heading.
+  requestAnimationFrame(() => {
+    // Position the cursor inside the isolated block
+    const targetPos = hasTextBefore ? from + 1 : from;
+    editor
+      .chain()
+      .focus()
+      .setTextSelection(targetPos)
+      .toggleHeading({ level })
+      .run();
+  });
 }
 
 interface ToolbarButton {
@@ -70,19 +153,19 @@ const toolbarButtons: ToolbarButton[] = [
   },
   {
     icon: Heading1,
-    command: (editor) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+    command: (editor) => smartToggleHeading(editor, 1),
     isActive: (editor) => editor.isActive("heading", { level: 1 }),
     label: "一级标题",
   },
   {
     icon: Heading2,
-    command: (editor) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+    command: (editor) => smartToggleHeading(editor, 2),
     isActive: (editor) => editor.isActive("heading", { level: 2 }),
     label: "二级标题",
   },
   {
     icon: Heading3,
-    command: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+    command: (editor) => smartToggleHeading(editor, 3),
     isActive: (editor) => editor.isActive("heading", { level: 3 }),
     label: "三级标题",
   },
@@ -112,7 +195,7 @@ const toolbarButtons: ToolbarButton[] = [
   },
 ];
 
-export function EditorToolbar({ editor, onImageUpload }: EditorToolbarProps) {
+export function EditorToolbar({ editor, onImageUpload, onVideoUpload, onImport, onExport }: EditorToolbarProps) {
   if (!editor) {
     return null;
   }
@@ -173,6 +256,37 @@ export function EditorToolbar({ editor, onImageUpload }: EditorToolbarProps) {
         title="插入图片"
       >
         <Image className="h-4 w-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onVideoUpload}
+        className="h-8 w-8 p-0 hover:bg-purple-100 hover:text-purple-600 text-gray-600"
+        title="插入视频 (≤30s, ≤20MB)"
+      >
+        <Video className="h-4 w-4" />
+      </Button>
+
+      <div className="w-px h-6 bg-gray-300 mx-1" />
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onImport}
+        className="h-8 w-8 p-0 hover:bg-green-100 hover:text-green-600 text-gray-600"
+        title="导入 Markdown"
+      >
+        <Upload className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onExport}
+        className="h-8 w-8 p-0 hover:bg-blue-100 hover:text-blue-600 text-gray-600"
+        title="导出为 ZIP"
+      >
+        <Download className="h-4 w-4" />
       </Button>
     </div>
   );

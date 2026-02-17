@@ -19,8 +19,8 @@ interface SimilarArticlesProps {
 
 export function SimilarArticles({ category, articles }: SimilarArticlesProps) {
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-      <div className="mb-4 pb-3 border-b border-gray-200">
+    <div className="bg-transparent backdrop-blur-sm border border-white/20 rounded-2xl p-5 shadow-sm">
+      <div className="mb-4 pb-3 border-b border-gray-200/50">
         <h3 className="font-semibold text-gray-900 flex items-center gap-2">
           <FileText className="h-5 w-5 text-purple-600" />
           相似文章
@@ -31,7 +31,7 @@ export function SimilarArticles({ category, articles }: SimilarArticlesProps) {
       <div className="space-y-3">
         {articles.map((article) => {
           const inner = (
-            <div className="group p-3 rounded-lg border border-gray-200 hover:border-cyan-300 hover:bg-cyan-50/50 transition-all cursor-pointer">
+            <div className="group p-3 rounded-lg border border-gray-200/50 hover:border-cyan-300 hover:bg-cyan-50/50 transition-all cursor-pointer">
               <h4 className="text-sm font-medium text-gray-900 mb-2 line-clamp-2 group-hover:text-cyan-600 transition-colors">
                 {article.title}
               </h4>

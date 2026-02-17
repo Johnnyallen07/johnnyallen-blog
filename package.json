@@ -4,6 +4,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "start": "pnpm --filter api start:prod & pnpm --filter web exec next start -p 3000 & pnpm --filter music exec next start -p 3002",
+    "stop": "sh -c 'for p in 3000 3001; do lsof -ti:$p 2>/dev/null | xargs kill -9 2>/dev/null; done; true'",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types"

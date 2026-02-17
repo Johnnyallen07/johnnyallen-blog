@@ -36,7 +36,4 @@ export class CreatePostDto {
 
   @IsUUID()
   categoryId: string;
-
-  @IsString()
-  authorId: string;
 }

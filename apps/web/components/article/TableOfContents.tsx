@@ -46,8 +46,8 @@ export function TableOfContents({ items }: TableOfContentsProps) {
   if (items.length === 0) return null;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-      <div className="mb-4 pb-3 border-b border-gray-200">
+    <div className="bg-transparent backdrop-blur-sm border border-white/20 rounded-2xl p-5 shadow-sm">
+      <div className="mb-4 pb-3 border-b border-gray-200/50">
         <h3 className="font-semibold text-gray-900 flex items-center gap-2">
           <List className="h-5 w-5 text-emerald-600" />
           目录
@@ -59,11 +59,10 @@ export function TableOfContents({ items }: TableOfContentsProps) {
           <button
             key={item.id}
             onClick={() => handleClick(item.id)}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${
-              activeId === item.id
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${activeId === item.id
                 ? "bg-cyan-50 text-cyan-700 font-medium border-l-2 border-cyan-500"
                 : "text-gray-600 hover:bg-gray-50 border-l-2 border-transparent"
-            }`}
+              }`}
             style={{ paddingLeft: `${(item.level - 1) * 12 + 12}px` }}
           >
             {item.text}
