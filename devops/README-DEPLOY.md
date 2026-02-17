@@ -90,6 +90,64 @@ ssh-copy-id root@43.161.221.87
 - 图片请求走 `https://static.johnnyallen.blog/xxx`，由本机 Nginx 反向代理到腾讯云 COS。
 - SSL 证书由 Certbot 在服务器上申请，自动续期，不再出现 `ERR_CERT_COMMON_NAME_INVALID`。
 
+## Docker 卷（数据库数据）— 务必不要删卷
+
+- **只保留 1 个数据卷**：`docker-compose.yml` 里已设置固定项目名 `name: johnnyblog`，卷名固定为 `johnnyblog_db_data`，避免因换目录或多次部署产生多个卷。
+- **严禁在服务器上执行**：`docker compose down -v` 或 `docker volume rm` / `docker volume prune`。`-v` 会删除卷，数据库数据会全部丢失。
+- **避免误删卷**：  
+  - 停止容器请用：`bash devops/scripts/safe-down.sh`（若误传 `-v` 会报错拒绝）。  
+  - 若希望所有 compose 命令都禁止 `down -v`，可用封装脚本：`bash devops/scripts/compose-safe.sh --env-file .env.production up -d`、`bash devops/scripts/compose-safe.sh --env-file .env.production down`；传入 `down -v` 时会直接报错不执行。
+- 若只需停止/重启服务，用：`docker compose --env-file .env.production up -d`（或先 `down` 再 `up -d`，**不要加 -v**）。
+- **查看当前卷数量、以及 db 实际挂载的卷**（在服务器上执行）：
+  ```bash
+  bash /opt/johnny-blog/devops/scripts/list-volumes.sh
+  ```
+  若出现多个相关卷，说明曾发生过卷被新建；只应保留正在使用的那一个，其余确认无用后再删。
+- **查看卷里是否有数据（文章/分类/用户行数）**（在服务器上执行，需 db 已运行）：
+  ```bash
+  bash /opt/johnny-blog/devops/scripts/check-db-data.sh
+  ```
+  若 Post 为 0 且你曾有过文章，可能是用了新卷或曾执行过 `down -v` 导致旧卷被删。
+
+- **清理未使用容器与镜像、释放 5432/3000**（在服务器上执行）：
+  ```bash
+  bash /opt/johnny-blog/devops/scripts/docker-clean.sh
+  ```
+  会先在本项目目录执行 `docker compose down`，再执行 `container prune` 和 `image prune`（悬空镜像）。若 5432/3000 被 **docker-proxy** 占用，多半是之前未完全退出的容器，执行此脚本后可再 `up -d`。需删除**所有**未使用镜像时加参数：`bash docker-clean.sh -a`。
+
+## 数据库备份与定时任务
+
+- **每日单份备份（每天覆盖昨天）**：`devops/scripts/db-backup-daily.sh`  
+  输出固定为 `backups/backup_daily.sql.gz`，每次成功执行后覆盖该文件。  
+  建议加入 cron 每日执行（例如每天凌晨 2 点）：
+  ```bash
+  # 在服务器上执行一次即可
+  (crontab -l 2>/dev/null; echo "0 2 * * * cd /opt/johnny-blog && bash /opt/johnny-blog/devops/scripts/db-backup-daily.sh") | crontab -
+  ```
+- **多份轮换备份**：`devops/scripts/db-backup.sh`（保留最近 2 份，带时间戳文件名）。  
+  若只需「每天一份、覆盖昨日」，用上面的 `db-backup-daily.sh` 即可。
+- 若曾在服务器上为备份加过 cron 且想移除，可在服务器执行：`bash /opt/johnny-blog/devops/scripts/remove-backup-cron.sh`。
+
+## 数据不见了 / 卷与数据对齐
+
+- **现象**：后台显示「共 0 篇文章」或之前的数据全部消失。
+- **先确认卷里是否有数据**（在服务器上，db 需已运行）：
+  ```bash
+  bash /opt/johnny-blog/devops/scripts/check-db-data.sh
+  ```
+  会输出当前 db 挂载的卷名，以及 Post/Category/User/Series 的行数。若行数均为 0，说明当前挂载的卷内没有数据。
+- **是否多个卷导致没对齐**：
+  ```bash
+  bash /opt/johnny-blog/devops/scripts/list-volumes.sh
+  ```
+  若存在多个相关卷，可能某次部署用了新卷、旧卷数据未挂载。可尝试用旧卷恢复（需先 down、改 compose 或卷名后再 up，或联系运维从备份恢复）。
+- **从备份恢复**（卷被删或数据丢失时）：先确保 db 已运行（`docker compose --env-file .env.production up -d`），再执行：
+  ```bash
+  bash /opt/johnny-blog/devops/scripts/db-restore.sh [备份文件路径]
+  ```
+  不传参数则默认使用 `backups/backup_daily.sql.gz`。脚本会要求输入 `yes` 确认后，用该备份覆盖当前库内数据。
+- **后续避免再次发生**：严禁执行 `docker compose down -v` 或 `docker volume rm` / `docker volume prune`。停止容器请用 `bash devops/scripts/safe-down.sh` 或 `bash devops/scripts/compose-safe.sh --env-file .env.production down`。定期用 `db-backup-daily.sh` 做备份，以便需要时用 `db-restore.sh` 恢复。
+
 ## 故障排查
 
 - **站点无法访问（ERR_CONNECTION_TIMED_OUT）**  
@@ -99,6 +157,16 @@ ssh-copy-id root@43.161.221.87
   cp /opt/johnny-blog/devops/nginx/johnnyallen.blog.conf /etc/nginx/conf.d/johnnyallen.blog.conf
   nginx -t && systemctl start nginx && systemctl enable nginx
   ```
+
+- **Docker 构建报 ERR_PNPM_OUTDATED_LOCKFILE**  
+  说明 `pnpm-lock.yaml` 与各 `package.json` 不同步。在**本机**项目根目录执行 `pnpm install`，提交并推送 `pnpm-lock.yaml` 后重新同步、再在服务器上构建。
+
+- **Bind for 0.0.0.0:5432/3000 failed: port is already allocated**  
+  **原因**：占用的不是本项目的容器，而是**宿主机上其他进程**（如系统安装的 PostgreSQL、其他 Docker 容器、或监听 3000 的进程）。`docker compose down` 只关停 johnnyblog 的容器，不会释放被这些进程占用的端口。  
+  **排查**：在服务器执行 `bash /opt/johnny-blog/devops/scripts/check-ports.sh` 查看 5432、3000、3001 被谁占用。  
+  **处理**：二选一——  
+  1）停掉占用端口的服务（例如宿主机 PostgreSQL：`systemctl stop postgresql`；或停掉占用 3000 的进程），再执行 `docker compose --env-file .env.production up -d`。  
+  2）若不能停宿主机服务，可改 compose 的宿主机端口，例如 db 改为 `5433:5432`、web 改为 `3080:3000`，并相应修改 Nginx 里对 web 的反代端口（如 `proxy_pass http://127.0.0.1:3080`）。
 
 - **502 Bad Gateway**  
   Nginx 已启动但上游（web:3000 或 api:3001）无响应。常见原因：**未用 `.env.production` 做变量替换**，导致 `docker compose` 中 `${COS_BUCKET}` 等为空，API 启动失败或崩溃。  

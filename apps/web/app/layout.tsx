@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import { Providers } from "@/components/providers";
+import { SiteFooter } from "@/components/home/SiteFooter";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Johnny Blog - 管理后台",
-  description: "多分类内容平台管理后台",
+  title: "JohnnyBlog",
+  description: "Johnny 的个人博客。",
+  icons: {
+    icon: "/images/logo.png",
+  },
 };
 
 export default function RootLayout({
@@ -15,7 +19,10 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body className="antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <SiteFooter />
+        </Providers>
       </body>
     </html>
   );

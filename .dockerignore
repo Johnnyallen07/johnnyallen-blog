@@ -16,3 +16,5 @@ coverage
 devops
 test-ignore.db
 .agent
+# Figma design reference — not needed in Docker image
+apps/web/public/figma

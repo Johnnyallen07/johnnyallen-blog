@@ -14,6 +14,8 @@ import {
   Plus,
   BarChart3,
   Edit,
+  Music,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/admin/dashboard/StatCard";
@@ -116,13 +118,13 @@ export default function AdminDashboard() {
 
       const activities: RecentActivity[] = Array.isArray(postsData)
         ? (postsData as PostDTO[]).slice(0, 5).map((post) => ({
-            id: post.id,
-            type: "文章" as const,
-            title: post.title || "未命名文章",
-            column:
-              post.series?.title || post.category?.name || "未分配",
-            time: getRelativeTime(post.updatedAt),
-          }))
+          id: post.id,
+          type: "文章" as const,
+          title: post.title || "未命名文章",
+          column:
+            post.series?.title || post.category?.name || "未分配",
+          time: getRelativeTime(post.updatedAt),
+        }))
         : [];
 
       if (activities.length === 0) {
@@ -192,7 +194,7 @@ export default function AdminDashboard() {
             <Edit className="h-5 w-5 text-cyan-600" />
             内容管理
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* 创建文章 - 最突出 */}
             <button
               onClick={() => router.push("/admin/posts/new")}
@@ -245,6 +247,37 @@ export default function AdminDashboard() {
                   </h3>
                   <p className="text-sm text-gray-600">管理独立文章</p>
                 </div>
+              </div>
+            </button>
+
+            {/* 音乐管理 */}
+            <button
+              onClick={() => router.push("/admin/music")}
+              className="group bg-white border-2 border-pink-200 hover:border-pink-400 rounded-2xl p-6 shadow-sm hover:shadow-lg transition-all duration-300 hover:scale-[1.02]"
+            >
+              <div className="flex flex-col items-center text-center gap-3">
+                <div className="w-14 h-14 bg-gradient-to-br from-pink-100 to-pink-200 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-pink-300 transition-colors">
+                  <Music className="h-7 w-7 text-pink-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">
+                    音乐管理
+                  </h3>
+                  <p className="text-sm text-gray-600">管理音乐库</p>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {/* 音乐上传快捷入口 */}
+          <div className="mt-4">
+            <button
+              onClick={() => router.push("/admin/music/upload")}
+              className="group w-full bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.01]"
+            >
+              <div className="flex items-center justify-center gap-3">
+                <Upload className="h-5 w-5" />
+                <span className="font-semibold">批量上传音乐</span>
               </div>
             </button>
           </div>
@@ -300,13 +333,12 @@ export default function AdminDashboard() {
                   className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   <div
-                    className={`w-2 h-2 mt-2 rounded-full ${
-                      activity.type === "文章"
+                    className={`w-2 h-2 mt-2 rounded-full ${activity.type === "文章"
                         ? "bg-cyan-500"
                         : activity.type === "评论"
                           ? "bg-purple-500"
                           : "bg-pink-500"
-                    }`}
+                      }`}
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">
@@ -317,13 +349,12 @@ export default function AdminDashboard() {
                     </p>
                   </div>
                   <span
-                    className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${
-                      activity.type === "文章"
+                    className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${activity.type === "文章"
                         ? "bg-cyan-100 text-cyan-700"
                         : activity.type === "评论"
                           ? "bg-purple-100 text-purple-700"
                           : "bg-pink-100 text-pink-700"
-                    }`}
+                      }`}
                   >
                     {activity.type}
                   </span>

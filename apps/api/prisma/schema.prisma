@@ -121,7 +121,66 @@ model SeriesItem {
   @@index([parentId])
 }
 
+model MusicTrack {
+  id          String   @id @default(uuid())
+  title       String
+  musician    String
+  performer   String
+  category    String
+  series      String?
+  duration    Int      @default(0)
+  fileKey     String
+  fileUrl     String
+  fileSize    Int      @default(0)
+  coverUrl    String?
+  order       Int      @default(0)
+  playCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([musician])
+  @@index([category])
+  @@index([order])
+}
+
+model MusicCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+}
+
+model MusicArtist {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+}
+
+model MusicSeries {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+}
+
 enum MediaType {
   IMAGE
   VIDEO
+  AUDIO
 }

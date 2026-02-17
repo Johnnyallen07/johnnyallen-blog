@@ -3,3 +3,4 @@ export { Sidebar } from "./Sidebar";
 export { ArticleCard } from "./ArticleCard";
 export { TagCloud } from "./TagCloud";
 export { MusicRecommendation } from "./MusicRecommendation";
+export { ProjectShowcase } from "./ProjectShowcase";

@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/home/Sidebar";
 import { ArticleCard } from "@/components/home/ArticleCard";
 import { TagCloud } from "@/components/home/TagCloud";
 import { MusicRecommendation } from "@/components/home/MusicRecommendation";
+import { ProjectShowcase } from "@/components/home/ProjectShowcase";
 import { fetchClient } from "@/lib/api";
 
 interface Article {
@@ -18,75 +19,6 @@ interface Article {
   date: string;
   articleId?: string;
 }
-
-const DEFAULT_ARTICLES: Article[] = [
-  {
-    title: "缺氧游戏氧气系统完全指南",
-    excerpt:
-      "深入解析缺氧游戏中的氧气生成、循环和优化方案，帮助你建立稳定的氧气供应系统。",
-    column: "缺氧游戏",
-    tags: ["游戏攻略", "氧气系统", "建造"],
-    views: 1234,
-    likes: 89,
-    date: "2天前",
-    articleId: "1",
-  },
-  {
-    title: "React 19 新特性深度解析",
-    excerpt:
-      "全面介绍 React 19 的新特性，包括 Server Components、新的 Hooks 和性能优化。",
-    column: "Web开发",
-    tags: ["React", "JavaScript", "前端"],
-    views: 2156,
-    likes: 145,
-    date: "3天前",
-    articleId: "2",
-  },
-  {
-    title: "DAW 中的混音技巧与实战",
-    excerpt:
-      "分享音乐制作中的混音经验，从 EQ、压缩到空间处理的完整工作流程。",
-    column: "音乐制作",
-    tags: ["混音", "DAW", "音频处理"],
-    views: 876,
-    likes: 67,
-    date: "5天前",
-    articleId: "3",
-  },
-  {
-    title: "TypeScript 类型体操实用技巧",
-    excerpt:
-      "掌握 TypeScript 的高级类型技巧，提升代码的类型安全性和开发效率。",
-    column: "Web开发",
-    tags: ["TypeScript", "类型系统", "进阶"],
-    views: 1543,
-    likes: 98,
-    date: "1周前",
-    articleId: "4",
-  },
-  {
-    title: "独立游戏开发者的音乐制作入门",
-    excerpt:
-      "为游戏开发者介绍基础的音乐制作知识，让你也能为自己的游戏创作配乐。",
-    column: "音乐制作",
-    tags: ["游戏音乐", "独立开发", "音乐理论"],
-    views: 1089,
-    likes: 76,
-    date: "1周前",
-    articleId: "5",
-  },
-  {
-    title: "AI 辅助编程：GitHub Copilot 使用心得",
-    excerpt:
-      "分享使用 AI 编程助手的实战经验，如何更高效地利用 AI 提升开发效率。",
-    column: "AI探索",
-    tags: ["AI", "Copilot", "工具"],
-    views: 1876,
-    likes: 134,
-    date: "2周前",
-    articleId: "6",
-  },
-];
 
 function getRelativeTime(dateStr: string): string {
   const now = new Date();
@@ -144,10 +76,10 @@ export function HomePageClient() {
         }));
         setArticles(mapped);
       } else {
-        setArticles(DEFAULT_ARTICLES);
+        setArticles([]);
       }
     } catch {
-      setArticles(DEFAULT_ARTICLES);
+      setArticles([]);
     } finally {
       setIsLoading(false);
     }
@@ -362,6 +294,10 @@ export function HomePageClient() {
           image-rendering: -moz-crisp-edges;
           image-rendering: crisp-edges;
         }
+        @keyframes slideInLeft {
+          0% { transform: translateX(100%); opacity: 0; }
+          100% { transform: translateX(0); opacity: 1; }
+        }
       `}</style>
 
       {/* 主要内容 */}
@@ -407,44 +343,42 @@ export function HomePageClient() {
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : articles.length > 0 ? (
                 <div className="space-y-4">
                   {articles.map((article, index) => (
                     <ArticleCard key={index} {...article} />
                   ))}
                 </div>
+              ) : (
+                <p className="text-gray-500 text-center py-8">暂无文章</p>
               )}
 
-              {/* 加载更多 */}
-              <div className="mt-6 text-center">
-                <Button
-                  variant="outline"
-                  className="border-gray-300 bg-white hover:bg-gray-50 hover:border-cyan-300 hover:text-cyan-600 transition-all"
-                >
-                  加载更多文章
-                </Button>
-              </div>
+              {!isLoading && articles.length > 0 && (
+                <div className="mt-6 text-center">
+                  <Button
+                    variant="outline"
+                    className="border-gray-300 bg-white hover:bg-gray-50 hover:border-cyan-300 hover:text-cyan-600 transition-all"
+                  >
+                    加载更多文章
+                  </Button>
+                </div>
+              )}
             </div>
           </main>
 
           {/* 右侧边栏 */}
           <aside className="lg:col-span-1">
-            <div className="lg:sticky lg:top-6 space-y-6">
+            <div className="lg:sticky lg:top-6 space-y-6" style={{
+              animation: 'slideInLeft 0.8s ease-out backwards',
+              animationDelay: '0.3s'
+            }}>
               <MusicRecommendation />
               <TagCloud />
+              <ProjectShowcase />
             </div>
           </aside>
         </div>
       </div>
-
-      {/* 底部 */}
-      <footer className="border-t border-gray-200 bg-white/80 backdrop-blur-sm mt-16 relative z-10">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="text-center text-sm text-gray-500">
-            <p>© 2026 JohnnyBlog. 用 ❤️ 和 ☕ 创作.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

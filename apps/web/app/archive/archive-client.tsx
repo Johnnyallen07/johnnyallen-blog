@@ -1,16 +1,21 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Calendar, FileText } from "lucide-react";
 import { Navbar } from "@/components/home/Navbar";
+import { fetchClient } from "@/lib/api";
 
 interface ArchiveArticle {
   title: string;
   date: string;
   column: string;
+  slug: string;
 }
 
 interface ArchiveMonth {
   month: string;
+  monthKey: string;
   articles: ArchiveArticle[];
 }
 
@@ -19,95 +24,77 @@ interface ArchiveYear {
   months: ArchiveMonth[];
 }
 
-const ARCHIVES: ArchiveYear[] = [
-  {
-    year: "2026",
-    months: [
-      {
-        month: "2月",
-        articles: [
-          {
-            title: "缺氧游戏氧气系统完全指南",
-            date: "02-12",
-            column: "缺氧游戏",
-          },
-          {
-            title: "React 19 新特性深度解析",
-            date: "02-10",
-            column: "Web开发",
-          },
-          {
-            title: "DAW 中的混音技巧与实战",
-            date: "02-08",
-            column: "音乐制作",
-          },
-          {
-            title: "TypeScript 类型体操实用技巧",
-            date: "02-05",
-            column: "Web开发",
-          },
-        ],
-      },
-      {
-        month: "1月",
-        articles: [
-          {
-            title: "独立游戏开发者的音乐制作入门",
-            date: "01-28",
-            column: "音乐制作",
-          },
-          {
-            title: "AI 辅助编程实战",
-            date: "01-25",
-            column: "AI探索",
-          },
-          {
-            title: "游戏音效设计基础",
-            date: "01-20",
-            column: "音乐制作",
-          },
-          {
-            title: "Next.js 14 完全指南",
-            date: "01-15",
-            column: "Web开发",
-          },
-          {
-            title: "缺氧电力系统优化",
-            date: "01-10",
-            column: "缺氧游戏",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    year: "2025",
-    months: [
-      {
-        month: "12月",
-        articles: [
-          {
-            title: "年度游戏回顾",
-            date: "12-30",
-            column: "缺氧游戏",
-          },
-          {
-            title: "我的音乐学习之路",
-            date: "12-25",
-            column: "音乐制作",
-          },
-          {
-            title: "React Server Components 详解",
-            date: "12-20",
-            column: "Web开发",
-          },
-        ],
-      },
-    ],
-  },
-];
+const MONTH_NAMES = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+
+function groupPostsByYearMonth(posts: { title: string; slug: string; updatedAt: string; series?: { title: string }; category?: { name: string } }[]): ArchiveYear[] {
+  const byYear = new Map<string, Map<string, ArchiveArticle[]>>();
+
+  for (const post of posts) {
+    const d = new Date(post.updatedAt);
+    const year = String(d.getFullYear());
+    const monthIndex = d.getMonth();
+    const monthKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+    const dateStr = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const column = post.series?.title || post.category?.name || "未分类";
+
+    if (!byYear.has(year)) byYear.set(year, new Map());
+    const byMonth = byYear.get(year)!;
+    if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
+    byMonth.get(monthKey)!.push({
+      title: post.title || "未命名文章",
+      date: dateStr,
+      column,
+      slug: post.slug || "",
+    });
+  }
+
+  // Sort articles within each month by date desc
+  for (const byMonth of byYear.values()) {
+    for (const articles of byMonth.values()) {
+      articles.sort((a, b) => b.date.localeCompare(a.date));
+    }
+  }
+
+  const result: ArchiveYear[] = [];
+  const sortedYears = Array.from(byYear.keys()).sort((a, b) => Number(b) - Number(a));
+  for (const year of sortedYears) {
+    const byMonth = byYear.get(year)!;
+    const monthKeys = Array.from(byMonth.keys()).sort((a, b) => b.localeCompare(a));
+    const months: ArchiveMonth[] = monthKeys.map((monthKey) => {
+      const [y, m] = monthKey.split("-");
+      return {
+        month: MONTH_NAMES[Number(m) - 1] ?? monthKey,
+        monthKey,
+        articles: byMonth.get(monthKey)!,
+      };
+    });
+    result.push({ year, months });
+  }
+  return result;
+}
 
 export function ArchivePageClient() {
+  const [archives, setArchives] = useState<ArchiveYear[]>([]);
+  const [isLoading, setLoading] = useState(true);
+
+  const loadArchives = useCallback(async () => {
+    try {
+      const data = await fetchClient("/posts?published=true");
+      if (Array.isArray(data) && data.length > 0) {
+        setArchives(groupPostsByYearMonth(data as { title: string; slug: string; updatedAt: string; series?: { title: string }; category?: { name: string } }[]));
+      } else {
+        setArchives([]);
+      }
+    } catch {
+      setArchives([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadArchives();
+  }, [loadArchives]);
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-amber-50/20 to-orange-50/20 relative overflow-hidden">
       {/* 数学主题动态背景 */}
@@ -207,7 +194,23 @@ export function ArchivePageClient() {
 
         {/* 归档列表 */}
         <div className="space-y-12">
-          {ARCHIVES.map((yearData) => (
+          {isLoading ? (
+            <div className="space-y-8">
+              <div className="h-10 w-24 bg-gray-200 rounded animate-pulse" />
+              <div className="relative pl-8 border-l-2 border-gray-200 space-y-4">
+                <div className="h-6 w-16 bg-gray-200 rounded animate-pulse" />
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white/40 rounded-lg p-4 animate-pulse">
+                    <div className="h-5 bg-gray-200 rounded w-3/4 mb-2" />
+                    <div className="h-4 bg-gray-100 rounded w-1/3" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : archives.length === 0 ? (
+            <p className="text-gray-500 text-center py-12">暂无已发布文章</p>
+          ) : (
+            archives.map((yearData) => (
             <div key={yearData.year}>
               <h2 className="text-3xl font-bold text-gray-900 mb-6">
                 {yearData.year}
@@ -216,7 +219,7 @@ export function ArchivePageClient() {
               <div className="space-y-8">
                 {yearData.months.map((monthData) => (
                   <div
-                    key={monthData.month}
+                    key={monthData.monthKey}
                     className="relative pl-8 border-l-2 border-gray-200"
                   >
                     <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-cyan-500 border-4 border-white" />
@@ -227,9 +230,10 @@ export function ArchivePageClient() {
 
                     <div className="space-y-3">
                       {monthData.articles.map((article, index) => (
-                        <div
-                          key={index}
-                          className="bg-transparent backdrop-blur-sm border border-white/40 rounded-lg p-4 hover:border-cyan-300 hover:bg-white/20 hover:shadow-lg transition-all cursor-pointer group"
+                        <Link
+                          key={article.slug || index}
+                          href={article.slug ? `/article/${article.slug}` : "#"}
+                          className="block bg-transparent backdrop-blur-sm border border-white/40 rounded-lg p-4 hover:border-cyan-300 hover:bg-white/20 hover:shadow-lg transition-all cursor-pointer group"
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1">
@@ -247,14 +251,15 @@ export function ArchivePageClient() {
                               {yearData.year}-{article.date}
                             </span>
                           </div>
-                        </div>
+                        </Link>
                       ))}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

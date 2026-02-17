@@ -150,5 +150,7 @@ test-data/
 apps/api/prisma/seed.ts
 .agent
 
-# 服务器数据库备份
+devops/
 backups/
+
+apps/web/public/figma/

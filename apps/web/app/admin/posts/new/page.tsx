@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Eye, Sparkles, Calendar, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { TagInput } from "@/components/admin/series/TagInput";
 import { PostPreview } from "@/components/admin/series/PostPreview";
 import { toast } from "sonner";
 import { fetchClient } from "@/lib/api";
-import { useAutoSave } from "@/hooks/useAutoSave";
+import { useDebounce } from "@/hooks/use-debounce";
 import { useSlugCheck } from "@/hooks/useSlugCheck";
 
 interface CategoryOption {
@@ -52,6 +52,30 @@ export default function NewPostPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [postId, setPostId] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // ---- Stable refs for frequently-changing state (prevents closure cascade) ----
+  const titleRef = useRef(title);
+  const slugRef = useRef(slug);
+  const contentRef = useRef(content);
+  const categoryIdRef = useRef(categoryId);
+  const postIdRef = useRef(postId);
+
+  useEffect(() => { titleRef.current = title; }, [title]);
+  useEffect(() => { slugRef.current = slug; }, [slug]);
+  useEffect(() => { contentRef.current = content; }, [content]);
+  useEffect(() => { categoryIdRef.current = categoryId; }, [categoryId]);
+  useEffect(() => { postIdRef.current = postId; }, [postId]);
+
+  // Version counter for debounced auto-save (avoids copying large HTML)
+  const [contentVersion, setContentVersion] = useState(0);
+  const debouncedVersion = useDebounce(contentVersion, 2000);
+
+  // Refs for save lifecycle
+  const isLoaded = useRef(false);
+  const isDirty = useRef(false);
+  const isSavingRef = useRef(false);
 
   // Load categories
   useEffect(() => {
@@ -95,6 +119,8 @@ export default function NewPostPage() {
     excludeId: postId,
     enabled: !!slug.trim(),
   });
+  const isSlugDuplicateRef = useRef(isSlugDuplicate);
+  useEffect(() => { isSlugDuplicateRef.current = isSlugDuplicate; }, [isSlugDuplicate]);
 
   const handleTitleChange = (newTitle: string) => {
     setTitle(newTitle);
@@ -113,37 +139,39 @@ export default function NewPostPage() {
     setSetupComplete(true);
   };
 
-  // --- Auto-Save Logic ---
-  const saveToBackend = useCallback(async () => {
-    if (!title || !categoryId) return;
+  // --- Save handler (STABLE — reads from refs, never captures state) ---
+  const saveToBackend = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!titleRef.current || !categoryIdRef.current) return;
+    if (isSavingRef.current) return;
 
-    // 自动保存时如果 slug 重复，使用随机 slug
-    let safeSlug = slug;
-    if (isSlugDuplicate) {
-      safeSlug = getUniqueSlug(slug);
+    let safeSlug = slugRef.current;
+    if (isSlugDuplicateRef.current) {
+      safeSlug = getUniqueSlug(safeSlug);
       setSlug(safeSlug);
     }
 
+    isSavingRef.current = true;
+    setIsSaving(true);
     try {
-      if (postId) {
-        await fetchClient(`/posts/${postId}`, {
+      if (postIdRef.current) {
+        await fetchClient(`/posts/${postIdRef.current}`, {
           method: "PATCH",
           body: JSON.stringify({
-            title,
+            title: titleRef.current,
             slug: safeSlug,
-            content,
+            content: contentRef.current,
             published: false,
-            categoryId,
+            categoryId: categoryIdRef.current,
           }),
         });
       } else {
         const newPost = await fetchClient("/posts", {
           method: "POST",
           body: JSON.stringify({
-            title,
+            title: titleRef.current,
             slug: safeSlug || `post-${Date.now()}`,
-            categoryId,
-            content,
+            categoryId: categoryIdRef.current,
+            content: contentRef.current,
             published: false,
           }),
         });
@@ -152,39 +180,54 @@ export default function NewPostPage() {
         toast.success("草稿已创建", {
           description: "已跳转至编辑页面继续写作",
         });
+        return;
       }
-    } catch (error) {
-      console.error("Auto-save failed:", error);
-      throw error;
-    }
-  }, [postId, title, slug, content, categoryId, router, isSlugDuplicate, getUniqueSlug]);
 
-  const { lastSaved, isSaving, hasUnsavedChanges, manualSave } = useAutoSave({
-    data: { title, slug, content, tags, categoryId },
-    onSave: async () => {
-      await saveToBackend();
-    },
-    localStorageKey: LOCAL_STORAGE_KEY,
-    // 只有完成 setup 且有内容时才自动保存到服务器
-    enabled: setupComplete && !!categoryId && !!title,
-  });
+      setLastSaved(new Date());
+      isDirty.current = false;
+      if (!options.silent) toast.success("保存成功");
+    } catch (error) {
+      console.error("Save failed:", error);
+      if (!options.silent) toast.error("保存失败");
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [router, getUniqueSlug]); // Stable — router/getUniqueSlug rarely change
+
+  // Mark loaded after setup complete
+  useEffect(() => {
+    if (setupComplete) {
+      setTimeout(() => { isLoaded.current = true; }, 500);
+    }
+  }, [setupComplete]);
+
+  // Bump version counter on content/title/slug changes (lightweight, no copying)
+  useEffect(() => {
+    if (isLoaded.current) {
+      isDirty.current = true;
+      setContentVersion(v => v + 1);
+    }
+  }, [content, title, slug]);
+
+  // Auto-save effect — fires on debounced version change
+  useEffect(() => {
+    if (isLoaded.current && isDirty.current) {
+      saveToBackend({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedVersion]);
 
   // Manual save handler (for save button and Ctrl+S)
   const handleSave = useCallback(async () => {
-    if (!categoryId || !title) {
+    if (!categoryIdRef.current || !titleRef.current) {
       toast.error("请先填写标题和分类");
       return;
     }
-    try {
-      await manualSave();
-      toast.success("保存成功");
-    } catch (error) {
-      console.error(error);
-      toast.error("保存失败");
-    }
-  }, [manualSave, categoryId, title]);
+    await saveToBackend();
+  }, [saveToBackend]);
 
-  // Global Ctrl+S / Cmd+S keyboard shortcut
+  // Global Ctrl+S / Cmd+S keyboard shortcut (stable)
   useEffect(() => {
     if (!setupComplete) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -367,7 +410,7 @@ export default function NewPostPage() {
           variant="ghost"
           size="sm"
           onClick={() => {
-            if (hasUnsavedChanges && !confirm("您有未保存的更改，确定要离开吗？"))
+            if (isDirty.current && !confirm("您有未保存的更改，确定要离开吗？"))
               return;
             router.push("/admin");
           }}
@@ -389,7 +432,7 @@ export default function NewPostPage() {
               · 已保存于 {lastSaved.toLocaleTimeString("zh-CN")}
             </span>
           ) : (
-            hasUnsavedChanges && (
+            isDirty.current && (
               <span className="text-xs text-amber-500">未保存更改</span>
             )
           )}
@@ -406,7 +449,7 @@ export default function NewPostPage() {
                 正在编辑: {title || "Untitled"}
               </h2>
             </div>
-            <RichTextEditor content={content} onChange={setContent} onSave={handleSave} />
+            <RichTextEditor content={content} onChange={setContent} onSave={handleSave} articleTitle={title} />
           </div>
         </main>
 

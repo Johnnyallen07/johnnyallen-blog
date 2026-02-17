@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getApiBaseUrl } from "@/lib/api";
 import { ArticlePageClient } from "./article-client";
 
 interface ArticlePageProps {
@@ -10,11 +11,8 @@ export async function generateMetadata({
 }: ArticlePageProps): Promise<Metadata> {
   const { slug } = await params;
 
-  const API_BASE_URL =
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
   try {
-    const res = await fetch(`${API_BASE_URL}/posts/slug/${slug}`, {
+    const res = await fetch(`${getApiBaseUrl()}/posts/slug/${slug}`, {
       next: { revalidate: 60 },
     });
 

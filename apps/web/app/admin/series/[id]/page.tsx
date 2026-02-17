@@ -77,13 +77,25 @@ export default function SeriesEditorPage({ params }: SeriesEditorPageProps) {
   const [seriesInfo, setSeriesInfo] = useState<SeriesInfo | null>(null);
   const [currentPostId, setCurrentPostId] = useState<string | null>(null);
 
-  // Debounced values for auto-save
-  const debouncedContent = useDebounce(content, 2000);
-  const debouncedTitle = useDebounce(title, 2000);
-  const debouncedSlug = useDebounce(slug, 2000);
+  // ---- Stable refs for frequently-changing state (prevents closure cascade) ----
+  const titleRef = useRef(title);
+  const slugRef = useRef(slug);
+  const contentRef = useRef(content);
+  const currentPostIdRef = useRef(currentPostId);
 
-  // Ref to track if initial load has happened
+  useEffect(() => { titleRef.current = title; }, [title]);
+  useEffect(() => { slugRef.current = slug; }, [slug]);
+  useEffect(() => { contentRef.current = content; }, [content]);
+  useEffect(() => { currentPostIdRef.current = currentPostId; }, [currentPostId]);
+
+  // Version counter for debounced auto-save (avoids copying large HTML)
+  const [contentVersion, setContentVersion] = useState(0);
+  const debouncedVersion = useDebounce(contentVersion, 2000);
+
+  // Refs for save lifecycle
   const isLoaded = useRef(false);
+  const isDirty = useRef(false);
+  const isSavingRef = useRef(false);
 
   // Rename & Delete State
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -104,6 +116,8 @@ export default function SeriesEditorPage({ params }: SeriesEditorPageProps) {
     excludeId: currentPostId,
     enabled: !!currentPostId && !!slug.trim(),
   });
+  const isSlugDuplicateRef = useRef(isSlugDuplicate);
+  useEffect(() => { isSlugDuplicateRef.current = isSlugDuplicate; }, [isSlugDuplicate]);
 
   // Slug 查重 — 新建文章对话框
   const { isDuplicate: isNewSlugDuplicate, isChecking: isCheckingNewSlug } = useSlugCheck({
@@ -141,63 +155,64 @@ export default function SeriesEditorPage({ params }: SeriesEditorPageProps) {
     fetchSeries();
   }, [fetchSeries]);
 
-  // ---- Save handler with toast feedback ----
+  // ---- Save handler (STABLE — reads from refs, never captures state) ----
   const handleSave = useCallback(async (options: { silent?: boolean } = {}) => {
-    if (!currentPostId) {
-      if (!options.silent) {
-        toast.error("请先选择一篇文章");
-      }
+    if (!currentPostIdRef.current) {
+      if (!options.silent) toast.error("请先选择一篇文章");
       return;
     }
-
-    if (!title.trim()) {
-      if (!options.silent) {
-        toast.error("请先填写文章标题");
-      }
+    if (!titleRef.current.trim()) {
+      if (!options.silent) toast.error("请先填写文章标题");
       return;
     }
+    if (isSavingRef.current) return;
 
-    // 自动保存时如果 slug 重复，使用随机后缀
-    let safeSlug = slug;
-    if (isSlugDuplicate) {
-      safeSlug = getUniqueSlug(slug);
+    let safeSlug = slugRef.current;
+    if (isSlugDuplicateRef.current) {
+      safeSlug = getUniqueSlug(safeSlug);
       setSlug(safeSlug);
     }
 
+    isSavingRef.current = true;
     setIsSaving(true);
     try {
-      await fetchClient(`/posts/${currentPostId}`, {
+      await fetchClient(`/posts/${currentPostIdRef.current}`, {
         method: "PATCH",
         body: JSON.stringify({
-          title,
+          title: titleRef.current,
           slug: safeSlug,
-          content,
+          content: contentRef.current,
         }),
       });
-
       setLastSaved(new Date());
-
-      if (!options.silent) {
-        toast.success("保存成功");
-      }
+      if (!options.silent) toast.success("保存成功");
     } catch (error) {
       console.error(error);
-      if (!options.silent) {
-        toast.error("保存失败");
-      }
+      if (!options.silent) toast.error("保存失败");
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
-  }, [currentPostId, title, slug, content, isSlugDuplicate, getUniqueSlug]);
+  }, [getUniqueSlug]); // Stable — deps almost never change
 
-  // Auto-save effect (silent)
+  // Mark dirty when user actually edits content/title/slug
   useEffect(() => {
     if (isLoaded.current && currentPostId) {
+      isDirty.current = true;
+      setContentVersion(v => v + 1);
+    }
+  }, [content, title, slug, currentPostId]);
+
+  // Auto-save effect — fires on debounced version change
+  useEffect(() => {
+    if (isLoaded.current && currentPostIdRef.current && isDirty.current) {
+      isDirty.current = false;
       handleSave({ silent: true });
     }
-  }, [debouncedContent, debouncedTitle, debouncedSlug, handleSave, currentPostId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedVersion]);
 
-  // ---- Global Ctrl+S / Cmd+S keyboard shortcut ----
+  // ---- Global Ctrl+S / Cmd+S keyboard shortcut (stable) ----
   useEffect(() => {
     if (!currentPostId) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -530,6 +545,7 @@ export default function SeriesEditorPage({ params }: SeriesEditorPageProps) {
                 content={content}
                 onChange={setContent}
                 onSave={() => handleSave()}
+                articleTitle={title}
               />
             </div>
           ) : (

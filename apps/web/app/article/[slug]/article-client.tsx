@@ -9,6 +9,7 @@ import { TableOfContents } from "@/components/article/TableOfContents";
 import { SimilarArticles } from "@/components/article/SimilarArticles";
 import { fetchClient } from "@/lib/api";
 import { SeriesSidebar } from "@/components/home/SeriesSidebar";
+import { AnimatedBackground } from "@/components/article/AnimatedBackground";
 
 // --- Interfaces ---
 
@@ -64,7 +65,6 @@ interface PostData {
       items: SeriesItemDTO[];
     };
   }[];
-  // Backwards compatibility if needed, though we prefer seriesItems
   series?: {
     id: string;
     title: string;
@@ -93,7 +93,6 @@ function extractTocAndInjectIds(html: string): {
   const items: TocItem[] = [];
   let index = 0;
 
-  // Match h1, h2, h3 with or without existing id
   const processed = html.replace(
     /<h([1-3])(\s[^>]*)?>([^<]*)<\/h[1-3]>/gi,
     (fullMatch, levelStr: string, attrs: string | undefined, text: string) => {
@@ -101,7 +100,6 @@ function extractTocAndInjectIds(html: string): {
       const trimmedText = text.trim();
       if (!trimmedText) return fullMatch;
 
-      // Check if there's already an id
       const existingId = attrs?.match(/id="([^"]*)"/)?.[1];
       const id = existingId || generateHeadingId(trimmedText, index);
       index++;
@@ -109,7 +107,6 @@ function extractTocAndInjectIds(html: string): {
       items.push({ id, text: trimmedText, level });
 
       if (existingId) return fullMatch;
-      // Inject the id attribute
       return `<h${level}${attrs || ""} id="${id}">${text}</h${level}>`;
     }
   );
@@ -142,19 +139,6 @@ function mapToSeriesItems(nodes: SeriesItemDTO[]): MappedSeriesItem[] {
   }));
 }
 
-// Default Data Fallbacks
-const DEFAULT_CONTENT = `<p>加载失败...</p>`;
-
-const DEFAULT_SIMILAR: SimilarArticle[] = [
-  {
-    id: "1",
-    title: "示例文章",
-    excerpt: "这是一个示例...",
-    views: 100,
-    date: "1天前",
-  },
-];
-
 // --- Main Component ---
 
 export function ArticlePageClient({ slug }: ArticlePageClientProps) {
@@ -171,7 +155,6 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
 
   const fetchArticle = useCallback(async () => {
     try {
-      // Force fresh fetch to avoid caching issues with drafted content updates
       const data: PostData = await fetchClient(`/posts/slug/${slug}`, {
         cache: "no-store",
         headers: {
@@ -180,7 +163,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
         }
       });
       setPost(data);
-      // Increment view count (only once, guard against StrictMode double-invoke)
+
       if (!viewCountedRef.current) {
         viewCountedRef.current = true;
         fetchClient(`/posts/${data.id}/view`, { method: "POST" })
@@ -189,13 +172,9 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
               prev ? { ...prev, views: result.views } : prev
             );
           })
-          .catch(() => {
-            // silently ignore view count errors
-          });
+          .catch(() => { });
       }
 
-      // Check if post belongs to a series
-      // Priority: data.seriesItems (recursive) > data.series (legacy)
       const primarySeriesItem = data.seriesItems?.[0];
 
       if (primarySeriesItem?.series) {
@@ -209,15 +188,13 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
           setSeriesItems(mapToSeriesItems(s.items));
         }
       } else if (data.series) {
-        // Fallback legacy structure support if API changes aren't fully propagated
         setSeriesInfo({
           title: data.series.title,
-          slug: "series-fallback", // We might not have slug here if legacy
+          slug: "series-fallback",
           emoji: "📝"
         });
       }
 
-      // Fetch similar articles - filter by same category
       try {
         const categoryParam = data.category?.id
           ? `&categoryId=${data.category.id}`
@@ -268,7 +245,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
     fetchArticle();
   }, [fetchArticle]);
 
-  const rawContent = post?.content || DEFAULT_CONTENT;
+  const rawContent = post?.content ?? "";
   const { items: tocItems, html: articleContent } = useMemo(
     () => extractTocAndInjectIds(rawContent),
     [rawContent]
@@ -276,82 +253,119 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 via-purple-50/20 to-pink-50/30 flex items-center justify-center">
         <div className="animate-pulse flex flex-col items-center">
           <div className="h-8 w-8 bg-cyan-500 rounded-full mb-4"></div>
-          <div className="text-gray-400 text-sm">Loading...</div>
+          <div className="text-gray-400 text-sm">加载中...</div>
         </div>
       </div>
     );
   }
 
+  if (!post) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 via-purple-50/20 to-pink-50/30">
+        <div className="max-w-[1600px] mx-auto px-4 py-16 text-center">
+          <p className="text-gray-500 mb-6">文章不存在或加载失败</p>
+          <Link href="/">
+            <Button variant="outline" className="border-gray-300 hover:bg-gray-50">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              返回首页
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const hasSeriesSidebar = !!seriesInfo;
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <Link
-              href="/"
-              className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-purple-600 bg-clip-text text-transparent"
-            >
-              JohnnyBlog
-            </Link>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 via-purple-50/20 to-pink-50/30 relative overflow-hidden">
+      {/* Animated background */}
+      <AnimatedBackground />
 
-            <Link href="/">
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-gray-300 hover:bg-gray-50 text-gray-600"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                返回首页
-              </Button>
-            </Link>
+      {/* Floating back button */}
+      <Link
+        href="/"
+        className="fixed top-5 left-5 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/70 backdrop-blur-md border border-white/30 shadow-sm text-sm text-gray-600 hover:text-gray-900 hover:bg-white/90 transition-all"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        <span>首页</span>
+      </Link>
+
+      {/* Main content */}
+      <div className="max-w-[1600px] mx-auto px-4 py-8 relative z-10">
+        {hasSeriesSidebar ? (
+          /* === 3-column layout: Series sidebar | Content | TOC === */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left sidebar — Series tree */}
+            <aside className="lg:col-span-3">
+              <div className="lg:sticky lg:top-24 space-y-4">
+                <SeriesSidebar
+                  title={seriesInfo.title}
+                  slug={seriesInfo.slug}
+                  emoji={seriesInfo.emoji}
+                  items={seriesItems}
+                />
+              </div>
+            </aside>
+
+            {/* Center content */}
+            <main className="lg:col-span-7">
+              <ArticleContent
+                postId={post.id}
+                title={post.title}
+                author="Johnny"
+                date={post.createdAt ? getRelativeTime(post.createdAt) : ""}
+                views={post.views || 0}
+                likes={post.likes || 0}
+                tags={post.tags || []}
+                category={post.category?.name || "未分类"}
+                column={seriesInfo.title}
+                content={articleContent}
+              />
+            </main>
+
+            {/* Right sidebar — TOC */}
+            <aside className="lg:col-span-2">
+              <div className="lg:sticky lg:top-24">
+                <TableOfContents items={tocItems} />
+              </div>
+            </aside>
           </div>
-        </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          <aside className="lg:col-span-1">
-            {seriesInfo ? (
-              <SeriesSidebar
-                title={seriesInfo.title}
-                slug={seriesInfo.slug}
-                emoji={seriesInfo.emoji}
-                items={seriesItems}
+        ) : (
+          /* === 2-column layout: Content | TOC + Similar === */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Content */}
+            <main className="lg:col-span-9">
+              <ArticleContent
+                postId={post.id}
+                title={post.title}
+                author="Johnny"
+                date={post.createdAt ? getRelativeTime(post.createdAt) : ""}
+                views={post.views || 0}
+                likes={post.likes || 0}
+                tags={post.tags || []}
+                category={post.category?.name || "未分类"}
+                content={articleContent}
               />
-            ) : (
-              <SimilarArticles
-                category={post?.category?.name || "推荐阅读"}
-                articles={
-                  similarArticles.length > 0 ? similarArticles : DEFAULT_SIMILAR
-                }
-              />
-            )}
-          </aside>
+            </main>
 
-          <main className="lg:col-span-2">
-            <ArticleContent
-              postId={post?.id}
-              title={post?.title || ""}
-              author="Johnny"
-              date={post?.createdAt ? getRelativeTime(post.createdAt) : ""}
-              views={post?.views || 0}
-              likes={post?.likes || 0}
-              tags={post?.tags || []}
-              category={post?.category?.name || "未分类"}
-              column={seriesInfo?.title}
-              content={articleContent}
-            />
-          </main>
-
-          <aside className="lg:col-span-1">
-            <div className="lg:sticky lg:top-24">
-              <TableOfContents items={tocItems} />
-            </div>
-          </aside>
-        </div>
+            {/* Right sidebar — TOC + Similar articles */}
+            <aside className="lg:col-span-3">
+              <div className="lg:sticky lg:top-24 space-y-6">
+                <TableOfContents items={tocItems} />
+                {similarArticles.length > 0 && (
+                  <SimilarArticles
+                    category={post.category?.name || "推荐阅读"}
+                    articles={similarArticles}
+                  />
+                )}
+              </div>
+            </aside>
+          </div>
+        )}
       </div>
     </div>
   );

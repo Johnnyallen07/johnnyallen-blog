@@ -1,44 +1,35 @@
 # syntax=docker/dockerfile:1
+# 独立构建：仅依赖 apps/api，不依赖 monorepo 根目录或 packages/。
+# 构建上下文为 apps/api（docker-compose 中 context: apps/api）。
+# 镜像内仅用 package.json + npm install，避免服务器 npm 与 lockfileVersion 3 不兼容导致 npm ci/npm install 报错。
 FROM node:20-alpine AS base
-RUN apk add --no-cache openssl && npm install -g pnpm
-ENV PNPM_HOME="/pnpm" PATH="/pnpm:${PATH}"
-ENV npm_config_registry=https://registry.npmmirror.com
+RUN apk add --no-cache openssl
+WORKDIR /app
 
-# ---- 依赖安装（与 Web Dockerfile 共享 pnpm-store 缓存 id） ----
+# ---- 依赖安装（仅 package.json，保证本地与服务器一致通过） ----
 FROM base AS dependencies
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
-COPY packages/ packages/
-RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-  pnpm install --frozen-lockfile
+COPY package.json ./
+RUN npm install
 
-# ---- 构建 + 导出干净依赖 ----
+# ---- 构建（API + Prisma） ----
 FROM base AS builder
 WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
-RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-  pnpm install --frozen-lockfile && \
-  pnpm --filter api build && \
-  cd apps/api && npx prisma generate && \
-  cd /app && pnpm --filter api deploy --prod /deploy
+RUN npx prisma generate && npm run build
 
-# ---- 运行时：零安装，纯复制 ----
-FROM node:20-alpine AS runner
+# ---- 运行时（仅生产依赖） ----
+FROM base AS runner
 RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
-
-# 从 pnpm deploy 获取干净的生产依赖（已解析 workspace 符号链接，无需再 npm install）
-COPY --from=builder /deploy/node_modules ./node_modules
-COPY --from=builder /deploy/package.json ./package.json
-# 编译产物和 Prisma schema
-COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/prisma ./prisma
-# 复制 builder 阶段已生成的 Prisma Client（同为 alpine，二进制兼容）
+COPY package.json ./
+RUN npm install --omit=dev
+# 从 builder 复制构建时生成的 Prisma Client，避免运行时 "@prisma/client did not initialize" 错误
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3001
-CMD ["node", "dist/src/main"]
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/src/main"]
