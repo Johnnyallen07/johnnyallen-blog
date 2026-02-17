@@ -10,18 +10,18 @@ import { MusicSeriesController } from './music-series.controller';
 import { MusicSeriesService } from './music-series.service';
 
 @Module({
-    controllers: [
-        MusicController,
-        MusicCategoryController,
-        MusicArtistController,
-        MusicSeriesController,
-    ],
-    providers: [
-        MusicService,
-        MusicCategoryService,
-        MusicArtistService,
-        MusicSeriesService,
-        PrismaService,
-    ],
+  controllers: [
+    MusicController,
+    MusicCategoryController,
+    MusicArtistController,
+    MusicSeriesController,
+  ],
+  providers: [
+    MusicService,
+    MusicCategoryService,
+    MusicArtistService,
+    MusicSeriesService,
+    PrismaService,
+  ],
 })
-export class MusicModule { }
+export class MusicModule {}

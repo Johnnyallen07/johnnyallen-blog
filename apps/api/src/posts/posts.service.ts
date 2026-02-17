@@ -15,8 +15,13 @@ export class PostsService {
     published?: boolean;
     standalone?: boolean;
   }) {
-    const { skip = 0, take = 20, categoryId, featured, standalone } =
-      options || {};
+    const {
+      skip = 0,
+      take = 20,
+      categoryId,
+      featured,
+      standalone,
+    } = options || {};
 
     // standalone=true 是管理后台调用，不过滤 published（显示草稿 + 已发布）
     // 其他情况默认只展示 published=true（公开页面）

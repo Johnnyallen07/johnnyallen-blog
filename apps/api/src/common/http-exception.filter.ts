@@ -28,10 +28,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const payload = exception.getResponse();
-      message = typeof payload === 'string' ? payload : (payload as { message?: string }).message ?? message;
+      message =
+        typeof payload === 'string'
+          ? payload
+          : ((payload as { message?: string }).message ?? message);
     } else if (exception instanceof Error) {
       message = exception.message;
-      this.logger.error(`${req.method} ${req.url} ${exception.message}`, exception.stack);
+      this.logger.error(
+        `${req.method} ${req.url} ${exception.message}`,
+        exception.stack,
+      );
     }
 
     const body: Record<string, unknown> = { message };

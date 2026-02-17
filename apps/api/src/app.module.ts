@@ -23,4 +23,4 @@ import { MusicModule } from './music/music.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

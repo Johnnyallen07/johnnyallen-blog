@@ -55,7 +55,9 @@ export class MediaService {
           reject(
             err instanceof Error
               ? err
-              : new Error((err as { message?: string }).message ?? String(err)),
+              : new Error(
+                  (err as { message?: string }).message ?? 'Unknown error',
+                ),
           );
         else resolve(data as { Url: string });
       });
@@ -72,7 +74,9 @@ export class MediaService {
           reject(
             err instanceof Error
               ? err
-              : new Error((err as { message?: string }).message ?? String(err)),
+              : new Error(
+                  (err as { message?: string }).message ?? 'Unknown error',
+                ),
           );
         else
           resolve(

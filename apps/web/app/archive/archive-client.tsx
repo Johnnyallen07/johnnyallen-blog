@@ -61,7 +61,7 @@ function groupPostsByYearMonth(posts: { title: string; slug: string; updatedAt: 
     const byMonth = byYear.get(year)!;
     const monthKeys = Array.from(byMonth.keys()).sort((a, b) => b.localeCompare(a));
     const months: ArchiveMonth[] = monthKeys.map((monthKey) => {
-      const [y, m] = monthKey.split("-");
+      const [, m] = monthKey.split("-");
       return {
         month: MONTH_NAMES[Number(m) - 1] ?? monthKey,
         monthKey,
@@ -211,53 +211,53 @@ export function ArchivePageClient() {
             <p className="text-gray-500 text-center py-12">暂无已发布文章</p>
           ) : (
             archives.map((yearData) => (
-            <div key={yearData.year}>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6">
-                {yearData.year}
-              </h2>
+              <div key={yearData.year}>
+                <h2 className="text-3xl font-bold text-gray-900 mb-6">
+                  {yearData.year}
+                </h2>
 
-              <div className="space-y-8">
-                {yearData.months.map((monthData) => (
-                  <div
-                    key={monthData.monthKey}
-                    className="relative pl-8 border-l-2 border-gray-200"
-                  >
-                    <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-cyan-500 border-4 border-white" />
+                <div className="space-y-8">
+                  {yearData.months.map((monthData) => (
+                    <div
+                      key={monthData.monthKey}
+                      className="relative pl-8 border-l-2 border-gray-200"
+                    >
+                      <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-cyan-500 border-4 border-white" />
 
-                    <h3 className="text-xl font-semibold text-gray-900 mb-4">
-                      {monthData.month}
-                    </h3>
+                      <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                        {monthData.month}
+                      </h3>
 
-                    <div className="space-y-3">
-                      {monthData.articles.map((article, index) => (
-                        <Link
-                          key={article.slug || index}
-                          href={article.slug ? `/article/${article.slug}` : "#"}
-                          className="block bg-transparent backdrop-blur-sm border border-white/40 rounded-lg p-4 hover:border-cyan-300 hover:bg-white/20 hover:shadow-lg transition-all cursor-pointer group"
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <h4 className="font-medium text-gray-900 mb-1 group-hover:text-cyan-600 transition-colors">
-                                {article.title}
-                              </h4>
-                              <div className="flex items-center gap-3 text-sm text-gray-500">
-                                <span className="flex items-center gap-1">
-                                  <FileText className="h-3.5 w-3.5" />
-                                  {article.column}
-                                </span>
+                      <div className="space-y-3">
+                        {monthData.articles.map((article, index) => (
+                          <Link
+                            key={article.slug || index}
+                            href={article.slug ? `/article/${article.slug}` : "#"}
+                            className="block bg-transparent backdrop-blur-sm border border-white/40 rounded-lg p-4 hover:border-cyan-300 hover:bg-white/20 hover:shadow-lg transition-all cursor-pointer group"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1">
+                                <h4 className="font-medium text-gray-900 mb-1 group-hover:text-cyan-600 transition-colors">
+                                  {article.title}
+                                </h4>
+                                <div className="flex items-center gap-3 text-sm text-gray-500">
+                                  <span className="flex items-center gap-1">
+                                    <FileText className="h-3.5 w-3.5" />
+                                    {article.column}
+                                  </span>
+                                </div>
                               </div>
+                              <span className="text-sm text-gray-500 whitespace-nowrap">
+                                {yearData.year}-{article.date}
+                              </span>
                             </div>
-                            <span className="text-sm text-gray-500 whitespace-nowrap">
-                              {yearData.year}-{article.date}
-                            </span>
-                          </div>
-                        </Link>
-                      ))}
+                          </Link>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
             ))
           )}
         </div>
