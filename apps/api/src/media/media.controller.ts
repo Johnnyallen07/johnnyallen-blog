@@ -4,7 +4,7 @@ import type { Response } from 'express';
 
 @Controller('media')
 export class MediaController {
-  constructor(private readonly mediaService: MediaService) {}
+  constructor(private readonly mediaService: MediaService) { }
 
   @Post('upload-url')
   async getUploadUrl(
@@ -23,18 +23,28 @@ export class MediaController {
     return this.mediaService.saveMediaReference(key, url, type);
   }
 
-  @Head(':key')
-  async headMedia(@Param('key') key: string, @Res() res: Response) {
-    const { contentType } = await this.mediaService.getMedia(key);
+  @Head('*key')
+  async headMedia(@Param('key') key: string | string[], @Res() res: Response) {
+    // Express 5 wildcard captures path segments as an array
+    const cleanKey = (Array.isArray(key) ? key.join('/') : key).replace(
+      /^\/+/,
+      '',
+    );
+    const { contentType } = await this.mediaService.getMedia(cleanKey);
     res.set('Content-Type', contentType || 'application/octet-stream');
     res.set('Cache-Control', 'public, max-age=2592000, immutable');
     res.set('Access-Control-Allow-Origin', '*');
     res.end();
   }
 
-  @Get(':key')
-  async getMedia(@Param('key') key: string, @Res() res: Response) {
-    const { stream, contentType } = await this.mediaService.getMedia(key);
+  @Get('*key')
+  async getMedia(@Param('key') key: string | string[], @Res() res: Response) {
+    // Express 5 wildcard captures path segments as an array
+    const cleanKey = (Array.isArray(key) ? key.join('/') : key).replace(
+      /^\/+/,
+      '',
+    );
+    const { stream, contentType } = await this.mediaService.getMedia(cleanKey);
     res.set('Content-Type', contentType || 'application/octet-stream');
     // 浏览器缓存 30 天，图片内容不可变（key 是 UUID）
     res.set('Cache-Control', 'public, max-age=2592000, immutable');

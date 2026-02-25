@@ -14,7 +14,7 @@ import { UpdateMusicTrackDto } from './dto/update-music-track.dto';
 
 @Controller('music')
 export class MusicController {
-  constructor(private readonly musicService: MusicService) {}
+  constructor(private readonly musicService: MusicService) { }
 
   /** 生成预签名上传 URL */
   @Post('upload-url')
@@ -47,6 +47,12 @@ export class MusicController {
     @Query('category') category?: string,
   ) {
     return this.musicService.findAll(search, category);
+  }
+
+  /** 检查曲目标题是否已存在 */
+  @Get('check-title')
+  async checkTitle(@Query('title') title: string) {
+    return this.musicService.checkTitleExists(title);
   }
 
   /** 播放计数 +1 */

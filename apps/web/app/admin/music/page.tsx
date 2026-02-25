@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
     Music,
@@ -10,12 +10,33 @@ import {
     Edit,
     Trash2,
     Search,
-    Filter,
     ArrowLeft,
     Upload,
-    ChevronUp,
-    ChevronDown,
     Settings,
+    GripVertical,
+    Star,
+    ListMusic,
+    Music2,
+    Music4,
+    Mic2,
+    Guitar,
+    Piano,
+    Disc2,
+    Disc3,
+    FileMusic,
+    Users,
+    AudioLines,
+    Headphones,
+    Radio,
+    Volume2,
+    Heart,
+    Sparkles,
+    Library,
+    BookOpen,
+    Waves,
+    CirclePlay,
+    User,
+    type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,14 +54,23 @@ import {
     DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { fetchClient } from "@/lib/api";
+
+/* ── Icon Map (same as music main page) ── */
+
+const ICON_MAP: Record<string, LucideIcon> = {
+    Music, Music2, Music4, Mic2, Guitar, Piano,
+    Disc2, Disc3, FileMusic, ListMusic, Users, AudioLines,
+    Headphones, Radio, Volume2, Star, Heart, Sparkles,
+    Library, BookOpen, Waves, CirclePlay, User,
+};
+
+function getIconComponent(name: string | null | undefined, fallback: LucideIcon = Music2): LucideIcon {
+    if (name && ICON_MAP[name]) return ICON_MAP[name]!;
+    return fallback;
+}
+
+/* ── Types ── */
 
 interface MusicTrack {
     id: string;
@@ -57,6 +87,16 @@ interface MusicTrack {
     createdAt: string;
 }
 
+interface SidebarEntity {
+    id: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    icon: string | null;
+}
+
+/* ── Helpers ── */
+
 function formatDuration(seconds: number): string {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -69,24 +109,33 @@ function formatFileSize(bytes: number): string {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
+/* ── Page ── */
+
 export default function MusicManagePage() {
     const router = useRouter();
     const [tracks, setTracks] = useState<MusicTrack[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
-    const [filterCategory, setFilterCategory] = useState("all");
-    const [categories, setCategories] = useState<string[]>([]);
+    const [selectedFilter, setSelectedFilter] = useState("all");
     const [playingId, setPlayingId] = useState<string | null>(null);
     const [editingTrack, setEditingTrack] = useState<MusicTrack | null>(null);
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+
+    /* ── Sidebar entities ── */
+    const [sidebarCategories, setSidebarCategories] = useState<SidebarEntity[]>([]);
+    const [sidebarSeries, setSidebarSeries] = useState<SidebarEntity[]>([]);
+
+    /* ── Drag state ── */
+    const dragIndexRef = useRef<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+    /* ── Data fetching ── */
 
     const fetchTracks = useCallback(async () => {
         try {
             setIsLoading(true);
             const params = new URLSearchParams();
             if (searchQuery) params.set("search", searchQuery);
-            if (filterCategory && filterCategory !== "all")
-                params.set("category", filterCategory);
             const data = await fetchClient(`/music?${params.toString()}`);
             setTracks(Array.isArray(data) ? data : []);
         } catch (error) {
@@ -94,14 +143,18 @@ export default function MusicManagePage() {
         } finally {
             setIsLoading(false);
         }
-    }, [searchQuery, filterCategory]);
+    }, [searchQuery]);
 
-    const fetchCategories = useCallback(async () => {
+    const fetchSidebar = useCallback(async () => {
         try {
-            const data = await fetchClient("/music/categories");
-            setCategories(Array.isArray(data) ? data : []);
+            const [cats, srs] = await Promise.all([
+                fetchClient("/music-categories"),
+                fetchClient("/music-series"),
+            ]);
+            setSidebarCategories(Array.isArray(cats) ? cats : []);
+            setSidebarSeries(Array.isArray(srs) ? srs : []);
         } catch {
-            setCategories([]);
+            /* ignore */
         }
     }, []);
 
@@ -110,8 +163,55 @@ export default function MusicManagePage() {
     }, [fetchTracks]);
 
     useEffect(() => {
-        fetchCategories();
-    }, [fetchCategories]);
+        fetchSidebar();
+    }, [fetchSidebar]);
+
+    /* ── Sidebar filter logic ── */
+
+    const filteredTracks = (() => {
+        let list = tracks;
+
+        // Sidebar filter
+        if (selectedFilter !== "all") {
+            if (selectedFilter.startsWith("cat:")) {
+                const catName = selectedFilter.slice(4);
+                list = list.filter((t) => t.category === catName);
+            } else if (selectedFilter.startsWith("series:")) {
+                const seriesName = selectedFilter.slice(7);
+                list = list.filter((t) => t.series === seriesName);
+            }
+        }
+
+        // Search filter
+        if (searchQuery.trim()) {
+            const q = searchQuery.trim().toLowerCase();
+            list = list.filter(
+                (t) =>
+                    t.title.toLowerCase().includes(q) ||
+                    t.musician.toLowerCase().includes(q) ||
+                    t.performer.toLowerCase().includes(q)
+            );
+        }
+
+        return list;
+    })();
+
+    /* ── Song counts ── */
+    const songCountMap = (() => {
+        const map: Record<string, number> = {};
+        map["all"] = tracks.length;
+        for (const t of tracks) {
+            const catKey = `cat:${t.category}`;
+            map[catKey] = (map[catKey] || 0) + 1;
+            if (t.series) {
+                const seriesKey = `series:${t.series}`;
+                map[seriesKey] = (map[seriesKey] || 0) + 1;
+            }
+        }
+        return map;
+    })();
+
+    /* ── Actions ── */
 
     const handlePlay = (id: string) => {
         setPlayingId(playingId === id ? null : id);
@@ -153,18 +253,73 @@ export default function MusicManagePage() {
         }
     };
 
-    const handleMoveUp = async (index: number) => {
-        if (index === 0) return;
-        const newTracks = [...tracks];
-        const a = newTracks[index]!;
-        const b = newTracks[index - 1]!;
-        newTracks[index - 1] = a;
-        newTracks[index] = b;
-        setTracks(newTracks);
+    /* ── Drag-to-reorder ── */
+
+    const handleDragStart = (index: number) => {
+        dragIndexRef.current = index;
+    };
+
+    const handleDragOver = (e: React.DragEvent, index: number) => {
+        e.preventDefault();
+        setDragOverIndex(index);
+    };
+
+    const handleDragLeave = () => {
+        setDragOverIndex(null);
+    };
+
+    const handleDrop = async (dropIndex: number) => {
+        const dragIndex = dragIndexRef.current;
+        setDragOverIndex(null);
+        dragIndexRef.current = null;
+
+        if (dragIndex === null || dragIndex === dropIndex) return;
+
+        const newTracks = [...filteredTracks];
+        const [dragged] = newTracks.splice(dragIndex, 1);
+        if (!dragged) return;
+        newTracks.splice(dropIndex, 0, dragged);
+
+        // If we're viewing a filtered subset, we need to map back to the full tracks array
+        // For simplicity, when filtered, update the full list order
+        if (selectedFilter === "all" && !searchQuery.trim()) {
+            setTracks(newTracks);
+        } else {
+            // Update order within the filtered view
+            const newFull = [...tracks];
+            const filteredIds = newTracks.map((t) => t.id);
+            // Reorder only the filtered items within the full list
+            const filteredPositions = tracks
+                .map((t, i) => (filteredIds.includes(t.id) ? i : -1))
+                .filter((i) => i >= 0);
+            filteredPositions.forEach((pos, i) => {
+                newFull[pos] = newTracks[i]!;
+            });
+            setTracks(newFull);
+        }
+
         try {
+            const allIds = selectedFilter === "all" && !searchQuery.trim()
+                ? newTracks.map((t) => t.id)
+                : tracks.map((t) => t.id); // fallback: send current full order
+            // For filtered reorder, we just reorder the filtered subset
             await fetchClient("/music/reorder/batch", {
                 method: "PATCH",
-                body: JSON.stringify({ ids: newTracks.map((t) => t.id) }),
+                body: JSON.stringify({
+                    ids: selectedFilter === "all" && !searchQuery.trim()
+                        ? newTracks.map((t) => t.id)
+                        : (() => {
+                            const newFull = [...tracks];
+                            const filteredIds = newTracks.map((t) => t.id);
+                            const filteredPositions = tracks
+                                .map((t, i) => (filteredIds.includes(t.id) ? i : -1))
+                                .filter((i) => i >= 0);
+                            filteredPositions.forEach((pos, i) => {
+                                newFull[pos] = newTracks[i]!;
+                            });
+                            return newFull.map((t) => t.id);
+                        })(),
+                }),
             });
         } catch (error) {
             console.error("Failed to reorder:", error);
@@ -172,31 +327,84 @@ export default function MusicManagePage() {
         }
     };
 
-    const handleMoveDown = async (index: number) => {
-        if (index === tracks.length - 1) return;
-        const newTracks = [...tracks];
-        const a = newTracks[index]!;
-        const b = newTracks[index + 1]!;
-        newTracks[index] = b;
-        newTracks[index + 1] = a;
-        setTracks(newTracks);
-        try {
-            await fetchClient("/music/reorder/batch", {
-                method: "PATCH",
-                body: JSON.stringify({ ids: newTracks.map((t) => t.id) }),
-            });
-        } catch (error) {
-            console.error("Failed to reorder:", error);
-            fetchTracks();
-        }
+    const handleDragEnd = () => {
+        dragIndexRef.current = null;
+        setDragOverIndex(null);
     };
+
+    /* ── Sidebar items ── */
+
+    const categoryItems = sidebarCategories.map((c) => {
+        const Icon = getIconComponent(c.icon, Music);
+        return {
+            id: `cat:${c.name}`,
+            name: c.name,
+            icon: <Icon className="h-4 w-4" />,
+        };
+    });
+
+    const seriesItems = sidebarSeries.map((s) => {
+        const Icon = getIconComponent(s.icon, Headphones);
+        return {
+            id: `series:${s.name}`,
+            name: s.name,
+            icon: <Icon className="h-4 w-4" />,
+        };
+    });
+
+    /* ── Sidebar Section Component ── */
+
+    const SidebarSection = ({
+        title,
+        items,
+    }: {
+        title: string;
+        items: { id: string; name: string; icon: React.ReactNode }[];
+    }) => (
+        <div className="mb-6">
+            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3 px-3">
+                {title}
+            </h2>
+            <nav className="space-y-0.5">
+                {items.map((item) => {
+                    const active = selectedFilter === item.id;
+                    const count = songCountMap[item.id] || 0;
+                    return (
+                        <button
+                            key={item.id}
+                            onClick={() => setSelectedFilter(item.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 ${active
+                                ? "bg-white shadow-sm text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-white/60 hover:text-gray-900"
+                                }`}
+                        >
+                            <span
+                                className={`transition-colors ${active ? "text-purple-600" : "text-gray-400"
+                                    }`}
+                            >
+                                {item.icon}
+                            </span>
+                            <span className="text-sm truncate flex-1 text-left">{item.name}</span>
+                            {count > 0 && (
+                                <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${active ? "text-purple-600 bg-purple-100" : "text-gray-400 bg-gray-100/80"}`}>
+                                    {count}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </nav>
+        </div>
+    );
+
+    /* ── Render ── */
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50">
             {/* 顶部工具栏 */}
-            <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto px-8 py-4">
-                    <div className="flex items-center justify-between mb-4">
+            <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
+                <div className="px-8 py-4">
+                    <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                             <Button
                                 variant="ghost"
@@ -207,11 +415,22 @@ export default function MusicManagePage() {
                                 返回
                             </Button>
                             <h1 className="text-2xl font-bold text-gray-900">音乐管理</h1>
+                            <span className="text-sm text-gray-500">
+                                共 {tracks.length} 首
+                            </span>
                         </div>
                         <div className="flex items-center gap-3">
-                            <span className="text-sm text-gray-600">
-                                共 {tracks.length} 首音乐
-                            </span>
+                            {/* 搜索框 */}
+                            <div className="relative w-72">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <Input
+                                    type="text"
+                                    placeholder="搜索音乐、艺术家、作曲家..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="pl-10 bg-white/60 border-gray-200/60"
+                                />
+                            </div>
                             <Button
                                 variant="outline"
                                 onClick={() => router.push("/admin/music/sidebar")}
@@ -228,181 +447,169 @@ export default function MusicManagePage() {
                             </Button>
                         </div>
                     </div>
-
-                    {/* 搜索和筛选 */}
-                    <div className="flex items-center gap-4">
-                        <div className="flex-1 relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                            <Input
-                                type="text"
-                                placeholder="搜索音乐、艺术家、作曲家..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="pl-10"
-                            />
-                        </div>
-                        <Select value={filterCategory} onValueChange={setFilterCategory}>
-                            <SelectTrigger className="w-48">
-                                <Filter className="w-4 h-4 mr-2" />
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">全部分类</SelectItem>
-                                {categories.map((cat) => (
-                                    <SelectItem key={cat} value={cat}>
-                                        {cat}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
                 </div>
             </div>
 
-            {/* 音乐列表 */}
-            <div className="max-w-7xl mx-auto p-8">
-                <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                    {/* 表头 */}
-                    <div className="flex items-center gap-4 px-4 py-3 bg-gray-50 border-b border-gray-200 text-sm font-medium text-gray-700">
-                        <div className="w-16 text-center">#</div>
-                        <div className="w-10"></div>
-                        <div className="w-12"></div>
-                        <div className="flex-1">标题 / 演奏者</div>
-                        <div className="w-32">作曲家</div>
-                        <div className="w-28">分类</div>
-                        <div className="w-32">系列</div>
-                        <div className="w-16 text-right">时长</div>
-                        <div className="w-20 text-right">大小</div>
-                        <div className="w-10"></div>
-                    </div>
+            {/* 主体: 侧边栏 + 内容 */}
+            <div className="flex" style={{ height: "calc(100vh - 73px)" }}>
+                {/* ═══ 侧边栏 ═══ */}
+                <aside className="w-60 h-full overflow-y-auto py-6 px-4 flex-shrink-0 border-r border-gray-200/40">
+                    <SidebarSection
+                        title="库"
+                        items={[
+                            {
+                                id: "all",
+                                name: "所有音乐",
+                                icon: <ListMusic className="h-4 w-4" />,
+                            },
+                            ...categoryItems,
+                        ]}
+                    />
+                    {seriesItems.length > 0 && (
+                        <SidebarSection title="系列" items={seriesItems} />
+                    )}
+                </aside>
 
-                    {/* 列表 */}
-                    <div>
-                        {isLoading ? (
-                            <div className="py-16 text-center text-gray-500">
-                                <div className="w-8 h-8 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
-                                加载中...
-                            </div>
-                        ) : tracks.length > 0 ? (
-                            tracks.map((track, index) => (
-                                <div
-                                    key={track.id}
-                                    className="group flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100"
-                                >
-                                    {/* 排序按钮 + 序号 */}
-                                    <div className="w-16 flex items-center justify-center gap-1">
-                                        <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button
-                                                onClick={() => handleMoveUp(index)}
-                                                className="p-0.5 hover:bg-gray-200 rounded"
-                                                disabled={index === 0}
-                                            >
-                                                <ChevronUp className="w-3 h-3 text-gray-500" />
-                                            </button>
-                                            <button
-                                                onClick={() => handleMoveDown(index)}
-                                                className="p-0.5 hover:bg-gray-200 rounded"
-                                                disabled={index === tracks.length - 1}
-                                            >
-                                                <ChevronDown className="w-3 h-3 text-gray-500" />
-                                            </button>
-                                        </div>
-                                        <span className="text-sm text-gray-500 font-medium">
-                                            {index + 1}
-                                        </span>
-                                    </div>
+                {/* ═══ 内容区 ═══ */}
+                <main className="flex-1 h-full overflow-y-auto p-6">
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                        {/* 表头 */}
+                        <div className="grid grid-cols-[40px_40px_1fr_140px_120px_120px_70px_70px_40px] gap-3 px-4 py-3 bg-gray-50/80 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <div></div>
+                            <div></div>
+                            <div>标题 / 演奏者</div>
+                            <div>作曲家</div>
+                            <div>分类</div>
+                            <div>系列</div>
+                            <div className="text-right">时长</div>
+                            <div className="text-right">大小</div>
+                            <div></div>
+                        </div>
 
-                                    {/* 播放按钮 */}
-                                    <button
-                                        onClick={() => handlePlay(track.id)}
-                                        className="w-10 h-10 flex items-center justify-center bg-purple-100 hover:bg-purple-200 rounded-full transition-colors"
-                                    >
-                                        {playingId === track.id ? (
-                                            <Pause className="w-5 h-5 text-purple-600" />
-                                        ) : (
-                                            <Play className="w-5 h-5 text-purple-600 ml-0.5" />
-                                        )}
-                                    </button>
-
-                                    {/* 封面 */}
-                                    <div className="w-12 h-12 bg-gradient-to-br from-purple-200 to-pink-200 rounded flex items-center justify-center flex-shrink-0">
-                                        {track.coverUrl ? (
-                                            <img
-                                                src={track.coverUrl}
-                                                alt={track.title}
-                                                className="w-full h-full object-cover rounded"
-                                            />
-                                        ) : (
-                                            <Music className="w-6 h-6 text-purple-600" />
-                                        )}
-                                    </div>
-
-                                    {/* 标题和艺术家 */}
-                                    <div className="flex-1 min-w-0">
-                                        <h3 className="font-medium text-gray-900 truncate">
-                                            {track.title}
-                                        </h3>
-                                        <p className="text-sm text-gray-500 truncate">
-                                            {track.performer}
-                                        </p>
-                                    </div>
-
-                                    {/* 作曲家 */}
-                                    <div className="w-32 text-sm text-gray-600 truncate">
-                                        {track.musician}
-                                    </div>
-
-                                    {/* 分类 */}
-                                    <div className="w-28 text-sm text-gray-600 truncate">
-                                        {track.category}
-                                    </div>
-
-                                    {/* 系列 */}
-                                    <div className="w-32 text-sm text-gray-500 truncate">
-                                        {track.series || "-"}
-                                    </div>
-
-                                    {/* 时长 */}
-                                    <div className="w-16 text-sm text-gray-500 text-right">
-                                        {formatDuration(track.duration)}
-                                    </div>
-
-                                    {/* 文件大小 */}
-                                    <div className="w-20 text-sm text-gray-500 text-right">
-                                        {formatFileSize(track.fileSize)}
-                                    </div>
-
-                                    {/* 操作菜单 */}
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <button className="p-2 hover:bg-gray-200 rounded transition-colors opacity-0 group-hover:opacity-100">
-                                                <MoreVertical className="w-5 h-5 text-gray-600" />
-                                            </button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => handleEdit(track)}>
-                                                <Edit className="w-4 h-4 mr-2" />
-                                                编辑
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem
-                                                onClick={() => handleDelete(track.id)}
-                                                className="text-red-600"
-                                            >
-                                                <Trash2 className="w-4 h-4 mr-2" />
-                                                删除
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
+                        {/* 列表 */}
+                        <div>
+                            {isLoading ? (
+                                <div className="py-16 text-center text-gray-500">
+                                    <div className="w-8 h-8 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
+                                    加载中...
                                 </div>
-                            ))
-                        ) : (
-                            <div className="py-16 text-center text-gray-500">
-                                <Music className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                                <p>还没有音乐，点击上方"上传音乐"添加</p>
-                            </div>
-                        )}
+                            ) : filteredTracks.length > 0 ? (
+                                filteredTracks.map((track, index) => {
+                                    const isDragOver = dragOverIndex === index;
+                                    return (
+                                        <div
+                                            key={track.id}
+                                            draggable
+                                            onDragStart={() => handleDragStart(index)}
+                                            onDragOver={(e) => handleDragOver(e, index)}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={() => handleDrop(index)}
+                                            onDragEnd={handleDragEnd}
+                                            className={`group grid grid-cols-[40px_40px_1fr_140px_120px_120px_70px_70px_40px] gap-3 px-4 py-3 transition-all border-b border-gray-100 hover:bg-purple-50/30 ${isDragOver
+                                                ? "border-t-2 border-t-purple-400 bg-purple-50/40"
+                                                : ""
+                                                }`}
+                                        >
+                                            {/* Drag handle */}
+                                            <div className="flex items-center justify-center cursor-grab active:cursor-grabbing">
+                                                <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
+                                            </div>
+
+                                            {/* 播放按钮 */}
+                                            <div className="flex items-center justify-center">
+                                                <button
+                                                    onClick={() => handlePlay(track.id)}
+                                                    className="w-8 h-8 flex items-center justify-center bg-purple-100 hover:bg-purple-200 rounded-full transition-colors"
+                                                >
+                                                    {playingId === track.id ? (
+                                                        <Pause className="w-4 h-4 text-purple-600" />
+                                                    ) : (
+                                                        <Play className="w-4 h-4 text-purple-600 ml-0.5" />
+                                                    )}
+                                                </button>
+                                            </div>
+
+                                            {/* 标题和演奏者 */}
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                    {(() => {
+                                                        const cat = sidebarCategories.find((c) => c.name === track.category);
+                                                        const CatIcon = getIconComponent(cat?.icon, Music);
+                                                        return <CatIcon className="w-5 h-5 text-purple-500" />;
+                                                    })()}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h3 className="font-medium text-gray-900 text-sm leading-tight break-words">
+                                                        {track.title}
+                                                    </h3>
+                                                    <p className="text-xs text-gray-400 mt-0.5">
+                                                        {track.performer}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* 作曲家 */}
+                                            <div className="flex items-center text-sm text-gray-600">
+                                                {track.musician}
+                                            </div>
+
+                                            {/* 分类 */}
+                                            <div className="flex items-center">
+                                                <span className="text-xs px-2 py-1 bg-purple-50 text-purple-600 rounded-md">
+                                                    {track.category}
+                                                </span>
+                                            </div>
+
+                                            {/* 系列 */}
+                                            <div className="flex items-center text-sm text-gray-500">
+                                                {track.series || "-"}
+                                            </div>
+
+                                            {/* 时长 */}
+                                            <div className="flex items-center justify-end text-sm text-gray-500 tabular-nums">
+                                                {formatDuration(track.duration)}
+                                            </div>
+
+                                            {/* 文件大小 */}
+                                            <div className="flex items-center justify-end text-sm text-gray-400 tabular-nums">
+                                                {formatFileSize(track.fileSize)}
+                                            </div>
+
+                                            {/* 操作菜单 */}
+                                            <div className="flex items-center justify-center">
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <button className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
+                                                            <MoreVertical className="w-4 h-4 text-gray-500" />
+                                                        </button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem onClick={() => handleEdit(track)}>
+                                                            <Edit className="w-4 h-4 mr-2" />
+                                                            编辑
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            onClick={() => handleDelete(track.id)}
+                                                            className="text-red-600"
+                                                        >
+                                                            <Trash2 className="w-4 h-4 mr-2" />
+                                                            删除
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="py-16 text-center text-gray-500">
+                                    <Music className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                                    <p>{searchQuery ? "没有找到匹配的音乐" : "暂无音乐"}</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
+                </main>
             </div>
 
             {/* 编辑对话框 */}

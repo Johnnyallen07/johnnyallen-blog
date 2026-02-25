@@ -23,7 +23,7 @@ const PROJECTS: Project[] = [
     {
         name: "Stock Price Generator",
         description:
-            "游戏马拉松（泡沫主题）的数据生成器，随时被砸盘的随机模拟",
+            "游戏马拉松（泡沫主题）的数据生成器",
         link: "https://stanly-c2.itch.io/city-of-broken-dreamers",
         image: "",
         icon: "🎮",

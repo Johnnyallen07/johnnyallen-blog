@@ -148,6 +148,7 @@ model MusicCategory {
   name        String   @unique
   slug        String   @unique
   description String?
+  icon        String?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -160,6 +161,7 @@ model MusicArtist {
   name        String   @unique
   slug        String   @unique
   description String?
+  icon        String?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -172,6 +174,7 @@ model MusicSeries {
   name        String   @unique
   slug        String   @unique
   description String?
+  icon        String?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

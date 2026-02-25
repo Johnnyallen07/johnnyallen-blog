@@ -40,8 +40,8 @@ export class MusicService {
             err instanceof Error
               ? err
               : new Error(
-                  (err as { message?: string }).message ?? 'Unknown error',
-                ),
+                (err as { message?: string }).message ?? 'Unknown error',
+              ),
           );
         else resolve(data as { Url: string });
       });
@@ -98,6 +98,14 @@ export class MusicService {
       results.push(track);
     }
     return results;
+  }
+
+  /** 检查曲目标题是否已存在 */
+  async checkTitleExists(title: string): Promise<{ exists: boolean }> {
+    const track = await this.prisma.musicTrack.findFirst({
+      where: { title },
+    });
+    return { exists: !!track };
   }
 
   /** 获取所有曲目，可搜索/筛选 */

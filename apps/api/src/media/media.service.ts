@@ -56,8 +56,8 @@ export class MediaService {
             err instanceof Error
               ? err
               : new Error(
-                  (err as { message?: string }).message ?? 'Unknown error',
-                ),
+                (err as { message?: string }).message ?? 'Unknown error',
+              ),
           );
         else resolve(data as { Url: string });
       });
@@ -75,8 +75,8 @@ export class MediaService {
             err instanceof Error
               ? err
               : new Error(
-                  (err as { message?: string }).message ?? 'Unknown error',
-                ),
+                (err as { message?: string }).message ?? 'Unknown error',
+              ),
           );
         else
           resolve(
@@ -92,7 +92,7 @@ export class MediaService {
   async generatePresignedUrl(fileName: string, contentType: string) {
     const fileId = uuidv4();
     const extension = fileName.split('.').pop();
-    const key = `${fileId}.${extension}`;
+    const key = `assets/${fileId}.${extension}`;
 
     try {
       const { Url: uploadUrl } = await this.getObjectUrlAsync({

@@ -5,7 +5,7 @@ export const metadata: Metadata = {
     title: "Johnny Music",
     description: "Johnny 的古典音乐空间 — 钢琴、小提琴与室内乐的精选收藏。",
     icons: {
-        icon: "/images/logo.png",
+        icon: "/images/favicon.ico",
     },
 };
 

@@ -29,8 +29,9 @@ interface UploadFile {
     file: File;
     id: string;
     title: string;
-    status: "pending" | "uploading" | "done" | "error";
+    status: "pending" | "uploading" | "done" | "error" | "duplicate";
     progress: number;
+    speed: string; // e.g. "1.2 MB/s"
     key?: string;
     publicUrl?: string;
 }
@@ -40,6 +41,10 @@ interface SidebarEntity {
     name: string;
     slug: string;
 }
+
+/* ── Constants ── */
+
+const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30 MB
 
 /* ── Helpers ── */
 
@@ -57,6 +62,65 @@ function getAudioDuration(file: File): Promise<number> {
 
 function stripExtension(name: string) {
     return name.replace(/\.[^.]+$/, "");
+}
+
+function formatSpeed(bytesPerSecond: number): string {
+    if (bytesPerSecond >= 1024 * 1024) {
+        return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+    }
+    if (bytesPerSecond >= 1024) {
+        return `${(bytesPerSecond / 1024).toFixed(0)} KB/s`;
+    }
+    return `${bytesPerSecond.toFixed(0)} B/s`;
+}
+
+/** 使用 XMLHttpRequest 上传文件到 COS，支持进度回调 */
+function uploadWithProgress(
+    url: string,
+    file: File,
+    onProgress: (percent: number, speed: string) => void,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        let lastLoaded = 0;
+        let lastTime = Date.now();
+
+        xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                const now = Date.now();
+                const elapsed = (now - lastTime) / 1000; // seconds
+                if (elapsed > 0.3) {
+                    const bytesPerSecond = (e.loaded - lastLoaded) / elapsed;
+                    lastLoaded = e.loaded;
+                    lastTime = now;
+                    onProgress(percent, formatSpeed(bytesPerSecond));
+                } else {
+                    onProgress(percent, "");
+                }
+            }
+        });
+
+        xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                onProgress(100, "");
+                resolve();
+            } else {
+                reject(new Error(`COS upload failed: ${xhr.status} ${xhr.statusText}`));
+            }
+        });
+
+        xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+        xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
+
+        xhr.open("PUT", url);
+        xhr.setRequestHeader("Content-Type", "audio/mpeg");
+        xhr.timeout = 5 * 60 * 1000; // 5 minutes timeout
+        xhr.addEventListener("timeout", () =>
+            reject(new Error("Upload timed out (5 min)"))
+        );
+        xhr.send(file);
+    });
 }
 
 /* ── Page ── */
@@ -95,20 +159,60 @@ export default function MusicUploadPage() {
 
     /* ── File handling ── */
 
-    const handleFileSelect = (newFiles: FileList | null) => {
+    const handleFileSelect = async (newFiles: FileList | null) => {
         if (!newFiles) return;
-        const mp3s = Array.from(newFiles).filter(
+        const allMp3s = Array.from(newFiles).filter(
             (f) =>
                 f.type === "audio/mpeg" ||
                 f.name.toLowerCase().endsWith(".mp3")
         );
+
+        // Filter by size limit
+        const oversized = allMp3s.filter((f) => f.size > MAX_FILE_SIZE);
+        const mp3s = allMp3s.filter((f) => f.size <= MAX_FILE_SIZE);
+        if (oversized.length > 0) {
+            alert(
+                `以下文件超过 30MB 限制，已跳过：\n${oversized.map((f) => `${f.name} (${(f.size / (1024 * 1024)).toFixed(1)} MB)`).join("\n")}`
+            );
+        }
+        if (mp3s.length === 0) return;
+
         const additions: UploadFile[] = mp3s.map((f) => ({
             file: f,
             id: crypto.randomUUID(),
             title: stripExtension(f.name),
             status: "pending" as const,
             progress: 0,
+            speed: "",
         }));
+
+        // Deduplicate within the new batch + against existing files in the list
+        const seenTitles = new Set<string>();
+        setFiles((prev) => {
+            prev.forEach((f) => seenTitles.add(f.title));
+            return prev;
+        });
+
+        // Check each new file title against DB
+        for (const af of additions) {
+            if (seenTitles.has(af.title)) {
+                af.status = "duplicate";
+                continue;
+            }
+            seenTitles.add(af.title);
+
+            try {
+                const res = await fetchClient(
+                    `/music/check-title?title=${encodeURIComponent(af.title)}`
+                );
+                if (res?.exists) {
+                    af.status = "duplicate";
+                }
+            } catch {
+                // If check fails, keep as pending
+            }
+        }
+
         setFiles((prev) => [...prev, ...additions]);
     };
 
@@ -133,16 +237,36 @@ export default function MusicUploadPage() {
         if (files.length === 0 || !musician || !performer || !categoryId) return;
         setIsUploading(true);
 
-        // take a local copy
-        const uploadedFiles: UploadFile[] = [...files];
+        const uploadList = [...files];
+        let successCount = 0;
 
-        for (let i = 0; i < uploadedFiles.length; i++) {
-            const uf = uploadedFiles[i];
+        for (let i = 0; i < uploadList.length; i++) {
+            const uf = uploadList[i];
             if (!uf) continue;
 
+            // 1. Check for duplicate title
+            try {
+                const checkRes = await fetchClient(
+                    `/music/check-title?title=${encodeURIComponent(uf.title)}`
+                );
+                if (checkRes?.exists) {
+                    setFiles((prev) =>
+                        prev.map((f) =>
+                            f.id === uf.id
+                                ? { ...f, status: "duplicate" as const, progress: 0, speed: "" }
+                                : f
+                        )
+                    );
+                    continue;
+                }
+            } catch {
+                // If check fails, proceed with upload
+            }
+
+            // 2. Upload to COS
             setFiles((prev) =>
                 prev.map((f) =>
-                    f.id === uf.id ? { ...f, status: "uploading" as const } : f
+                    f.id === uf.id ? { ...f, status: "uploading" as const, progress: 0, speed: "" } : f
                 )
             );
 
@@ -155,86 +279,73 @@ export default function MusicUploadPage() {
                     }
                 );
 
-                const uploadRes = await fetch(uploadUrl, {
-                    method: "PUT",
-                    body: uf.file,
-                    headers: { "Content-Type": "audio/mpeg" },
+                await uploadWithProgress(
+                    uploadUrl,
+                    uf.file,
+                    (percent, speed) => {
+                        setFiles((prev) =>
+                            prev.map((f) =>
+                                f.id === uf.id
+                                    ? { ...f, progress: percent, speed: speed || f.speed }
+                                    : f
+                            )
+                        );
+                    },
+                );
+
+                // 3. Immediately save to DB after successful COS upload
+                const dur = await getAudioDuration(uf.file);
+                await fetchClient("/music", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        title: uf.title,
+                        musician,
+                        performer,
+                        category: selectedCategory,
+                        series: selectedSeries || undefined,
+                        duration: dur,
+                        fileKey: key,
+                        fileUrl: publicUrl,
+                        fileSize: uf.file.size,
+                    }),
                 });
-                if (!uploadRes.ok) throw new Error("COS upload failed");
 
-                uploadedFiles[i] = {
-                    file: uf.file,
-                    id: uf.id,
-                    title: uf.title,
-                    status: "done",
-                    progress: 100,
-                    key,
-                    publicUrl,
-                };
-
+                successCount++;
                 setFiles((prev) =>
                     prev.map((f) =>
                         f.id === uf.id
-                            ? { ...f, status: "done" as const, progress: 100, key, publicUrl }
+                            ? { ...f, status: "done" as const, progress: 100, speed: "", key, publicUrl }
                             : f
                     )
                 );
             } catch (error) {
                 console.error("Upload error:", error);
-                uploadedFiles[i] = {
-                    file: uf.file,
-                    id: uf.id,
-                    title: uf.title,
-                    status: "error",
-                    progress: 0,
-                };
                 setFiles((prev) =>
                     prev.map((f) =>
-                        f.id === uf.id ? { ...f, status: "error" as const } : f
+                        f.id === uf.id ? { ...f, status: "error" as const, progress: 0, speed: "" } : f
                     )
                 );
             }
         }
 
-        // batch create records for successfully uploaded files
-        const successFiles = uploadedFiles.filter(
-            (f) => f.status === "done" && f.key && f.publicUrl
-        );
-
-        if (successFiles.length > 0) {
-            try {
-                const dtos = await Promise.all(
-                    successFiles.map(async (sf) => {
-                        const dur = await getAudioDuration(sf.file);
-                        return {
-                            title: sf.title,
-                            musician,
-                            performer,
-                            category: selectedCategory,
-                            series: selectedSeries || undefined,
-                            duration: dur,
-                            fileKey: sf.key!,
-                            fileUrl: sf.publicUrl!,
-                            fileSize: sf.file.size,
-                        };
-                    })
-                );
-                await fetchClient("/music/batch", {
-                    method: "POST",
-                    body: JSON.stringify(dtos),
-                });
-                alert(`成功上传 ${successFiles.length} 首音乐！`);
-                router.push("/admin/music");
-            } catch (error) {
-                console.error("Batch create error:", error);
-                alert("文件已上传，但创建记录失败");
-            }
+        const duplicateCount = files.filter((f) => f.status === "duplicate").length;
+        if (successCount > 0) {
+            const msg = duplicateCount > 0
+                ? `成功上传 ${successCount} 首音乐！${duplicateCount} 首因标题重复已跳过。`
+                : `成功上传 ${successCount} 首音乐！`;
+            alert(msg);
+            router.push("/admin/music");
+        } else if (duplicateCount > 0) {
+            alert(`所有曲目标题已存在，已全部跳过。`);
         }
 
         setIsUploading(false);
     };
 
     const pendingCount = files.filter((f) => f.status === "pending").length;
+    const totalProgress = files.length > 0
+        ? Math.round(files.reduce((sum, f) => sum + f.progress, 0) / files.length)
+        : 0;
 
     /* ── Render ── */
 
@@ -277,7 +388,7 @@ export default function MusicUploadPage() {
                     >
                         <Upload className="h-10 w-10 mx-auto mb-3 text-purple-400" />
                         <p className="text-purple-600 font-medium">选择文件 或拖放文件</p>
-                        <p className="text-sm text-gray-500 mt-1">单文件 MP3 小于 50MB</p>
+                        <p className="text-sm text-gray-500 mt-1">单文件 MP3 小于 30MB</p>
                     </div>
                     <input
                         ref={fileInputRef}
@@ -288,49 +399,87 @@ export default function MusicUploadPage() {
                         onChange={(e) => handleFileSelect(e.target.files)}
                     />
 
-                    {/* File list with per-file title */}
+                    {/* File list with per-file title and progress */}
                     {files.length > 0 && (
-                        <div className="mt-4 space-y-2 max-h-80 overflow-y-auto">
+                        <div className="mt-4 space-y-2 max-h-[28rem] overflow-y-auto">
                             {files.map((f) => (
                                 <div
                                     key={f.id}
-                                    className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100"
+                                    className="p-3 rounded-lg bg-gray-50 border border-gray-100"
                                 >
-                                    <div className="flex-shrink-0">
-                                        {f.status === "done" ? (
-                                            <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                        ) : f.status === "error" ? (
-                                            <AlertCircle className="h-5 w-5 text-red-500" />
-                                        ) : f.status === "uploading" ? (
-                                            <Loader2 className="h-5 w-5 text-purple-500 animate-spin" />
-                                        ) : (
-                                            <FileAudio className="h-5 w-5 text-gray-400" />
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex-shrink-0">
+                                            {f.status === "done" ? (
+                                                <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                            ) : f.status === "error" ? (
+                                                <AlertCircle className="h-5 w-5 text-red-500" />
+                                            ) : f.status === "duplicate" ? (
+                                                <AlertCircle className="h-5 w-5 text-amber-500" />
+                                            ) : f.status === "uploading" ? (
+                                                <Loader2 className="h-5 w-5 text-purple-500 animate-spin" />
+                                            ) : (
+                                                <FileAudio className="h-5 w-5 text-gray-400" />
+                                            )}
+                                        </div>
+
+                                        <div className="flex-1 min-w-0">
+                                            <Input
+                                                value={f.title}
+                                                onChange={(e) =>
+                                                    updateFileTitle(f.id, e.target.value)
+                                                }
+                                                placeholder="输入标题"
+                                                className="h-8 text-sm"
+                                                disabled={f.status !== "pending"}
+                                            />
+                                            <p className="text-xs text-gray-400 mt-0.5 truncate">
+                                                {f.file.name} ·{" "}
+                                                {(f.file.size / (1024 * 1024)).toFixed(1)} MB
+                                            </p>
+                                        </div>
+
+                                        {f.status === "pending" && (
+                                            <button
+                                                onClick={() => removeFile(f.id)}
+                                                className="p-1 hover:bg-gray-200 rounded transition-colors"
+                                            >
+                                                <X className="h-4 w-4 text-gray-500" />
+                                            </button>
+                                        )}
+
+                                        {f.status === "uploading" && (
+                                            <span className="text-xs font-medium text-purple-600 tabular-nums whitespace-nowrap">
+                                                {f.progress}%
+                                            </span>
                                         )}
                                     </div>
 
-                                    <div className="flex-1 min-w-0">
-                                        <Input
-                                            value={f.title}
-                                            onChange={(e) =>
-                                                updateFileTitle(f.id, e.target.value)
-                                            }
-                                            placeholder="输入标题"
-                                            className="h-8 text-sm"
-                                            disabled={f.status !== "pending"}
-                                        />
-                                        <p className="text-xs text-gray-400 mt-0.5 truncate">
-                                            {f.file.name} ·{" "}
-                                            {(f.file.size / (1024 * 1024)).toFixed(1)} MB
-                                        </p>
-                                    </div>
+                                    {/* Progress bar */}
+                                    {(f.status === "uploading" || f.status === "done") && (
+                                        <div className="mt-2">
+                                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full transition-all duration-300 ease-out ${f.status === "done"
+                                                        ? "bg-green-500"
+                                                        : "bg-gradient-to-r from-pink-500 to-purple-500"
+                                                        }`}
+                                                    style={{ width: `${f.progress}%` }}
+                                                />
+                                            </div>
+                                            {f.status === "uploading" && f.speed && (
+                                                <p className="text-xs text-gray-400 mt-1 text-right tabular-nums">
+                                                    {f.speed}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
 
-                                    {f.status === "pending" && (
-                                        <button
-                                            onClick={() => removeFile(f.id)}
-                                            className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                        >
-                                            <X className="h-4 w-4 text-gray-500" />
-                                        </button>
+                                    {f.status === "error" && (
+                                        <p className="mt-1.5 text-xs text-red-500">上传失败，请重试</p>
+                                    )}
+
+                                    {f.status === "duplicate" && (
+                                        <p className="mt-1.5 text-xs text-amber-600">⚠️ 曲目标题已存在，已跳过</p>
                                     )}
                                 </div>
                             ))}
@@ -420,7 +569,7 @@ export default function MusicUploadPage() {
                     {isUploading ? (
                         <>
                             <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                            上传中...
+                            上传中 {totalProgress}%
                         </>
                     ) : (
                         `提交 (${pendingCount} 个文件)`
@@ -430,3 +579,4 @@ export default function MusicUploadPage() {
         </div>
     );
 }
+

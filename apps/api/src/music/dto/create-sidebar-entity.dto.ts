@@ -10,4 +10,8 @@ export class CreateSidebarEntityDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  icon?: string;
 }

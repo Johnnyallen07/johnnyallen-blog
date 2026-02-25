@@ -8,11 +8,32 @@ import {
     Edit,
     Trash2,
     Music,
-    User,
+    Music2,
+    Music4,
+    Mic2,
+    Guitar,
+    Piano,
+    Disc2,
+    Disc3,
+    FileMusic,
     ListMusic,
+    Users,
+    AudioLines,
+    Headphones,
+    Radio,
+    Volume2,
+    Star,
+    Heart,
+    Sparkles,
+    Library,
+    BookOpen,
+    Waves,
+    CirclePlay,
+    User,
     ChevronUp,
     ChevronDown,
     Loader2,
+    type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +47,43 @@ import {
 } from "@/components/ui/dialog";
 import { fetchClient } from "@/lib/api";
 
+/* ── Icon Registry ── */
+
+const ICON_OPTIONS: { name: string; icon: LucideIcon; label: string }[] = [
+    { name: "Music", icon: Music, label: "音符" },
+    { name: "Music2", icon: Music2, label: "双音符" },
+    { name: "Music4", icon: Music4, label: "四分音符" },
+    { name: "Mic2", icon: Mic2, label: "麦克风" },
+    { name: "Guitar", icon: Guitar, label: "吉他" },
+    { name: "Piano", icon: Piano, label: "钢琴" },
+    { name: "Disc2", icon: Disc2, label: "唱片" },
+    { name: "Disc3", icon: Disc3, label: "黑胶" },
+    { name: "FileMusic", icon: FileMusic, label: "乐谱" },
+    { name: "ListMusic", icon: ListMusic, label: "播放列表" },
+    { name: "Users", icon: Users, label: "合奏" },
+    { name: "AudioLines", icon: AudioLines, label: "波形" },
+    { name: "Headphones", icon: Headphones, label: "耳机" },
+    { name: "Radio", icon: Radio, label: "收音机" },
+    { name: "Volume2", icon: Volume2, label: "音量" },
+    { name: "Star", icon: Star, label: "星标" },
+    { name: "Heart", icon: Heart, label: "收藏" },
+    { name: "Sparkles", icon: Sparkles, label: "推荐" },
+    { name: "Library", icon: Library, label: "图书馆" },
+    { name: "BookOpen", icon: BookOpen, label: "书本" },
+    { name: "Waves", icon: Waves, label: "波浪" },
+    { name: "CirclePlay", icon: CirclePlay, label: "播放" },
+    { name: "User", icon: User, label: "用户" },
+];
+
+const ICON_MAP: Record<string, LucideIcon> = Object.fromEntries(
+    ICON_OPTIONS.map((o) => [o.name, o.icon])
+);
+
+function getIcon(name: string | null | undefined): LucideIcon {
+    if (name && ICON_MAP[name]) return ICON_MAP[name]!;
+    return Music2;
+}
+
 /* ── Types ── */
 
 interface SidebarEntity {
@@ -33,6 +91,7 @@ interface SidebarEntity {
     name: string;
     slug: string;
     description: string | null;
+    icon: string | null;
     order: number;
 }
 
@@ -62,6 +121,63 @@ const ENTITY_CONFIG: Record<
     },
 };
 
+/* ── Icon Picker ── */
+
+function IconPicker({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (icon: string) => void;
+}) {
+    const [isOpen, setIsOpen] = useState(false);
+    const SelectedIcon = getIcon(value);
+
+    return (
+        <div className="relative">
+            <Label>图标</Label>
+            <button
+                type="button"
+                onClick={() => setIsOpen(!isOpen)}
+                className="mt-1.5 w-full flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors text-sm"
+            >
+                <SelectedIcon className="h-4 w-4 text-gray-700" />
+                <span className="text-gray-600">{value || "选择图标..."}</span>
+            </button>
+            {isOpen && (
+                <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2 max-h-48 overflow-y-auto">
+                    <div className="grid grid-cols-6 gap-1">
+                        {ICON_OPTIONS.map((opt) => {
+                            const Icon = opt.icon;
+                            const active = value === opt.name;
+                            return (
+                                <button
+                                    key={opt.name}
+                                    type="button"
+                                    onClick={() => {
+                                        onChange(opt.name);
+                                        setIsOpen(false);
+                                    }}
+                                    className={`flex flex-col items-center gap-0.5 p-2 rounded-md transition-colors ${active
+                                        ? "bg-purple-100 text-purple-700"
+                                        : "hover:bg-gray-100 text-gray-600"
+                                        }`}
+                                    title={opt.label}
+                                >
+                                    <Icon className="h-4 w-4" />
+                                    <span className="text-[10px] truncate w-full text-center">
+                                        {opt.label}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 /* ── Reusable column component ── */
 
 function EntityColumn({ type }: { type: EntityType }) {
@@ -75,6 +191,7 @@ function EntityColumn({ type }: { type: EntityType }) {
     const [formName, setFormName] = useState("");
     const [formSlug, setFormSlug] = useState("");
     const [formDesc, setFormDesc] = useState("");
+    const [formIcon, setFormIcon] = useState("");
 
     const fetchItems = useCallback(async () => {
         try {
@@ -97,6 +214,7 @@ function EntityColumn({ type }: { type: EntityType }) {
         setFormName("");
         setFormSlug("");
         setFormDesc("");
+        setFormIcon("");
         setIsDialogOpen(true);
     };
 
@@ -105,28 +223,27 @@ function EntityColumn({ type }: { type: EntityType }) {
         setFormName(item.name);
         setFormSlug(item.slug);
         setFormDesc(item.description || "");
+        setFormIcon(item.icon || "");
         setIsDialogOpen(true);
     };
 
     const handleSave = async () => {
         try {
+            const body = {
+                name: formName,
+                slug: formSlug,
+                description: formDesc || undefined,
+                icon: formIcon || undefined,
+            };
             if (editingItem) {
                 await fetchClient(`${config.apiPath}/${editingItem.id}`, {
                     method: "PATCH",
-                    body: JSON.stringify({
-                        name: formName,
-                        slug: formSlug,
-                        description: formDesc || undefined,
-                    }),
+                    body: JSON.stringify(body),
                 });
             } else {
                 await fetchClient(config.apiPath, {
                     method: "POST",
-                    body: JSON.stringify({
-                        name: formName,
-                        slug: formSlug,
-                        description: formDesc || undefined,
-                    }),
+                    body: JSON.stringify(body),
                 });
             }
             setIsDialogOpen(false);
@@ -225,57 +342,65 @@ function EntityColumn({ type }: { type: EntityType }) {
                     </div>
                 ) : (
                     <div className="divide-y divide-gray-200/50">
-                        {items.map((item, index) => (
-                            <div
-                                key={item.id}
-                                className="group flex items-center gap-3 px-4 py-3 hover:bg-white/50 transition-colors"
-                            >
-                                {/* Reorder */}
-                                <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onClick={() => handleMove(index, "up")}
-                                        disabled={index === 0}
-                                        className="p-0.5 hover:bg-white rounded disabled:opacity-30"
-                                    >
-                                        <ChevronUp className="w-3 h-3 text-gray-500" />
-                                    </button>
-                                    <button
-                                        onClick={() => handleMove(index, "down")}
-                                        disabled={index === items.length - 1}
-                                        className="p-0.5 hover:bg-white rounded disabled:opacity-30"
-                                    >
-                                        <ChevronDown className="w-3 h-3 text-gray-500" />
-                                    </button>
-                                </div>
+                        {items.map((item, index) => {
+                            const ItemIcon = getIcon(item.icon);
+                            return (
+                                <div
+                                    key={item.id}
+                                    className="group flex items-center gap-3 px-4 py-3 hover:bg-white/50 transition-colors"
+                                >
+                                    {/* Reorder */}
+                                    <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => handleMove(index, "up")}
+                                            disabled={index === 0}
+                                            className="p-0.5 hover:bg-white rounded disabled:opacity-30"
+                                        >
+                                            <ChevronUp className="w-3 h-3 text-gray-500" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleMove(index, "down")}
+                                            disabled={index === items.length - 1}
+                                            className="p-0.5 hover:bg-white rounded disabled:opacity-30"
+                                        >
+                                            <ChevronDown className="w-3 h-3 text-gray-500" />
+                                        </button>
+                                    </div>
 
-                                {/* Info */}
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">
-                                        {item.name}
-                                    </p>
-                                    <p className="text-xs text-gray-500 truncate">
-                                        /{item.slug}
-                                        {item.description && ` · ${item.description}`}
-                                    </p>
-                                </div>
+                                    {/* Icon */}
+                                    <div className="w-8 h-8 rounded-lg bg-white/70 flex items-center justify-center flex-shrink-0">
+                                        <ItemIcon className="w-4 h-4 text-gray-600" />
+                                    </div>
 
-                                {/* Actions */}
-                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onClick={() => openEdit(item)}
-                                        className="p-1.5 hover:bg-white rounded transition-colors"
-                                    >
-                                        <Edit className="w-3.5 h-3.5 text-gray-500" />
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(item.id)}
-                                        className="p-1.5 hover:bg-red-50 rounded transition-colors"
-                                    >
-                                        <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                                    </button>
+                                    {/* Info */}
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-gray-900 truncate">
+                                            {item.name}
+                                        </p>
+                                        <p className="text-xs text-gray-500 truncate">
+                                            /{item.slug}
+                                            {item.description && ` · ${item.description}`}
+                                        </p>
+                                    </div>
+
+                                    {/* Actions */}
+                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => openEdit(item)}
+                                            className="p-1.5 hover:bg-white rounded transition-colors"
+                                        >
+                                            <Edit className="w-3.5 h-3.5 text-gray-500" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(item.id)}
+                                            className="p-1.5 hover:bg-red-50 rounded transition-colors"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -316,6 +441,7 @@ function EntityColumn({ type }: { type: EntityType }) {
                                 className="mt-1.5"
                             />
                         </div>
+                        <IconPicker value={formIcon} onChange={setFormIcon} />
                     </div>
                     <DialogFooter>
                         <Button

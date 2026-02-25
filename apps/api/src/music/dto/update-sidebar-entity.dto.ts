@@ -12,4 +12,8 @@ export class UpdateSidebarEntityDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  icon?: string;
 }
