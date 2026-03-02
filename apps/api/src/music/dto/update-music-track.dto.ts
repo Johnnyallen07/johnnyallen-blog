@@ -28,4 +28,16 @@ export class UpdateMusicTrackDto {
   @IsOptional()
   @IsString()
   coverUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  fileKey?: string;
+
+  @IsOptional()
+  @IsString()
+  fileUrl?: string;
+
+  @IsOptional()
+  @IsNumber()
+  fileSize?: number;
 }

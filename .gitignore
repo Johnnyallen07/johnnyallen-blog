@@ -154,3 +154,6 @@ devops/
 backups/
 
 apps/web/public/figma/
+
+# YouTube cookies (sensitive)
+cookies.txt

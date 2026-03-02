@@ -40,6 +40,9 @@ services:
       COS_SECRET_ID: ${COS_SECRET_ID}
       COS_SECRET_KEY: ${COS_SECRET_KEY}
       COS_PUBLIC_DOMAIN: ${COS_PUBLIC_DOMAIN:-}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    volumes:
+      - ./cookies.txt:/app/cookies.txt:ro
     ports:
       - '3001:3001'
     depends_on:
@@ -58,6 +61,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+        - NEXT_PUBLIC_MUSIC_URL=${NEXT_PUBLIC_MUSIC_URL:-https://music.johnnyallen.blog}
     image: johnny-blog-web:latest
     pull_policy: if_not_present
     restart: always
@@ -98,6 +102,31 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3002/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+    image: johnny-blog-admin:latest
+    pull_policy: if_not_present
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+      API_SERVER_URL: http://api:3001
+      PORT: 3003
+    ports:
+      - '3003:3003'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10

@@ -23,6 +23,10 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# 安装 python3, ffmpeg, yt-dlp（容器已有 Node.js，通过 --js-runtimes nodejs 让 yt-dlp 使用）
+RUN apk add --no-cache python3 py3-pip ffmpeg \
+    && pip3 install --no-cache-dir --break-system-packages yt-dlp
+
 # --ignore-scripts 跳过 postinstall（prisma generate），避免 prisma CLI 不存在报错
 # Prisma Client 会从 builder 阶段复制，无需重新生成
 COPY package.json ./
@@ -39,7 +43,10 @@ COPY --from=builder /app/prisma ./prisma
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
 # 确保非 root 用户对 prisma 相关目录有读写权限（migrate deploy 需要）
 RUN chown -R 1001:1001 /app/node_modules/.prisma /app/node_modules/@prisma
+# 确保 /tmp 可写（yt-dlp 和 ffmpeg 需要临时文件）
+RUN mkdir -p /tmp && chmod 1777 /tmp
 USER nestjs
 
 EXPOSE 3001
 CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/src/main"]
+

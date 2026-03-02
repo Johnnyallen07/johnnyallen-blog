@@ -13,7 +13,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'https://johnnyallen.blog',
-      'http://localhost:3000',
+      /^https:\/\/[\w-]+\.johnnyallen\.blog$/,
       /^http:\/\/localhost(:\d+)?$/,
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

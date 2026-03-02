@@ -7,9 +7,10 @@ async function main() {
 
     // 1. Ensure User exists
     const user = await prisma.user.upsert({
-        where: { email: 'admin@example.com' },
+        where: { username: 'admin' },
         update: {},
         create: {
+            username: 'admin',
             email: 'admin@example.com',
             name: 'Admin User',
             password: 'password123', // In real app, this should be hashed

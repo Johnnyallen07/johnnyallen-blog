@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react";
+
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     Home, Play, Pause, SkipBack, SkipForward,
@@ -12,7 +14,7 @@ import {
     ChevronLeft, ChevronRight,
     type LucideIcon,
 } from "lucide-react";
-import { ImageWithFallback } from "@/components/ImageWithFallback";
+
 
 /* ───────── Icon Map ───────── */
 
@@ -63,7 +65,57 @@ const DAILY_RECOMMEND_COUNT = 20;
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
+/* ── Sidebar Section (extracted to avoid re-creation on every render tick) ── */
+const SidebarSection = React.memo(function SidebarSection({
+    title,
+    items,
+    selectedPlaylist,
+    songCountMap,
+    onSelect,
+}: {
+    title: string;
+    items: { id: string; name: string; icon: React.ReactNode; filterType?: string }[];
+    selectedPlaylist: string;
+    songCountMap: Record<string, number>;
+    onSelect: (id: string) => void;
+}) {
+    return (
+        <div className="mb-6">
+            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3 px-3">
+                {title}
+            </h2>
+            <nav className="space-y-0.5">
+                {items.map((item) => {
+                    const active = selectedPlaylist === item.id;
+                    const count = songCountMap[item.id] || 0;
+                    return (
+                        <button
+                            key={item.id}
+                            onClick={() => onSelect(item.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 ${active
+                                ? "bg-white/70 shadow-sm text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-white/40 hover:text-gray-900"
+                                }`}
+                        >
+                            <span className={`transition-colors ${active ? "text-purple-600" : "text-gray-400"}`}>
+                                {item.icon}
+                            </span>
+                            <span className="text-sm truncate flex-1 text-left">{item.name}</span>
+                            {count > 0 && (
+                                <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${active ? "text-purple-600 bg-purple-100" : "text-gray-400 bg-gray-100/80"}`}>
+                                    {count}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </nav>
+        </div>
+    );
+});
+
 function formatDuration(seconds: number): string {
+    if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
@@ -139,13 +191,19 @@ export default function MusicPageClient() {
     const [playMode, setPlayMode] = useState<PlayMode>("sequential");
 
 
+    /* ── State: Mobile ── */
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
     /* ── State: UI ── */
     const [selectedPlaylist, setSelectedPlaylist] = useState("daily");
     const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState("");
-    const [allSongs, setAllSongs] = useState<Song[]>([]);
 
+    /* ── State: Server-driven pagination ── */
+    const [pageSongs, setPageSongs] = useState<Song[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [songCountMap, setSongCountMap] = useState<Record<string, number>>({});
 
     /* ── State: Sidebar ── */
     const [sidebarCategories, setSidebarCategories] = useState<SidebarEntity[]>([]);
@@ -173,6 +231,9 @@ export default function MusicPageClient() {
 
     /* ════════════ Audio Engine ════════════ */
 
+    const retryCountRef = useRef(0);
+    const maxRetries = 2;
+
     // Initialize audio element once
     useEffect(() => {
         const audio = new Audio();
@@ -183,6 +244,17 @@ export default function MusicPageClient() {
         const onTimeUpdate = () => {
             setCurrentTime(audio.currentTime);
 
+            // Update MediaSession position state
+            if ("mediaSession" in navigator && isFinite(audio.duration) && audio.duration > 0) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: audio.duration,
+                        playbackRate: audio.playbackRate,
+                        position: Math.min(audio.currentTime, audio.duration),
+                    });
+                } catch { /* ignore */ }
+            }
+
             // Track play count: increment when user reaches 50% of the song
             const song = currentSongRef.current;
             if (
@@ -192,11 +264,9 @@ export default function MusicPageClient() {
                 halfPlayedRef.current !== song.id
             ) {
                 halfPlayedRef.current = song.id;
-                // Fire and forget: increment play count on server
                 fetch(`${API_BASE}/music/${song.id}/play`, { method: "PATCH" }).catch(() => { });
-                // Update local state
                 const songId = song.id;
-                setAllSongs((prev) =>
+                setPageSongs((prev) =>
                     prev.map((s) =>
                         s.id === songId
                             ? { ...s, playCount: (s.playCount || 0) + 1 }
@@ -206,25 +276,75 @@ export default function MusicPageClient() {
             }
         };
         const onLoadedMetadata = () => {
-            setAudioDuration(audio.duration);
+            if (isFinite(audio.duration) && audio.duration > 0) {
+                setAudioDuration(audio.duration);
+            }
             setIsLoading(false);
+        };
+        const onDurationChange = () => {
+            if (isFinite(audio.duration) && audio.duration > 0) {
+                setAudioDuration(audio.duration);
+            }
         };
         const onCanPlay = () => {
             setIsLoading(false);
+            retryCountRef.current = 0; // reset retry on successful buffer
         };
         const onLoadStart = () => {
             setIsLoading(true);
         };
+        const onWaiting = () => {
+            // Mobile: buffer ran out, show loading spinner
+            setIsLoading(true);
+        };
+        const onPlaying = () => {
+            // Buffer recovered, hide loading spinner
+            setIsLoading(false);
+        };
+        const onStalled = () => {
+            // Network stall, show loading state
+            setIsLoading(true);
+        };
+        const onError = () => {
+            // Auto-retry on transient network errors (mobile connection drops)
+            const song = currentSongRef.current;
+            if (song && retryCountRef.current < maxRetries) {
+                retryCountRef.current += 1;
+                const savedTime = audio.currentTime;
+                console.warn(`Audio error, retrying (${retryCountRef.current}/${maxRetries})...`);
+                setTimeout(() => {
+                    audio.src = song.fileUrl;
+                    audio.currentTime = savedTime;
+                    audio.play().catch(() => { });
+                }, 1000);
+            } else {
+                setIsLoading(false);
+                setIsPlaying(false);
+            }
+        };
         const onEnded = () => handleTrackEnd();
-        const onPlay = () => setIsPlaying(true);
+        const onPlay = () => {
+            setIsPlaying(true);
+            if ("mediaSession" in navigator) {
+                navigator.mediaSession.playbackState = "playing";
+            }
+        };
         const onPause = () => {
             setIsPlaying(false);
+            if ("mediaSession" in navigator) {
+                navigator.mediaSession.playbackState = "paused";
+            }
         };
 
         audio.addEventListener("timeupdate", onTimeUpdate);
         audio.addEventListener("loadedmetadata", onLoadedMetadata);
+        audio.addEventListener("durationchange", onDurationChange);
         audio.addEventListener("canplay", onCanPlay);
         audio.addEventListener("loadstart", onLoadStart);
+        audio.addEventListener("waiting", onWaiting);
+        audio.addEventListener("playing", onPlaying);
+        audio.addEventListener("stalled", onStalled);
+        audio.addEventListener("error", onError);
         audio.addEventListener("ended", onEnded);
         audio.addEventListener("play", onPlay);
         audio.addEventListener("pause", onPause);
@@ -232,13 +352,23 @@ export default function MusicPageClient() {
         return () => {
             audio.removeEventListener("timeupdate", onTimeUpdate);
             audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+            audio.removeEventListener("durationchange", onDurationChange);
             audio.removeEventListener("canplay", onCanPlay);
             audio.removeEventListener("loadstart", onLoadStart);
+            audio.removeEventListener("waiting", onWaiting);
+            audio.removeEventListener("playing", onPlaying);
+            audio.removeEventListener("stalled", onStalled);
+            audio.removeEventListener("error", onError);
             audio.removeEventListener("ended", onEnded);
             audio.removeEventListener("play", onPlay);
             audio.removeEventListener("pause", onPause);
             audio.pause();
             audio.src = "";
+            // Clean up blob URL if any
+            if (blobUrlRef.current) {
+                URL.revokeObjectURL(blobUrlRef.current);
+                blobUrlRef.current = null;
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -254,51 +384,113 @@ export default function MusicPageClient() {
     // calls the latest version (closures capture stale state otherwise).
     const handleTrackEndRef = useRef<() => void>(() => { });
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     function handleTrackEnd() {
         handleTrackEndRef.current();
     }
 
     /* ── Data fetching ── */
 
-    const fetchSongs = useCallback(async () => {
+    interface ApiTrack {
+        id: string;
+        title: string;
+        performer: string;
+        musician: string;
+        duration: number;
+        category: string;
+        series: string | null;
+        coverUrl: string | null;
+        fileUrl: string;
+        playCount?: number;
+    }
+
+    const mapTrack = useCallback((t: ApiTrack): Song => ({
+        id: t.id,
+        title: t.title,
+        artist: t.performer,
+        musician: t.musician,
+        series: t.series || "",
+        duration: t.duration,
+        durationStr: formatDuration(t.duration),
+        category: t.category,
+        coverUrl: t.coverUrl || "",
+        fileUrl: t.fileUrl,
+        playCount: t.playCount || 0,
+    }), []);
+
+    // Search debounce
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
+    // Reset page when filter/search changes
+    const prevPlaylistRef = useRef(selectedPlaylist);
+    const prevSearchRef = useRef(debouncedSearch);
+    useEffect(() => {
+        if (prevPlaylistRef.current !== selectedPlaylist || prevSearchRef.current !== debouncedSearch) {
+            prevPlaylistRef.current = selectedPlaylist;
+            prevSearchRef.current = debouncedSearch;
+            setCurrentPage(1);
+        }
+    }, [selectedPlaylist, debouncedSearch]);
+
+    // Fetch current page of songs from server
+    const fetchSongs = useCallback(async (page: number, playlist: string, search: string) => {
         try {
-            const res = await fetch(`${API_BASE}/music`);
+            // Daily recommendation: fetch a larger batch from the rotated category, then pick client-side
+            if (playlist === "daily") {
+                // Determine today's rotated category
+                const today = new Date();
+                const epoch = new Date(2024, 0, 1).getTime();
+                const msPerDay = 24 * 60 * 60 * 1000;
+                const daysSinceEpoch = Math.floor((today.getTime() - epoch) / msPerDay);
+                const catIndex = sidebarCategories.length > 0
+                    ? daysSinceEpoch % sidebarCategories.length
+                    : 0;
+                const targetCat = sidebarCategories[catIndex];
+                const catParam = targetCat ? `&category=${encodeURIComponent(targetCat.name)}` : "";
+                const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+                const res = await fetch(`${API_BASE}/music?pageSize=100${catParam}${searchParam}`);
+                if (!res.ok) return;
+                const json = await res.json();
+                const tracks: ApiTrack[] = json.data ?? [];
+                const songs = tracks.map(mapTrack);
+                const daily = getDailyRecommendation(songs, sidebarCategories);
+                // Client-side page slicing on the daily recommendation list
+                const start = (page - 1) * PAGE_SIZE;
+                const pageSlice = daily.slice(start, start + PAGE_SIZE);
+                setPageSongs(pageSlice);
+                setTotalPages(Math.max(1, Math.ceil(daily.length / PAGE_SIZE)));
+                return;
+            }
+
+            // Build query params for server-side pagination
+            const params = new URLSearchParams();
+            params.set("page", String(page));
+            params.set("pageSize", String(PAGE_SIZE));
+            if (search) params.set("search", search);
+
+            if (playlist === "all") {
+                // No filter
+            } else if (playlist.startsWith("cat:")) {
+                params.set("category", playlist.slice(4));
+            } else if (playlist.startsWith("artist:")) {
+                params.set("artist", playlist.slice(7));
+            } else if (playlist.startsWith("series:")) {
+                params.set("series", playlist.slice(7));
+            }
+
+            const res = await fetch(`${API_BASE}/music?${params.toString()}`);
             if (!res.ok) return;
-            interface ApiTrack {
-                id: string;
-                title: string;
-                performer: string;
-                musician: string;
-                duration: number;
-                category: string;
-                series: string | null;
-                coverUrl: string | null;
-                fileUrl: string;
-                playCount?: number;
-            }
-            const data: ApiTrack[] = await res.json();
-            if (data.length > 0) {
-                setAllSongs(
-                    data.map((t) => ({
-                        id: t.id,
-                        title: t.title,
-                        artist: t.performer,
-                        musician: t.musician,
-                        series: t.series || "",
-                        duration: t.duration,
-                        durationStr: formatDuration(t.duration),
-                        category: t.category,
-                        coverUrl: t.coverUrl || "",
-                        fileUrl: t.fileUrl,
-                        playCount: t.playCount || 0,
-                    }))
-                );
-            }
+            const json = await res.json();
+            const tracks: ApiTrack[] = json.data ?? [];
+            setPageSongs(tracks.map(mapTrack));
+            setTotalPages(json.totalPages ?? 1);
         } catch {
             // API 不可达时保留空
         }
-    }, []);
+    }, [mapTrack, sidebarCategories]);
 
     const fetchSidebar = useCallback(async () => {
         try {
@@ -313,10 +505,49 @@ export default function MusicPageClient() {
         } catch { /* keep empty */ }
     }, []);
 
+    const fetchCounts = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/music/counts`);
+            if (!res.ok) return;
+            const json = await res.json();
+            const map: Record<string, number> = {};
+            map["all"] = json.total ?? 0;
+            map["daily"] = DAILY_RECOMMEND_COUNT;
+            if (Array.isArray(json.byCategory)) {
+                for (const item of json.byCategory) {
+                    map[`cat:${item.category}`] = item._count ?? 0;
+                }
+            }
+            if (Array.isArray(json.byArtist)) {
+                for (const item of json.byArtist) {
+                    map[`artist:${item.musician}`] = item._count ?? 0;
+                }
+            }
+            if (Array.isArray(json.bySeries)) {
+                for (const item of json.bySeries) {
+                    if (item.series) {
+                        map[`series:${item.series}`] = item._count ?? 0;
+                    }
+                }
+            }
+            setSongCountMap(map);
+        } catch { /* keep empty */ }
+    }, []);
+
+    // Initial load: sidebar + counts
+    const sidebarLoadedRef = useRef(false);
     useEffect(() => {
-        fetchSongs();
-        fetchSidebar();
-    }, [fetchSongs, fetchSidebar]);
+        if (!sidebarLoadedRef.current) {
+            sidebarLoadedRef.current = true;
+            fetchSidebar();
+            fetchCounts();
+        }
+    }, [fetchSidebar, fetchCounts]);
+
+    // Fetch songs whenever page/filter/search changes (and sidebar is loaded)
+    useEffect(() => {
+        fetchSongs(currentPage, selectedPlaylist, debouncedSearch);
+    }, [currentPage, selectedPlaylist, debouncedSearch, fetchSongs]);
 
     /* ── Sidebar items ── */
 
@@ -361,77 +592,6 @@ export default function MusicPageClient() {
         }),
         [sidebarSeries]);
 
-    /* ── Filter songs ── */
-
-    /* ── Daily recommendation (memoized) ── */
-    const dailyRecommendation = useMemo(
-        () => getDailyRecommendation(allSongs, sidebarCategories),
-        [allSongs, sidebarCategories]
-    );
-
-    const filteredSongs = useMemo(() => {
-        let list = allSongs;
-
-        // Daily recommendation
-        if (selectedPlaylist === "daily") {
-            list = dailyRecommendation;
-        } else if (selectedPlaylist !== "all") {
-            if (selectedPlaylist.startsWith("cat:")) {
-                const catName = selectedPlaylist.slice(4);
-                list = list.filter((s) => s.category === catName);
-            } else if (selectedPlaylist.startsWith("artist:")) {
-                const artistName = selectedPlaylist.slice(7);
-                list = list.filter((s) => s.musician === artistName);
-            } else if (selectedPlaylist.startsWith("series:")) {
-                const seriesName = selectedPlaylist.slice(7);
-                list = list.filter((s) => s.series === seriesName);
-            }
-        }
-
-        // Search filter
-        if (searchQuery.trim()) {
-            const q = searchQuery.trim().toLowerCase();
-            list = list.filter(
-                (s) =>
-                    s.title.toLowerCase().includes(q) ||
-                    s.musician.toLowerCase().includes(q) ||
-                    s.artist.toLowerCase().includes(q)
-            );
-        }
-
-        return list;
-    }, [allSongs, selectedPlaylist, searchQuery, dailyRecommendation]);
-
-    // Reset page when filter changes
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [selectedPlaylist, searchQuery]);
-
-    /* ── Pagination ── */
-    const totalPages = Math.max(1, Math.ceil(filteredSongs.length / PAGE_SIZE));
-    const paginatedSongs = useMemo(() => {
-        const start = (currentPage - 1) * PAGE_SIZE;
-        return filteredSongs.slice(start, start + PAGE_SIZE);
-    }, [filteredSongs, currentPage]);
-
-    /* ── Song count per sidebar item ── */
-    const songCountMap = useMemo(() => {
-        const map: Record<string, number> = {};
-        map["daily"] = dailyRecommendation.length;
-        map["all"] = allSongs.length;
-        for (const s of allSongs) {
-            const catKey = `cat:${s.category}`;
-            map[catKey] = (map[catKey] || 0) + 1;
-            const artistKey = `artist:${s.musician}`;
-            map[artistKey] = (map[artistKey] || 0) + 1;
-            if (s.series) {
-                const seriesKey = `series:${s.series}`;
-                map[seriesKey] = (map[seriesKey] || 0) + 1;
-            }
-        }
-        return map;
-    }, [allSongs]);
-
     const playlistMeta = useMemo(() => {
         const allItems = [...libraryItems, ...artistItems, ...seriesItems];
         const item = allItems.find((i) => i.id === selectedPlaylist);
@@ -441,19 +601,83 @@ export default function MusicPageClient() {
 
     /* ════════════ Playback Logic ════════════ */
 
+    const blobUrlRef = useRef<string | null>(null);
+    const loadAbortRef = useRef<AbortController | null>(null);
+
     const playSong = useCallback((song: Song, queue?: Song[]) => {
         const audio = audioRef.current;
         if (!audio) return;
 
+        // Abort any in-progress load
+        if (loadAbortRef.current) {
+            loadAbortRef.current.abort();
+            loadAbortRef.current = null;
+        }
+
+        // Revoke previous blob URL to free memory
+        if (blobUrlRef.current) {
+            URL.revokeObjectURL(blobUrlRef.current);
+            blobUrlRef.current = null;
+        }
+
+        retryCountRef.current = 0;
         setCurrentSong(song);
         setCurrentTime(0);
-
         setAudioDuration(song.duration || 0);
-        audio.src = song.fileUrl;
-        audio.play().catch(() => { /* autoplay may be blocked */ });
+        setIsLoading(true);
 
-        // Play count +1 (fire-and-forget)
-        fetch(`${API_BASE}/music/${song.id}/play`, { method: "PATCH" }).catch(() => { });
+        // Update MediaSession metadata for lock screen
+        if ("mediaSession" in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: song.title,
+                artist: song.musician || song.artist,
+                album: song.category,
+                artwork: song.coverUrl ? [
+                    { src: song.coverUrl, sizes: "256x256", type: "image/png" },
+                ] : [],
+            });
+            // Set initial position state with known duration from DB
+            try {
+                navigator.mediaSession.setPositionState({
+                    duration: song.duration,
+                    playbackRate: 1,
+                    position: 0,
+                });
+            } catch { /* ignore */ }
+        }
+
+        // Always preload full file as blob for reliability
+        // This ensures the entire file is in memory before playback,
+        // preventing streaming issues (especially on mobile Safari)
+        const controller = new AbortController();
+        loadAbortRef.current = controller;
+
+        fetch(song.fileUrl, { signal: controller.signal })
+            .then((res) => {
+                if (!res.ok) throw new Error("fetch failed");
+                return res.blob();
+            })
+            .then((blob) => {
+                if (controller.signal.aborted) return;
+                const blobUrl = URL.createObjectURL(blob);
+                blobUrlRef.current = blobUrl;
+                audio.src = blobUrl;
+                return audio.play();
+            })
+            .then(() => {
+                if (controller.signal.aborted) return;
+                setIsLoading(false);
+            })
+            .catch((err) => {
+                if (err.name === "AbortError") return;
+                // autoplay blocked is not a real error, just clear loading
+                if (err.name === "NotAllowedError") {
+                    setIsLoading(false);
+                    return;
+                }
+                console.error("Audio preload failed:", err);
+                setIsLoading(false);
+            });
 
         // Build/reset shuffle queue if entering shuffle mode
         if (playMode === "shuffle" && queue) {
@@ -475,7 +699,7 @@ export default function MusicPageClient() {
 
     // Next / Previous track helpers
     const getNextSong = useCallback((): Song | null => {
-        if (!currentSong) return filteredSongs[0] || null;
+        if (!currentSong) return pageSongs[0] || null;
 
         if (playMode === "repeat-one") return currentSong;
 
@@ -486,19 +710,19 @@ export default function MusicPageClient() {
                 return shuffleQueue[nextIdx] || null;
             }
             // Re-shuffle when exhausted
-            const newQueue = shuffleArray(filteredSongs);
+            const newQueue = shuffleArray(pageSongs);
             setShuffleQueue(newQueue);
             setShuffleIndex(0);
             return newQueue[0] || null;
         }
 
         // Sequential
-        const currentIdx = filteredSongs.findIndex((s) => s.id === currentSong.id);
-        if (currentIdx < filteredSongs.length - 1) {
-            return filteredSongs[currentIdx + 1] || null;
+        const currentIdx = pageSongs.findIndex((s) => s.id === currentSong.id);
+        if (currentIdx < pageSongs.length - 1) {
+            return pageSongs[currentIdx + 1] || null;
         }
         return null; // End of list in sequential mode
-    }, [currentSong, filteredSongs, playMode, shuffleIndex, shuffleQueue]);
+    }, [currentSong, pageSongs, playMode, shuffleIndex, shuffleQueue]);
 
     const getPrevSong = useCallback((): Song | null => {
         if (!currentSong) return null;
@@ -515,12 +739,12 @@ export default function MusicPageClient() {
         }
 
         // Sequential
-        const currentIdx = filteredSongs.findIndex((s) => s.id === currentSong.id);
+        const currentIdx = pageSongs.findIndex((s) => s.id === currentSong.id);
         if (currentIdx > 0) {
-            return filteredSongs[currentIdx - 1] || null;
+            return pageSongs[currentIdx - 1] || null;
         }
         return null;
-    }, [currentSong, filteredSongs, playMode, shuffleIndex, shuffleQueue]);
+    }, [currentSong, pageSongs, playMode, shuffleIndex, shuffleQueue]);
 
     const playNext = useCallback(() => {
         const next = getNextSong();
@@ -553,6 +777,37 @@ export default function MusicPageClient() {
         };
     }, [playMode, playNext]);
 
+    // MediaSession action handlers (lock screen / notification controls)
+    useEffect(() => {
+        if (!("mediaSession" in navigator)) return;
+        const ms = navigator.mediaSession;
+        ms.setActionHandler("play", () => {
+            audioRef.current?.play().catch(() => { });
+        });
+        ms.setActionHandler("pause", () => {
+            audioRef.current?.pause();
+        });
+        ms.setActionHandler("previoustrack", () => {
+            playPrev();
+        });
+        ms.setActionHandler("nexttrack", () => {
+            playNext();
+        });
+        ms.setActionHandler("seekto", (details) => {
+            if (audioRef.current && details.seekTime != null) {
+                audioRef.current.currentTime = details.seekTime;
+                setCurrentTime(details.seekTime);
+            }
+        });
+        return () => {
+            ms.setActionHandler("play", null);
+            ms.setActionHandler("pause", null);
+            ms.setActionHandler("previoustrack", null);
+            ms.setActionHandler("nexttrack", null);
+            ms.setActionHandler("seekto", null);
+        };
+    }, [playNext, playPrev]);
+
     const cyclePlayMode = useCallback(() => {
         setPlayMode((prev) => {
             if (prev === "sequential") return "repeat-one";
@@ -563,11 +818,11 @@ export default function MusicPageClient() {
 
     // When switching to shuffle mode, generate queue from current list
     useEffect(() => {
-        if (playMode === "shuffle" && filteredSongs.length > 0) {
-            const queue = shuffleArray(filteredSongs);
+        if (playMode === "shuffle" && pageSongs.length > 0) {
+            const queue = shuffleArray(pageSongs);
             setShuffleQueue(queue);
             if (currentSong) {
-                const idx = queue.findIndex((s) => s.id === currentSong.id);
+                const idx = queue.findIndex((s: Song) => s.id === currentSong.id);
                 setShuffleIndex(idx >= 0 ? idx : 0);
             } else {
                 setShuffleIndex(0);
@@ -616,15 +871,15 @@ export default function MusicPageClient() {
 
     /* ── Song actions ── */
 
-    const handlePlaySong = (song: Song, index?: number) => {
+    const handlePlaySong = (song: Song) => {
         if (currentSong?.id === song.id) {
             togglePlayPause();
             return;
         }
-        playSong(song, filteredSongs);
+        playSong(song, pageSongs);
         // If in shuffle mode, rebuild queue with this song first
         if (playMode === "shuffle") {
-            const queue = shuffleArray(filteredSongs.filter((s) => s.id !== song.id));
+            const queue = shuffleArray(pageSongs.filter((s: Song) => s.id !== song.id));
             setShuffleQueue([song, ...queue]);
             setShuffleIndex(0);
         }
@@ -658,48 +913,8 @@ export default function MusicPageClient() {
     }, [playlistMeta.iconName]);
 
     /* ─── Sidebar Section ─── */
-    const SidebarSection = ({
-        title,
-        items,
-    }: {
-        title: string;
-        items: { id: string; name: string; icon: React.ReactNode; filterType?: string }[];
-    }) => (
-        <div className="mb-6">
-            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3 px-3">
-                {title}
-            </h2>
-            <nav className="space-y-0.5">
-                {items.map((item) => {
-                    const active = selectedPlaylist === item.id;
-                    const count = songCountMap[item.id] || 0;
-                    return (
-                        <button
-                            key={item.id}
-                            onClick={() => setSelectedPlaylist(item.id)}
-                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 ${active
-                                ? "bg-white/70 shadow-sm text-gray-900 font-medium"
-                                : "text-gray-600 hover:bg-white/40 hover:text-gray-900"
-                                }`}
-                        >
-                            <span
-                                className={`transition-colors ${active ? "text-purple-600" : "text-gray-400"
-                                    }`}
-                            >
-                                {item.icon}
-                            </span>
-                            <span className="text-sm truncate flex-1 text-left">{item.name}</span>
-                            {count > 0 && (
-                                <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${active ? "text-purple-600 bg-purple-100" : "text-gray-400 bg-gray-100/80"}`}>
-                                    {count}
-                                </span>
-                            )}
-                        </button>
-                    );
-                })}
-            </nav>
-        </div>
-    );
+    // SidebarSection is extracted outside the component (see below MusicPageClient)
+    // to avoid re-creation on every render tick, which caused flicker and swallowed clicks.
 
     /* ─── Animated Background ─── */
     const AnimatedBackground = useMemo(
@@ -762,23 +977,52 @@ export default function MusicPageClient() {
 
             {/* 主要内容 */}
             <div className="relative z-10 flex h-screen" style={{ paddingBottom: currentSong ? "96px" : "0" }}>
+                {/* ══════════ 移动端侧边栏 backdrop ══════════ */}
+                {sidebarOpen && (
+                    <div
+                        className="fixed inset-0 bg-black/30 z-40 md:hidden"
+                        onClick={() => setSidebarOpen(false)}
+                    />
+                )}
+
                 {/* ══════════ 左侧边栏 ══════════ */}
-                <aside className="w-64 h-full overflow-y-auto py-6 px-4 flex-shrink-0">
+                <aside className={`
+                    fixed inset-y-0 left-0 z-50 w-64 bg-white/90 backdrop-blur-xl shadow-xl
+                    transform transition-transform duration-300 ease-in-out
+                    md:relative md:translate-x-0 md:shadow-none md:bg-transparent md:backdrop-blur-none
+                    ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+                    h-full overflow-y-auto py-6 px-4 flex-shrink-0
+                `}>
+                    {/* 移动端关闭按钮 */}
+                    <button
+                        className="md:hidden absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                        onClick={() => setSidebarOpen(false)}
+                    >
+                        ✕
+                    </button>
 
-
-                    <SidebarSection title="库" items={libraryItems} />
-                    {artistItems.length > 0 && <SidebarSection title="音乐家" items={artistItems} />}
-                    {seriesItems.length > 0 && <SidebarSection title="系列" items={seriesItems} />}
+                    <div onClick={() => setSidebarOpen(false)}>
+                        <SidebarSection title="库" items={libraryItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />
+                        {artistItems.length > 0 && <SidebarSection title="音乐家" items={artistItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
+                        {seriesItems.length > 0 && <SidebarSection title="系列" items={seriesItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
+                    </div>
                 </aside>
 
                 {/* ══════════ 右侧内容区 ══════════ */}
-                <main className="flex-1 h-full overflow-y-auto py-6 pr-6">
+                <main className="flex-1 h-full overflow-y-auto py-4 px-4 md:py-6 md:pr-6 md:pl-0">
                     {/* 顶部导航 */}
-                    <div className="flex items-center justify-between mb-8">
-                        <div className="flex items-center gap-6">
+                    <div className="flex items-center justify-between mb-6 md:mb-8 gap-3">
+                        <div className="flex items-center gap-3">
+                            {/* 移动端菜单按钮 */}
+                            <button
+                                className="md:hidden p-2 rounded-lg hover:bg-white/60 text-gray-600"
+                                onClick={() => setSidebarOpen(true)}
+                            >
+                                <ListMusic className="h-5 w-5" />
+                            </button>
                             <a
                                 href="https://johnnyallen.blog"
-                                className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors group"
+                                className="hidden md:flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors group"
                             >
                                 <Home className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
                                 <span className="text-sm">返回首页</span>
@@ -786,11 +1030,11 @@ export default function MusicPageClient() {
                         </div>
 
                         {/* 搜索框 */}
-                        <div className="relative w-80">
+                        <div className="relative flex-1 max-w-xs md:max-w-sm md:flex-none md:w-80">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                             <input
                                 type="text"
-                                placeholder="搜索音乐、作曲家..."
+                                placeholder="搜索音乐..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2.5 bg-white/50 backdrop-blur-sm border border-white/60 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-purple-300 focus:ring-2 focus:ring-purple-100 focus:bg-white/70 transition-all shadow-sm"
@@ -799,19 +1043,19 @@ export default function MusicPageClient() {
                     </div>
 
                     {/* 播放列表头部 — 带分类 Logo */}
-                    <div className="mb-6">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-200/50">
-                                <HeaderIcon className="h-6 w-6 text-white" />
+                    <div className="mb-4 md:mb-6">
+                        <div className="flex items-center gap-3 md:gap-4">
+                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-200/50">
+                                <HeaderIcon className="h-5 w-5 md:h-6 md:w-6 text-white" />
                             </div>
-                            <h1 className="text-3xl font-bold text-gray-900">
+                            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
                                 {playlistMeta.title}
                             </h1>
                         </div>
                     </div>
 
-                    {/* 表头 */}
-                    <div className="grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-200/50 mb-2">
+                    {/* 表头 - 桌面端 */}
+                    <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-200/50 mb-2">
                         <div className="col-span-1 text-center">序号</div>
                         <div className="col-span-5">标题</div>
                         <div className="col-span-2">艺术家</div>
@@ -821,7 +1065,7 @@ export default function MusicPageClient() {
                     </div>
 
                     {/* 歌曲列表 */}
-                    {filteredSongs.length === 0 ? (
+                    {pageSongs.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                             <Music2 className="h-12 w-12 mb-4 opacity-40" />
                             <p className="text-sm">{searchQuery ? "没有找到匹配的音乐" : "暂无音乐"}</p>
@@ -829,7 +1073,7 @@ export default function MusicPageClient() {
                     ) : (
                         <>
                             <div className="space-y-0.5">
-                                {paginatedSongs.map((song, index) => {
+                                {pageSongs.map((song, index) => {
                                     const isActive = currentSong?.id === song.id;
                                     const isLiked = likedSongs.has(song.id);
                                     const globalIndex = (currentPage - 1) * PAGE_SIZE + index;
@@ -837,59 +1081,42 @@ export default function MusicPageClient() {
                                     return (
                                         <div
                                             key={song.id}
-                                            className={`grid grid-cols-12 gap-4 px-4 py-3 rounded-xl transition-all duration-200 group cursor-pointer ${isActive
+                                            className={`flex items-center gap-3 md:grid md:grid-cols-12 md:gap-4 px-3 md:px-4 py-3 rounded-xl transition-all duration-200 group cursor-pointer ${isActive
                                                 ? "bg-white/60 shadow-sm"
                                                 : "hover:bg-white/40"
                                                 }`}
-                                            onClick={() => handlePlaySong(song, globalIndex)}
+                                            onClick={() => handlePlaySong(song)}
                                         >
                                             {/* Index / Equalizer */}
-                                            <div className="col-span-1 flex items-center justify-center">
+                                            <div className="w-6 flex-shrink-0 md:col-span-1 flex items-center justify-center">
                                                 {isActive && isPlaying ? (
                                                     <div className="flex items-center gap-[3px]">
-                                                        <div
-                                                            className="w-[3px] h-3 bg-purple-500 rounded-full origin-bottom"
-                                                            style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0s" }}
-                                                        />
-                                                        <div
-                                                            className="w-[3px] h-4 bg-purple-500 rounded-full origin-bottom"
-                                                            style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.2s" }}
-                                                        />
-                                                        <div
-                                                            className="w-[3px] h-3 bg-purple-500 rounded-full origin-bottom"
-                                                            style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.4s" }}
-                                                        />
+                                                        <div className="w-[3px] h-3 bg-purple-500 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0s" }} />
+                                                        <div className="w-[3px] h-4 bg-purple-500 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.2s" }} />
+                                                        <div className="w-[3px] h-3 bg-purple-500 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.4s" }} />
                                                     </div>
                                                 ) : isActive && !isPlaying ? (
                                                     <Pause className="h-4 w-4 text-purple-600" />
                                                 ) : (
-                                                    <>
-                                                        <span className="text-sm text-gray-400 group-hover:hidden">
-                                                            {globalIndex + 1}
-                                                        </span>
-                                                        <Play className="h-4 w-4 text-purple-600 hidden group-hover:block" />
-                                                    </>
+                                                    <span className="text-sm text-gray-400">
+                                                        {globalIndex + 1}
+                                                    </span>
                                                 )}
                                             </div>
 
                                             {/* Category Icon + Title */}
-                                            <div className="col-span-5 flex items-center gap-3 min-w-0">
+                                            <div className="flex-1 min-w-0 md:col-span-5 flex items-center gap-3">
                                                 {(() => {
                                                     const cat = sidebarCategories.find((c) => c.name === song.category);
                                                     const CatIcon = getIconComponent(cat?.icon, Music);
                                                     return (
-                                                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center flex-shrink-0 shadow-sm group-hover:shadow-md transition-shadow">
-                                                            <CatIcon className={`h-5 w-5 ${isActive ? "text-purple-600" : "text-purple-400"}`} />
+                                                        <div className="w-9 h-9 md:w-10 md:h-10 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center flex-shrink-0 shadow-sm">
+                                                            <CatIcon className={`h-4 w-4 md:h-5 md:w-5 ${isActive ? "text-purple-600" : "text-purple-400"}`} />
                                                         </div>
                                                     );
                                                 })()}
                                                 <div className="min-w-0">
-                                                    <p
-                                                        className={`text-sm truncate ${isActive
-                                                            ? "font-semibold text-purple-700"
-                                                            : "font-medium text-gray-900"
-                                                            }`}
-                                                    >
+                                                    <p className={`text-sm truncate ${isActive ? "font-semibold text-purple-700" : "font-medium text-gray-900"}`}>
                                                         {song.title}
                                                     </p>
                                                     <p className="text-xs text-gray-400 truncate">
@@ -898,38 +1125,30 @@ export default function MusicPageClient() {
                                                 </div>
                                             </div>
 
-                                            {/* Artist (performer) */}
-                                            <div className="col-span-2 flex items-center">
+                                            {/* Artist (desktop only) */}
+                                            <div className="hidden md:flex col-span-2 items-center">
                                                 <span className="text-sm text-gray-500 truncate">{song.artist}</span>
                                             </div>
 
-                                            {/* Like */}
-                                            <div className="col-span-1 flex items-center justify-center">
+                                            {/* Like (desktop only) */}
+                                            <div className="hidden md:flex col-span-1 items-center justify-center">
                                                 <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        toggleLike(song.id);
-                                                    }}
+                                                    onClick={(e) => { e.stopPropagation(); toggleLike(song.id); }}
                                                     className="p-1.5 rounded-full hover:bg-white/60 transition-all opacity-0 group-hover:opacity-100"
                                                 >
-                                                    <Heart
-                                                        className={`h-4 w-4 transition-colors ${isLiked
-                                                            ? "text-pink-500 fill-pink-500"
-                                                            : "text-gray-400 hover:text-pink-400"
-                                                            }`}
-                                                    />
+                                                    <Heart className={`h-4 w-4 transition-colors ${isLiked ? "text-pink-500 fill-pink-500" : "text-gray-400 hover:text-pink-400"}`} />
                                                 </button>
                                             </div>
 
-                                            {/* Play Count */}
-                                            <div className="col-span-1 flex items-center justify-end gap-1">
+                                            {/* Play Count (desktop only) */}
+                                            <div className="hidden md:flex col-span-1 items-center justify-end gap-1">
                                                 <Headphones className="h-3 w-3 text-gray-300" />
                                                 <span className="text-xs text-gray-400 tabular-nums">{song.playCount || 0}</span>
                                             </div>
 
                                             {/* Duration */}
-                                            <div className="col-span-2 flex items-center justify-end">
-                                                <span className="text-sm text-gray-400 tabular-nums">{song.durationStr}</span>
+                                            <div className="flex-shrink-0 md:col-span-2 flex items-center justify-end">
+                                                <span className="text-xs md:text-sm text-gray-400 tabular-nums">{song.durationStr}</span>
                                             </div>
                                         </div>
                                     );
@@ -975,29 +1194,28 @@ export default function MusicPageClient() {
             {/* ══════════ 底部播放器 ══════════ */}
             {currentSong && (
                 <div className="fixed bottom-0 left-0 right-0 glass-strong shadow-2xl z-50">
-                    {/* 进度条 - 只读展示 */}
-                    <div className="relative h-1.5 bg-gray-200/50">
-                        {/* Playback progress */}
+                    {/* 进度条 */}
+                    <div className="relative h-1 md:h-1.5 bg-gray-200/50">
                         <div
                             className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-r-full z-10 transition-[width] duration-100 ease-linear"
                             style={{ width: `${progressPercent}%` }}
                         />
                     </div>
 
-                    <div className="px-6 py-3">
-                        <div className="flex items-center gap-6">
+                    <div className="px-3 py-2 md:px-6 md:py-3">
+                        <div className="flex items-center gap-3 md:gap-6">
                             {/* 当前播放歌曲信息 */}
-                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
                                 {(() => {
                                     const cat = sidebarCategories.find((c) => c.name === currentSong.category);
                                     const CatIcon = getIconComponent(cat?.icon, Music);
                                     return (
-                                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-md flex-shrink-0">
-                                            <CatIcon className="h-6 w-6 text-white" />
+                                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-md flex-shrink-0">
+                                            <CatIcon className="h-5 w-5 md:h-6 md:w-6 text-white" />
                                         </div>
                                     );
                                 })()}
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1 min-w-0 hidden sm:block">
                                     <p className="font-semibold text-gray-900 truncate text-sm">
                                         {currentSong.title}
                                     </p>
@@ -1005,42 +1223,19 @@ export default function MusicPageClient() {
                                         {currentSong.artist} · {currentSong.musician}
                                     </p>
                                 </div>
-                                <button
-                                    onClick={() => toggleLike(currentSong.id)}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-all"
-                                >
-                                    <Heart
-                                        className={`h-5 w-5 transition-colors ${likedSongs.has(currentSong.id)
-                                            ? "text-pink-500 fill-pink-500"
-                                            : "text-gray-400 hover:text-pink-500"
-                                            }`}
-                                    />
-                                </button>
                             </div>
 
                             {/* 播放控制 */}
-                            <div className="flex items-center gap-3">
-                                {/* Play mode toggle */}
-                                <button
-                                    onClick={cyclePlayMode}
-                                    className={`p-2 rounded-lg transition-all ${playModeActive
-                                        ? "text-purple-600 hover:bg-purple-50"
-                                        : "text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                                        }`}
-                                    title={playModeLabel}
-                                >
+                            <div className="flex items-center gap-1 md:gap-3">
+                                <button onClick={cyclePlayMode} className={`p-2 rounded-lg transition-all ${playModeActive ? "text-purple-600 hover:bg-purple-50" : "text-gray-400 hover:bg-gray-100"}`} title={playModeLabel}>
                                     <PlayModeIcon className="h-4 w-4" />
                                 </button>
-
-                                <button
-                                    onClick={playPrev}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-all"
-                                >
+                                <button onClick={playPrev} className="p-2 hover:bg-gray-100 rounded-lg transition-all">
                                     <SkipBack className="h-4 w-4 text-gray-600" />
                                 </button>
                                 <button
                                     onClick={togglePlayPause}
-                                    className="p-3.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95"
+                                    className="p-3 md:p-3.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-full shadow-lg transition-all active:scale-95"
                                 >
                                     {isLoading ? (
                                         <Loader2 className="h-5 w-5 text-white animate-spin" />
@@ -1050,26 +1245,18 @@ export default function MusicPageClient() {
                                         <Play className="h-5 w-5 text-white" fill="white" />
                                     )}
                                 </button>
-                                <button
-                                    onClick={playNext}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-all"
-                                >
+                                <button onClick={playNext} className="p-2 hover:bg-gray-100 rounded-lg transition-all">
                                     <SkipForward className="h-4 w-4 text-gray-600" />
                                 </button>
                             </div>
 
                             {/* 时间 + 音量控制 */}
-                            <div className="flex items-center gap-4 flex-1 justify-end">
+                            <div className="flex items-center gap-2 md:gap-4 flex-1 justify-end">
                                 <span className="text-xs text-gray-400 tabular-nums">{formatDuration(currentTime)}</span>
                                 <span className="text-xs text-gray-300">/</span>
-                                <span className="text-xs text-gray-400 tabular-nums">
-                                    {formatDuration(audioDuration)}
-                                </span>
-                                <div className="flex items-center gap-2 ml-4">
-                                    <button
-                                        onClick={toggleMute}
-                                        className="p-1 hover:bg-gray-100 rounded transition-all"
-                                    >
+                                <span className="text-xs text-gray-400 tabular-nums">{formatDuration(audioDuration)}</span>
+                                <div className="hidden md:flex items-center gap-2 ml-4">
+                                    <button onClick={toggleMute} className="p-1 hover:bg-gray-100 rounded transition-all">
                                         <VolumeIcon className="h-4 w-4 text-gray-500" />
                                     </button>
                                     <div

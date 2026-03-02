@@ -238,6 +238,14 @@ export class PostsService {
       data: postData,
     });
 
+    // 同步 SeriesItem.published 状态（双向同步）
+    if (postData.published !== undefined) {
+      await this.prisma.seriesItem.updateMany({
+        where: { postId: id },
+        data: { published: postData.published },
+      });
+    }
+
     // Handle series binding/unbinding if seriesId is explicitly provided
     if (seriesId !== undefined) {
       await this.handleSeriesBinding(id, seriesId);

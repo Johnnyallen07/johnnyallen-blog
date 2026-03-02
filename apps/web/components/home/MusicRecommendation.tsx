@@ -45,11 +45,12 @@ export function MusicRecommendation() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [allTracks, categories] = await Promise.all([
-        fetchClient("/music"),
+      const [musicRes, categories] = await Promise.all([
+        fetchClient("/music?pageSize=100"),
         fetchClient("/music-categories"),
       ]);
 
+      const allTracks = musicRes?.data ?? musicRes;
       const songs: MusicTrack[] = Array.isArray(allTracks) ? allTracks : [];
       const cats: SidebarCategory[] = Array.isArray(categories) ? categories : [];
       setTracks(songs);

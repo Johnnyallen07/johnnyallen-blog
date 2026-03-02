@@ -275,6 +275,11 @@ export class SeriesService {
       data.order = (lastItem?.order ?? -1) + 1;
     }
 
+    // 双向同步：更新 SeriesItem.published 时同步关联 Post.published
+    if (dto.published !== undefined) {
+      await this.syncPublishRecursive(itemId, dto.published);
+    }
+
     return this.prisma.seriesItem.update({
       where: { id: itemId },
       data,
@@ -289,5 +294,36 @@ export class SeriesService {
         },
       },
     });
+  }
+
+  /**
+   * 递归同步 published 状态：更新当前 item 及其所有子项的关联 Post
+   */
+  private async syncPublishRecursive(
+    itemId: string,
+    published: boolean,
+  ): Promise<void> {
+    const item = await this.prisma.seriesItem.findUnique({
+      where: { id: itemId },
+      include: { children: true },
+    });
+    if (!item) return;
+
+    // 同步当前 item 关联的 Post
+    if (item.postId) {
+      await this.prisma.post.update({
+        where: { id: item.postId },
+        data: { published },
+      });
+    }
+
+    // 递归处理子项（文件夹场景）
+    for (const child of item.children) {
+      await this.prisma.seriesItem.update({
+        where: { id: child.id },
+        data: { published },
+      });
+      await this.syncPublishRecursive(child.id, published);
+    }
   }
 }

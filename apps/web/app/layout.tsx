@@ -4,7 +4,7 @@ import { SiteFooter } from "@/components/home/SiteFooter";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "JohnnyBlog",
+  title: "Johnny Blog",
   description: "Johnny 的个人博客。",
   icons: {
     icon: "/images/logo.png",

@@ -13,7 +13,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/music/package.json apps/music/package.json
+COPY apps/admin/package.json apps/admin/package.json
 COPY packages/ packages/
+# api 的 postinstall 会执行 prisma generate，需要 schema 文件
+COPY apps/api/prisma/ apps/api/prisma/
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm install --frozen-lockfile
 
@@ -27,6 +30,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # NEXT_PUBLIC_* 变量在 Next.js 构建时内联到客户端代码中，必须在 build 阶段提供
 ARG NEXT_PUBLIC_API_URL=https://api.johnnyallen.blog
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+ARG NEXT_PUBLIC_MUSIC_URL=https://music.johnnyallen.blog
+ENV NEXT_PUBLIC_MUSIC_URL=${NEXT_PUBLIC_MUSIC_URL}
 
 # 恢复 workspace 链接并构建（使用缓存加速）
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \

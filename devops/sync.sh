@@ -14,29 +14,56 @@ rsync -avz --delete -e "ssh $SSH_OPTS" \
   --exclude node_modules \
   --exclude .git \
   --exclude .turbo \
-  --exclude apps/web/.next \
-  --exclude apps/music/.next \
-  --exclude '*.log' \
-  --exclude '.env' \
-  --exclude '.env.local' \
-  --exclude 'backups' \
+  --exclude .next \
+  --exclude dist \
+  --exclude "*.log" \
+  --exclude "*.tsbuildinfo" \
+  --exclude ".env" \
+  --exclude ".env.local" \
+  --exclude ".DS_Store" \
+  --exclude "backups" \
   ./ "$SERVER:$APP_DIR/"
 
 echo "==> 同步 .env.production ..."
 rsync -avz -e "ssh $SSH_OPTS" ./devops/.env.production "$SERVER:$APP_DIR/.env.production"
 
+ENV="--env-file .env.production"
+
 echo ""
-echo "==> 同步完成，登录服务器..."
-echo "    常用命令："
-echo "    docker compose --env-file .env.production build              # 构建镜像"
-echo "    docker compose --env-file .env.production up -d              # 启动服务"
-echo "    docker compose --env-file .env.production up -d --build      # 构建并启动"
-echo "    docker compose --env-file .env.production down               # 停止服务"
-echo "    docker compose --env-file .env.production ps                 # 查看状态"
-echo "    docker compose --env-file .env.production logs -f api        # API 日志"
-echo "    docker compose --env-file .env.production logs -f web        # Web 日志"
-echo "    docker compose --env-file .env.production logs -f db         # DB 日志"
-echo "    docker compose --env-file .env.production restart api        # 重启 API"
-echo "    docker compose --env-file .env.production exec db psql -U postgres -d blog_db  # 进入数据库"
+echo "===> 同步完成! SSH 登录服务器..."
 echo ""
-exec ssh $SSH_OPTS -t "$SERVER" "cd $APP_DIR && exec bash"
+echo "========== 常用 Docker 命令 =========="
+echo ""
+echo "  # ── 查看状态 ──"
+echo "  docker compose $ENV ps"
+echo "  docker compose $ENV top"
+echo ""
+echo "  # ── 重新部署（重建镜像 + 启动） ──"
+echo "  docker compose $ENV up -d --build"
+echo "  docker compose $ENV up -d --build api        # 只重建 API"
+echo "  docker compose $ENV up -d --build web        # 只重建 Web"
+echo "  docker compose $ENV up -d --build music      # 只重建 Music"
+echo "  docker compose $ENV up -d --build admin      # 只重建 Admin"
+echo ""
+echo "  # ── 重启（不重建镜像） ──"
+echo "  docker compose $ENV restart"
+echo "  docker compose $ENV restart api"
+echo ""
+echo "  # ── 查看日志 ──"
+echo "  docker compose $ENV logs -f api"
+echo "  docker compose $ENV logs -f web"
+echo "  docker compose $ENV logs -f music"
+echo "  docker compose $ENV logs -f admin"
+echo "  docker compose $ENV logs -f --tail=100 api   # 最近100行"
+echo ""
+echo "  # ── 停止 / 清理 ──"
+echo "  docker compose $ENV down"
+echo "  docker system prune -f                       # 清理悬空镜像"
+echo ""
+echo "  # ── 数据库 ──"
+echo "  docker compose $ENV exec db psql -U postgres -d blog_db"
+echo ""
+echo "======================================="
+echo ""
+
+ssh $SSH_OPTS -t "$SERVER" "cd $APP_DIR && exec bash"

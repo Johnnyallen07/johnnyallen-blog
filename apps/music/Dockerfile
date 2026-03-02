@@ -13,7 +13,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/music/package.json apps/music/package.json
+COPY apps/admin/package.json apps/admin/package.json
 COPY packages/ packages/
+# api 的 postinstall 会执行 prisma generate，需要 schema 文件
+COPY apps/api/prisma/ apps/api/prisma/
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm install --frozen-lockfile
 

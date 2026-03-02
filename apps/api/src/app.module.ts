@@ -8,12 +8,14 @@ import { PostsModule } from './posts/posts.module';
 import { MediaModule } from './media/media.module';
 import { SeriesModule } from './series/series.module';
 import { MusicModule } from './music/music.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    AuthModule,
     CategoriesModule,
     PostsModule,
     MediaModule,
