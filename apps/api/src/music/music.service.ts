@@ -519,16 +519,8 @@ export class MusicService {
       const sourcePath = await this.downloadFromCos(track.fileKey);
       tmpFiles.push(sourcePath);
 
-      const results: Array<{
-        title: string;
-        fileKey: string;
-        fileUrl: string;
-        fileSize: number;
-        duration: number;
-      }> = [];
-
-      // Step 2: Split each segment
-      for (const segment of segments) {
+      // Step 2: Split all segments in parallel
+      const segmentPromises = segments.map(async (segment) => {
         if (segment.startTime >= segment.endTime) {
           throw new BadRequestException(
             `Invalid segment "${segment.title}": startTime (${segment.startTime}) must be < endTime (${segment.endTime})`,
@@ -543,20 +535,22 @@ export class MusicService {
           `Splitting segment "${segment.title}": ${segment.startTime}s - ${segment.endTime}s`,
         );
 
+        // -ss BEFORE -i = input seeking (instant), -t = duration from seek point
+        const duration = segment.endTime - segment.startTime;
         await execFileAsync('ffmpeg', [
-          '-i',
-          sourcePath,
           '-ss',
           String(segment.startTime),
-          '-to',
-          String(segment.endTime),
+          '-i',
+          sourcePath,
+          '-t',
+          String(duration),
           '-c',
           'copy',
           '-y',
           outputPath,
         ]);
 
-        const [duration, fileSize] = await Promise.all([
+        const [segDuration, fileSize] = await Promise.all([
           this.getAudioDuration(outputPath),
           this.getFileSize(outputPath),
         ]);
@@ -568,14 +562,16 @@ export class MusicService {
           cosKey,
         );
 
-        results.push({
+        return {
           title: segment.title,
           fileKey: key,
           fileUrl: publicUrl,
           fileSize,
-          duration,
-        });
-      }
+          duration: segDuration,
+        };
+      });
+
+      const results = await Promise.all(segmentPromises);
 
       return results;
     } catch (error) {
@@ -724,7 +720,26 @@ export class MusicService {
 
   /** 更新曲目元信息 */
   async update(id: string, dto: UpdateMusicTrackDto) {
-    await this.findOne(id);
+    const existing = await this.findOne(id);
+
+    // 如果文件 key 发生变化，删除旧的 COS 文件
+    if (dto.fileKey && dto.fileKey !== existing.fileKey) {
+      this.cos.deleteObject(
+        {
+          Bucket: this.getBucket(),
+          Region: this.getRegion(),
+          Key: existing.fileKey,
+        },
+        (err) => {
+          if (err) this.logger.error('COS delete old file error:', err);
+          else
+            this.logger.log(
+              `Deleted old COS file: ${existing.fileKey} (replaced by ${dto.fileKey})`,
+            );
+        },
+      );
+    }
+
     return this.prisma.musicTrack.update({
       where: { id },
       data: dto,

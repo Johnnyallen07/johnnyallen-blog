@@ -2,7 +2,9 @@
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
   "globalEnv": [
-    "API_SERVER_URL"
+    "NODE_ENV",
+    "API_SERVER_URL",
+    "GEMINI_API_KEY"
   ],
   "tasks": {
     "build": {

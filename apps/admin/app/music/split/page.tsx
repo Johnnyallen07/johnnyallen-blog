@@ -83,18 +83,81 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
 }
 
-function parseTimeInput(val: string): number {
-    const trimmed = val.trim();
-    if (!trimmed) return NaN;
-    if (trimmed.includes(":")) {
-        const parts = trimmed.split(":");
-        const m = parseInt(parts[0] || "0", 10);
-        const s = parseInt(parts[1] || "0", 10);
-        if (isNaN(m) || isNaN(s)) return NaN;
-        return m * 60 + s;
-    }
-    const secs = parseFloat(trimmed);
-    return isNaN(secs) ? NaN : Math.round(secs);
+function TimeInput({
+    value,
+    onChange,
+    onPreview,
+    className,
+}: {
+    value: number;
+    onChange: (val: number) => void;
+    onPreview?: (committedTime: number) => void;
+    className?: string;
+}) {
+    const [localMin, setLocalMin] = useState(Math.floor(value / 60).toString());
+    const [localSec, setLocalSec] = useState(Math.floor(value % 60).toString().padStart(2, "0"));
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const isFocused = containerRef.current?.contains(document.activeElement);
+        if (!isFocused) {
+            setLocalMin(Math.floor(value / 60).toString());
+            setLocalSec(Math.floor(value % 60).toString().padStart(2, "0"));
+        }
+    }, [value]);
+
+    const handleBlur = (e: React.FocusEvent) => {
+        if (containerRef.current?.contains(e.relatedTarget as Node)) return;
+        const m = parseInt(localMin, 10) || 0;
+        const s = parseInt(localSec, 10) || 0;
+        const total = m * 60 + s;
+        if (total !== value) {
+            onChange(total);
+        } else {
+            setLocalMin(Math.floor(value / 60).toString());
+            setLocalSec(Math.floor(value % 60).toString().padStart(2, "0"));
+        }
+        if (onPreview) onPreview(total);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            (e.target as HTMLElement).blur();
+        }
+    };
+
+    return (
+        <div
+            ref={containerRef}
+            className={`flex items-center bg-white border border-gray-200 rounded-md px-2 focus-within:ring-1 focus-within:ring-purple-500 focus-within:border-purple-500 transition-shadow transition-colors ${className || ""}`}
+            onClick={(e) => e.stopPropagation()}
+        >
+            <input
+                type="text"
+                value={localMin}
+                onChange={(e) => setLocalMin(e.target.value.replace(/\D/g, ''))}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className="w-8 text-right bg-transparent outline-none tabular-nums text-xs placeholder:text-gray-300 font-mono"
+                placeholder="0"
+            />
+            <span className="text-gray-400 font-medium text-xs mx-0.5">:</span>
+            <input
+                type="text"
+                value={localSec}
+                onChange={(e) => {
+                    let val = e.target.value.replace(/\D/g, '');
+                    if (val.length > 2) val = val.slice(0, 2);
+                    setLocalSec(val);
+                }}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className="w-8 text-left bg-transparent outline-none tabular-nums text-xs placeholder:text-gray-300 font-mono"
+                placeholder="00"
+            />
+        </div>
+    );
 }
 
 /* ── Waveform Component ── */
@@ -786,11 +849,21 @@ function SplitPageContent() {
                                             <div className="flex items-center gap-3 pl-7">
                                                 <div className="flex-1">
                                                     <Label className="text-[10px] text-gray-400">开始</Label>
-                                                    <Input value={formatDuration(seg.startTime)} onChange={(e) => { const t = parseTimeInput(e.target.value); if (!isNaN(t)) updateSegment(seg.id, "startTime", t); }} onBlur={() => previewFromTime("start", seg.startTime)} placeholder="0:00" className="h-8 text-xs tabular-nums" onClick={(e) => e.stopPropagation()} />
+                                                    <TimeInput
+                                                        value={seg.startTime}
+                                                        onChange={(t) => updateSegment(seg.id, "startTime", t)}
+                                                        onPreview={(t) => previewFromTime("start", t)}
+                                                        className="h-8 mt-1"
+                                                    />
                                                 </div>
                                                 <div className="flex-1">
                                                     <Label className="text-[10px] text-gray-400">结束</Label>
-                                                    <Input value={formatDuration(seg.endTime)} onChange={(e) => { const t = parseTimeInput(e.target.value); if (!isNaN(t)) updateSegment(seg.id, "endTime", t); }} onBlur={() => previewFromTime("end", seg.endTime)} placeholder="1:00" className="h-8 text-xs tabular-nums" onClick={(e) => e.stopPropagation()} />
+                                                    <TimeInput
+                                                        value={seg.endTime}
+                                                        onChange={(t) => updateSegment(seg.id, "endTime", t)}
+                                                        onPreview={(t) => previewFromTime("end", t)}
+                                                        className="h-8 mt-1"
+                                                    />
                                                 </div>
                                                 <Button variant="outline" size="sm" className="h-8 px-3 text-xs mt-3" onClick={(e) => { e.stopPropagation(); previewSegment(seg); }} title="预览：从开始前3秒播放">
                                                     <SkipBack className="h-3 w-3 mr-1" />预览

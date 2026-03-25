@@ -186,16 +186,38 @@ export default function MusicPageClient() {
     const [currentSong, setCurrentSong] = useState<Song | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
     const [audioDuration, setAudioDuration] = useState(0);
-    const [volume, setVolume] = useState(0.8);
-    const [isMuted, setIsMuted] = useState(false);
-    const [playMode, setPlayMode] = useState<PlayMode>("sequential");
+
+    // Restore persisted preferences on initial render
+    const savedStateRef = useRef<{
+        songId?: string;
+        song?: Song;
+        time?: number;
+        volume?: number;
+        muted?: boolean;
+        playMode?: PlayMode;
+        playlist?: string;
+    } | null>(null);
+
+    // Read saved state once (before first render completes)
+    if (savedStateRef.current === null) {
+        try {
+            const raw = typeof window !== "undefined" ? localStorage.getItem("MUSIC_PLAYER_STATE") : null;
+            savedStateRef.current = raw ? JSON.parse(raw) : {};
+        } catch {
+            savedStateRef.current = {};
+        }
+    }
+
+    const [volume, setVolume] = useState(() => savedStateRef.current?.volume ?? 0.8);
+    const [isMuted, setIsMuted] = useState(() => savedStateRef.current?.muted ?? false);
+    const [playMode, setPlayMode] = useState<PlayMode>(() => (savedStateRef.current?.playMode as PlayMode) || "sequential");
 
 
     /* ── State: Mobile ── */
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     /* ── State: UI ── */
-    const [selectedPlaylist, setSelectedPlaylist] = useState("daily");
+    const [selectedPlaylist, setSelectedPlaylist] = useState(() => savedStateRef.current?.playlist || "daily");
     const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState("");
 
@@ -226,6 +248,63 @@ export default function MusicPageClient() {
             halfPlayedRef.current = null;
         }
     }, [currentSong]);
+
+    /* ── Persist playback state to localStorage ── */
+    const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const restoredRef = useRef(false);
+
+    // Save non-time state immediately when it changes
+    useEffect(() => {
+        try {
+            const existing = localStorage.getItem("MUSIC_PLAYER_STATE");
+            const state = existing ? JSON.parse(existing) : {};
+            state.volume = volume;
+            state.muted = isMuted;
+            state.playMode = playMode;
+            state.playlist = selectedPlaylist;
+            if (currentSong) {
+                state.songId = currentSong.id;
+                state.song = currentSong;
+            }
+            localStorage.setItem("MUSIC_PLAYER_STATE", JSON.stringify(state));
+        } catch { /* localStorage may be unavailable */ }
+    }, [volume, isMuted, playMode, selectedPlaylist, currentSong]);
+
+    // Save currentTime every 5 seconds (throttled to avoid excessive writes)
+    useEffect(() => {
+        saveTimerRef.current = setInterval(() => {
+            if (!currentSongRef.current) return;
+            try {
+                const existing = localStorage.getItem("MUSIC_PLAYER_STATE");
+                const state = existing ? JSON.parse(existing) : {};
+                const audio = audioRef.current;
+                if (audio && isFinite(audio.currentTime)) {
+                    state.time = audio.currentTime;
+                }
+                localStorage.setItem("MUSIC_PLAYER_STATE", JSON.stringify(state));
+            } catch { /* ignore */ }
+        }, 5000);
+        return () => {
+            if (saveTimerRef.current) clearInterval(saveTimerRef.current);
+        };
+    }, []);
+
+    // Also save time on page unload
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            try {
+                const existing = localStorage.getItem("MUSIC_PLAYER_STATE");
+                const state = existing ? JSON.parse(existing) : {};
+                const audio = audioRef.current;
+                if (audio && isFinite(audio.currentTime)) {
+                    state.time = audio.currentTime;
+                }
+                localStorage.setItem("MUSIC_PLAYER_STATE", JSON.stringify(state));
+            } catch { /* ignore */ }
+        };
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, []);
 
 
 
@@ -687,6 +766,69 @@ export default function MusicPageClient() {
         }
     }, [playMode]);
 
+    /* ── Restore saved song on mount ── */
+    useEffect(() => {
+        if (restoredRef.current) return;
+        restoredRef.current = true;
+
+        const saved = savedStateRef.current;
+        if (!saved?.song?.id || !saved.song.fileUrl) return;
+
+        const song = saved.song;
+        const savedTime = saved.time || 0;
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        // Set UI state immediately (song info, duration, time)
+        setCurrentSong(song);
+        setCurrentTime(savedTime);
+        setAudioDuration(song.duration || 0);
+        setIsLoading(true);
+
+        // Update MediaSession metadata
+        if ("mediaSession" in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: song.title,
+                artist: song.musician || song.artist,
+                album: song.category,
+            });
+        }
+
+        // Preload audio as blob, then seek to saved position (paused)
+        const controller = new AbortController();
+        loadAbortRef.current = controller;
+
+        fetch(song.fileUrl, { signal: controller.signal })
+            .then((res) => {
+                if (!res.ok) throw new Error("fetch failed");
+                return res.blob();
+            })
+            .then((blob) => {
+                if (controller.signal.aborted) return;
+                const blobUrl = URL.createObjectURL(blob);
+                blobUrlRef.current = blobUrl;
+                audio.src = blobUrl;
+
+                // After metadata loads, seek to saved time (stay paused)
+                const onReady = () => {
+                    audio.removeEventListener("loadedmetadata", onReady);
+                    if (savedTime > 0 && savedTime < (audio.duration || song.duration)) {
+                        audio.currentTime = savedTime;
+                        setCurrentTime(savedTime);
+                    }
+                    if (isFinite(audio.duration) && audio.duration > 0) {
+                        setAudioDuration(audio.duration);
+                    }
+                    setIsLoading(false);
+                };
+                audio.addEventListener("loadedmetadata", onReady, { once: true });
+            })
+            .catch((err) => {
+                if (err.name === "AbortError") return;
+                setIsLoading(false);
+            });
+    }, []);
+
     const togglePlayPause = useCallback(() => {
         const audio = audioRef.current;
         if (!audio || !currentSong) return;
@@ -865,6 +1007,87 @@ export default function MusicPageClient() {
         window.addEventListener("mouseup", onMouseUp);
     }, [computeVolumeRatio]);
 
+    /* ── Progress bar seek (drag + click) ── */
+
+    const progressBarRef = useRef<HTMLDivElement>(null);
+    const progressDragging = useRef(false);
+    const [seekPreview, setSeekPreview] = useState<number | null>(null);
+
+    const computeSeekTime = useCallback((clientX: number): number => {
+        const bar = progressBarRef.current;
+        if (!bar || audioDuration <= 0) return 0;
+        const rect = bar.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        return ratio * audioDuration;
+    }, [audioDuration]);
+
+    const handleProgressMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        progressDragging.current = true;
+        const time = computeSeekTime(e.clientX);
+        setSeekPreview(time);
+
+        const onMouseMove = (ev: MouseEvent) => {
+            if (!progressDragging.current) return;
+            const t = computeSeekTime(ev.clientX);
+            setSeekPreview(t);
+        };
+        const onMouseUp = (ev: MouseEvent) => {
+            progressDragging.current = false;
+            const t = computeSeekTime(ev.clientX);
+            setSeekPreview(null);
+            // Seek audio to the final position
+            const audio = audioRef.current;
+            if (audio) {
+                audio.currentTime = t;
+                setCurrentTime(t);
+                if (!isPlaying) {
+                    audio.play().catch(() => { });
+                    setIsPlaying(true);
+                }
+            }
+            window.removeEventListener("mousemove", onMouseMove);
+            window.removeEventListener("mouseup", onMouseUp);
+        };
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+    }, [computeSeekTime, isPlaying]);
+
+    const handleProgressTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+        progressDragging.current = true;
+        const touch = e.touches[0];
+        if (!touch) return;
+        const time = computeSeekTime(touch.clientX);
+        setSeekPreview(time);
+
+        const onTouchMove = (ev: TouchEvent) => {
+            if (!progressDragging.current) return;
+            const t2 = ev.touches[0];
+            if (!t2) return;
+            const t = computeSeekTime(t2.clientX);
+            setSeekPreview(t);
+        };
+        const onTouchEnd = (ev: TouchEvent) => {
+            progressDragging.current = false;
+            const ct = ev.changedTouches[0];
+            const t = ct ? computeSeekTime(ct.clientX) : (seekPreview ?? 0);
+            setSeekPreview(null);
+            const audio = audioRef.current;
+            if (audio) {
+                audio.currentTime = t;
+                setCurrentTime(t);
+                if (!isPlaying) {
+                    audio.play().catch(() => { });
+                    setIsPlaying(true);
+                }
+            }
+            window.removeEventListener("touchmove", onTouchMove);
+            window.removeEventListener("touchend", onTouchEnd);
+        };
+        window.addEventListener("touchmove", onTouchMove, { passive: true });
+        window.addEventListener("touchend", onTouchEnd);
+    }, [computeSeekTime, isPlaying, seekPreview]);
+
     const toggleMute = useCallback(() => {
         setIsMuted((prev) => !prev);
     }, []);
@@ -1005,6 +1228,17 @@ export default function MusicPageClient() {
                         <SidebarSection title="库" items={libraryItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />
                         {artistItems.length > 0 && <SidebarSection title="音乐家" items={artistItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
                         {seriesItems.length > 0 && <SidebarSection title="系列" items={seriesItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
+                    </div>
+
+                    {/* 乐谱入口 */}
+                    <div className="mt-4 px-3">
+                        <a
+                            href="/scores"
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-amber-600 hover:bg-amber-50/60 transition-all duration-200"
+                        >
+                            <span className="text-base">🎼</span>
+                            <span>乐谱</span>
+                        </a>
                     </div>
                 </aside>
 
@@ -1194,11 +1428,24 @@ export default function MusicPageClient() {
             {/* ══════════ 底部播放器 ══════════ */}
             {currentSong && (
                 <div className="fixed bottom-0 left-0 right-0 glass-strong shadow-2xl z-50">
-                    {/* 进度条 */}
-                    <div className="relative h-1 md:h-1.5 bg-gray-200/50">
+                    {/* 进度条 — 可点击 / 可拖拽 */}
+                    <div
+                        ref={progressBarRef}
+                        className="relative h-2 md:h-2 bg-gray-200/50 cursor-pointer group"
+                        onMouseDown={handleProgressMouseDown}
+                        onTouchStart={handleProgressTouchStart}
+                    >
                         <div
-                            className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-r-full z-10 transition-[width] duration-100 ease-linear"
-                            style={{ width: `${progressPercent}%` }}
+                            className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-r-full z-10 transition-[width] duration-75 ease-linear"
+                            style={{ width: `${seekPreview !== null ? (audioDuration > 0 ? (seekPreview / audioDuration) * 100 : 0) : progressPercent}%` }}
+                        />
+                        {/* Drag thumb */}
+                        <div
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 md:w-3.5 md:h-3.5 bg-white rounded-full shadow-md border-2 border-purple-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                            style={{
+                                left: `${seekPreview !== null ? (audioDuration > 0 ? (seekPreview / audioDuration) * 100 : 0) : progressPercent}%`,
+                                opacity: seekPreview !== null ? 1 : undefined,
+                            }}
                         />
                     </div>
 

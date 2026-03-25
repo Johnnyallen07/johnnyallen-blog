@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Maximize2, Minimize2, List } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArticleContent } from "@/components/article/ArticleContent";
@@ -33,14 +33,14 @@ interface SeriesItemDTO {
   title: string | null;
   postId: string | null;
   children: SeriesItemDTO[];
-  post?: { id: string; title: string; slug: string };
+  post?: { id: string; title: string; slug: string; published?: boolean };
 }
 
 interface MappedSeriesItem {
   id: string;
   title: string;
   postId: string | null;
-  post: { id: string; title: string; slug: string } | undefined;
+  post: { id: string; title: string; slug: string; published?: boolean } | undefined;
   children: MappedSeriesItem[];
 }
 
@@ -151,7 +151,34 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
   } | null>(null);
   const [similarArticles, setSimilarArticles] = useState<SimilarArticle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isImmersive, setIsImmersive] = useState(false);
+  const [showFloatingToc, setShowFloatingToc] = useState(false);
   const viewCountedRef = useRef(false);
+  const floatingTocRef = useRef<HTMLDivElement>(null);
+
+  // Close floating TOC when clicking outside
+  useEffect(() => {
+    if (!showFloatingToc) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (floatingTocRef.current && !floatingTocRef.current.contains(e.target as Node)) {
+        setShowFloatingToc(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showFloatingToc]);
+
+  // Exit immersive mode on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isImmersive) {
+        setIsImmersive(false);
+        setShowFloatingToc(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isImmersive]);
 
   const fetchArticle = useCallback(async () => {
     try {
@@ -294,25 +321,62 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
         <span>首页</span>
       </Link>
 
+      {/* Floating immersive mode toggle */}
+      <button
+        onClick={() => {
+          setIsImmersive(!isImmersive);
+          if (isImmersive) setShowFloatingToc(false);
+        }}
+        className="fixed top-5 right-5 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/70 backdrop-blur-md border border-white/30 shadow-sm text-sm text-gray-600 hover:text-gray-900 hover:bg-white/90 transition-all group"
+        title={isImmersive ? "退出沉浸阅读" : "沉浸阅读"}
+      >
+        {isImmersive ? (
+          <Minimize2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
+        ) : (
+          <Maximize2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
+        )}
+        <span className="hidden sm:inline">{isImmersive ? "退出沉浸" : "沉浸阅读"}</span>
+      </button>
+
+      {/* Floating TOC button & popover (immersive mode only) */}
+      {isImmersive && tocItems.length > 0 && (
+        <div className="fixed top-5 right-36 z-50" ref={floatingTocRef}>
+          <button
+            onClick={() => setShowFloatingToc(!showFloatingToc)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/70 backdrop-blur-md border border-white/30 shadow-sm text-sm text-gray-600 hover:text-gray-900 hover:bg-white/90 transition-all"
+          >
+            <List className="h-4 w-4" />
+            <span className="hidden sm:inline">目录</span>
+          </button>
+          {showFloatingToc && (
+            <div className="absolute top-12 right-0 w-72 max-h-[70vh] overflow-y-auto rounded-2xl shadow-xl border border-white/30 bg-white/90 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
+              <TableOfContents items={tocItems} />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main content */}
       <div className="max-w-[1600px] mx-auto px-4 py-8 relative z-10">
         {hasSeriesSidebar ? (
           /* === 3-column layout: Series sidebar | Content | TOC === */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left sidebar — Series tree */}
-            <aside className="lg:col-span-3">
-              <div className="lg:sticky lg:top-24 space-y-4">
-                <SeriesSidebar
-                  title={seriesInfo.title}
-                  slug={seriesInfo.slug}
-                  emoji={seriesInfo.emoji}
-                  items={seriesItems}
-                />
-              </div>
-            </aside>
+            {!isImmersive && (
+              <aside className="lg:col-span-3 transition-all duration-300">
+                <div className="lg:sticky lg:top-24 space-y-4">
+                  <SeriesSidebar
+                    title={seriesInfo.title}
+                    slug={seriesInfo.slug}
+                    emoji={seriesInfo.emoji}
+                    items={seriesItems}
+                  />
+                </div>
+              </aside>
+            )}
 
             {/* Center content */}
-            <main className="lg:col-span-7">
+            <main className={isImmersive ? "lg:col-span-12 max-w-4xl mx-auto transition-all duration-300" : "lg:col-span-7 transition-all duration-300"}>
               <ArticleContent
                 postId={post.id}
                 title={post.title}
@@ -328,17 +392,19 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
             </main>
 
             {/* Right sidebar — TOC */}
-            <aside className="lg:col-span-2">
-              <div className="lg:sticky lg:top-24">
-                <TableOfContents items={tocItems} />
-              </div>
-            </aside>
+            {!isImmersive && (
+              <aside className="lg:col-span-2 transition-all duration-300">
+                <div className="lg:sticky lg:top-24">
+                  <TableOfContents items={tocItems} />
+                </div>
+              </aside>
+            )}
           </div>
         ) : (
           /* === 2-column layout: Content | TOC + Similar === */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Content */}
-            <main className="lg:col-span-9">
+            <main className={isImmersive ? "lg:col-span-12 max-w-4xl mx-auto transition-all duration-300" : "lg:col-span-9 transition-all duration-300"}>
               <ArticleContent
                 postId={post.id}
                 title={post.title}
@@ -353,17 +419,19 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
             </main>
 
             {/* Right sidebar — TOC + Similar articles */}
-            <aside className="lg:col-span-3">
-              <div className="lg:sticky lg:top-24 space-y-6">
-                <TableOfContents items={tocItems} />
-                {similarArticles.length > 0 && (
-                  <SimilarArticles
-                    category={post.category?.name || "推荐阅读"}
-                    articles={similarArticles}
-                  />
-                )}
-              </div>
-            </aside>
+            {!isImmersive && (
+              <aside className="lg:col-span-3 transition-all duration-300">
+                <div className="lg:sticky lg:top-24 space-y-6">
+                  <TableOfContents items={tocItems} />
+                  {similarArticles.length > 0 && (
+                    <SimilarArticles
+                      category={post.category?.name || "推荐阅读"}
+                      articles={similarArticles}
+                    />
+                  )}
+                </div>
+              </aside>
+            )}
           </div>
         )}
       </div>

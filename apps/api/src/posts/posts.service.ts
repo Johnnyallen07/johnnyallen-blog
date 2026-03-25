@@ -1,11 +1,31 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 
 @Injectable()
 export class PostsService {
-  constructor(private prisma: PrismaService) {}
+  /** 跟踪已缓存的 key 以便批量清除 */
+  private cachedKeys = new Set<string>();
+
+  constructor(
+    private prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cache: Cache,
+  ) {}
+
+  private async cacheSet(key: string, value: unknown, ttl: number) {
+    this.cachedKeys.add(key);
+    await this.cache.set(key, value, ttl);
+  }
+
+  /** 清除所有 post 相关缓存 */
+  private async invalidatePostCaches(slug?: string) {
+    const keysToDelete = [...this.cachedKeys];
+    await Promise.all(keysToDelete.map((k) => this.cache.del(k)));
+    this.cachedKeys.clear();
+  }
 
   async findAll(options?: {
     skip?: number;
@@ -32,12 +52,39 @@ export class PostsService {
           ? undefined
           : true;
 
-    return this.prisma.post.findMany({
+    // 管理后台请求不缓存
+    if (standalone) {
+      return this.prisma.post.findMany({
+        where: {
+          ...(categoryId && { categoryId }),
+          ...(featured !== undefined && { featured }),
+          ...(published !== undefined && { published }),
+          ...(standalone && { seriesItems: { none: {} } }),
+        },
+        include: {
+          category: true,
+          media: true,
+          _count: {
+            select: { seriesItems: true },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take,
+      });
+    }
+
+    const cacheKey = `posts:list:${skip}:${take}:${categoryId || ''}:${featured ?? ''}:${published ?? ''}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.prisma.post.findMany({
       where: {
         ...(categoryId && { categoryId }),
         ...(featured !== undefined && { featured }),
         ...(published !== undefined && { published }),
-        ...(standalone && { seriesItems: { none: {} } }),
       },
       include: {
         category: true,
@@ -52,10 +99,17 @@ export class PostsService {
       skip,
       take,
     });
+
+    await this.cacheSet(cacheKey, result, 30 * 1000); // 30s TTL
+    return result;
   }
 
   async findLatest(limit = 8) {
-    return this.prisma.post.findMany({
+    const cacheKey = `posts:latest:${limit}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.prisma.post.findMany({
       where: {
         published: true,
       },
@@ -74,9 +128,16 @@ export class PostsService {
       },
       take: limit,
     });
+
+    await this.cacheSet(cacheKey, result, 60 * 1000); // 60s
+    return result;
   }
 
   async findFeatured() {
+    const cacheKey = 'posts:featured';
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
     const featuredPosts = await this.prisma.post.findMany({
       where: {
         published: true,
@@ -111,24 +172,27 @@ export class PostsService {
       {} as Record<string, typeof featuredPosts>,
     );
 
+    await this.cacheSet(cacheKey, grouped, 120 * 1000); // 120s
     return grouped;
   }
 
   async findBySlug(slug: string) {
+    const cacheKey = `post:slug:${slug}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
     const post = await this.prisma.post.findUnique({
       where: { slug },
       include: {
         category: true,
         media: true,
         seriesItems: {
-          where: { published: true }, // 只返回已发布的 SeriesItem
           include: {
             series: {
               include: {
                 items: {
                   where: {
                     parentId: null,
-                    published: true,
                   },
                   orderBy: {
                     order: 'asc',
@@ -143,7 +207,6 @@ export class PostsService {
                       },
                     },
                     children: {
-                      where: { published: true },
                       orderBy: {
                         order: 'asc',
                       },
@@ -157,7 +220,6 @@ export class PostsService {
                           },
                         },
                         children: {
-                          where: { published: true },
                           orderBy: { order: 'asc' },
                           include: {
                             post: {
@@ -186,6 +248,7 @@ export class PostsService {
       throw new NotFoundException(`Post with slug "${slug}" not found`);
     }
 
+    await this.cacheSet(cacheKey, post, 60 * 1000); // 60s
     return post;
   }
 
@@ -218,16 +281,19 @@ export class PostsService {
   }
 
   async create(createPostDto: CreatePostDto) {
-    return this.prisma.post.create({
+    const result = await this.prisma.post.create({
       data: createPostDto,
       include: {
         category: true,
       },
     });
+
+    await this.invalidatePostCaches();
+    return result;
   }
 
   async update(id: string, updatePostDto: UpdatePostDto) {
-    await this.findOne(id);
+    const existing = await this.findOne(id);
 
     // Extract seriesId from DTO (it's not a direct Post field)
     const { seriesId, ...postData } = updatePostDto;
@@ -250,6 +316,9 @@ export class PostsService {
     if (seriesId !== undefined) {
       await this.handleSeriesBinding(id, seriesId);
     }
+
+    // 清除缓存
+    await this.invalidatePostCaches(existing.slug);
 
     // Re-fetch to get updated data including series info
     return this.findOne(id);
@@ -336,11 +405,14 @@ export class PostsService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const existing = await this.findOne(id);
 
-    return this.prisma.post.delete({
+    const result = await this.prisma.post.delete({
       where: { id },
     });
+
+    await this.invalidatePostCaches(existing.slug);
+    return result;
   }
 
   async incrementViews(id: string) {

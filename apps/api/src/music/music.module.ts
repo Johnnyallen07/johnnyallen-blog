@@ -8,6 +8,8 @@ import { MusicArtistController } from './music-artist.controller';
 import { MusicArtistService } from './music-artist.service';
 import { MusicSeriesController } from './music-series.controller';
 import { MusicSeriesService } from './music-series.service';
+import { MusicScoreController } from './music-score.controller';
+import { MusicScoreService } from './music-score.service';
 
 @Module({
   controllers: [
@@ -15,12 +17,14 @@ import { MusicSeriesService } from './music-series.service';
     MusicCategoryController,
     MusicArtistController,
     MusicSeriesController,
+    MusicScoreController,
   ],
   providers: [
     MusicService,
     MusicCategoryService,
     MusicArtistService,
     MusicSeriesService,
+    MusicScoreService,
     PrismaService,
   ],
 })

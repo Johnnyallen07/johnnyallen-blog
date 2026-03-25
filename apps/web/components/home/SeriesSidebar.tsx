@@ -15,6 +15,7 @@ interface SeriesItem {
         id: string;
         title: string;
         slug: string;
+        published?: boolean;
     };
 }
 
@@ -25,40 +26,60 @@ interface SeriesSidebarProps {
     items: SeriesItem[];
 }
 
-export function SeriesSidebar({ title, slug, emoji, items }: SeriesSidebarProps) {
+/**
+ * Check if a node (or any descendant) has a published post.
+ * Folders are visible if they have at least one published descendant.
+ */
+function hasPublishedDescendant(node: SeriesItem): boolean {
+    if (node.postId && node.post?.published !== false) return true;
+    return node.children?.some(hasPublishedDescendant) || false;
+}
+
+/**
+ * Filter tree to only include nodes with published posts
+ * or folders that contain published descendants.
+ */
+function filterPublished(nodes: SeriesItem[]): SeriesItem[] {
+    return nodes
+        .filter(hasPublishedDescendant)
+        .map((node) => ({
+            ...node,
+            children: node.children ? filterPublished(node.children) : [],
+        }));
+}
+
+export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
     const pathname = usePathname();
-
-    const renderNode = (node: SeriesItem, level: number = 0) => {
-        // Determine if this node or any of its children are active to auto-expand
-
-
-        // Simple state for folders, default expanded if not deep? 
-        // For a read-only sidebar, we might want to expand all or smart expand.
-        // Let's implement a toggleable folder.
-        return (
-            <SeriesNode
-                key={node.id}
-                node={node}
-                level={level}
-                activePath={pathname}
-            />
-        );
-    };
+    const visibleItems = filterPublished(items);
 
     return (
         <div className="lg:sticky lg:top-24">
-            <div className="bg-transparent backdrop-blur-sm border border-white/20 rounded-2xl shadow-sm overflow-hidden">
-                <div className="p-4 bg-gradient-to-r from-cyan-50/80 to-blue-50/80 border-b border-gray-200/50">
-                    <div className="text-xs text-gray-500 font-medium mb-1">所属专栏</div>
-                    <Link href={`/series/${slug}`} className="block">
-                        <h3 className="font-bold text-gray-900 flex items-center gap-2 hover:text-cyan-600 transition-colors">
-                            <span>{emoji}</span>
-                            <span>{title}</span>
-                        </h3>
-                    </Link>
+            <div className="bg-white/60 backdrop-blur-md border border-gray-200/60 rounded-2xl shadow-sm overflow-hidden">
+                {/* Header */}
+                <div className="px-4 py-3 bg-gradient-to-r from-cyan-50/80 to-blue-50/80 border-b border-gray-200/50">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2 text-base">
+                        <span>{emoji}</span>
+                        <span>{title}</span>
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-0.5">专栏目录</p>
                 </div>
-                <div className="p-2 max-h-[calc(100vh-200px)] overflow-y-auto">
-                    {items.map((item) => renderNode(item))}
+
+                {/* Tree */}
+                <div className="p-2 max-h-[calc(100vh-220px)] overflow-y-auto">
+                    {visibleItems.length > 0 ? (
+                        visibleItems.map((item) => (
+                            <SeriesNode
+                                key={item.id}
+                                node={item}
+                                level={0}
+                                activePath={pathname}
+                            />
+                        ))
+                    ) : (
+                        <div className="text-center py-6 text-sm text-gray-400">
+                            暂无已发布内容
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -74,7 +95,6 @@ function SeriesNode({
     level: number;
     activePath: string;
 }) {
-    // Check if this node contains the active path (recursively) to default expand
     const containsActive = (n: SeriesItem): boolean => {
         if (n.post && `/article/${n.post.slug}` === activePath) return true;
         return n.children?.some(containsActive) || false;
@@ -84,40 +104,55 @@ function SeriesNode({
     const isFile = !!node.postId;
     const isActive = isFile && node.post && activePath === `/article/${node.post.slug}`;
 
+    // File node — link to article
     if (isFile && node.post) {
         return (
             <Link
                 href={`/article/${node.post.slug}`}
                 className={cn(
-                    "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors mb-0.5",
+                    "flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-all mb-0.5",
                     isActive
-                        ? "bg-cyan-50 text-cyan-700 font-medium"
+                        ? "bg-gradient-to-r from-cyan-50 to-blue-50 text-cyan-700 font-medium border border-cyan-200/60"
                         : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 )}
-                style={{ paddingLeft: `${level * 12 + 8}px` }}
+                style={{ paddingLeft: `${level * 16 + 8}px` }}
             >
-                <FileText className={cn("h-3.5 w-3.5 flex-shrink-0", isActive ? "text-cyan-500" : "text-gray-400")} />
+                <FileText className={cn(
+                    "h-3.5 w-3.5 flex-shrink-0",
+                    isActive ? "text-cyan-500" : "text-gray-400"
+                )} />
                 <span className="truncate">{node.title || node.post.title}</span>
             </Link>
         );
     }
 
-    // Folder
+    // Folder node
+    const childCount = node.children?.length ?? 0;
+
     return (
         <div>
             <div
                 role="button"
                 onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-gray-700 hover:bg-gray-50 cursor-pointer select-none mb-0.5"
-                style={{ paddingLeft: `${level * 12 + 8}px` }}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 cursor-pointer select-none mb-0.5 transition-colors"
+                style={{ paddingLeft: `${level * 16 + 8}px` }}
             >
-                <span className="text-gray-400">
-                    {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                <span className="text-gray-400 flex-shrink-0">
+                    {expanded
+                        ? <ChevronDown className="h-3.5 w-3.5" />
+                        : <ChevronRight className="h-3.5 w-3.5" />
+                    }
                 </span>
-                <span className="text-amber-400">
-                    {expanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+                <span className="flex-shrink-0">
+                    {expanded
+                        ? <FolderOpen className="h-3.5 w-3.5 text-cyan-500" />
+                        : <Folder className="h-3.5 w-3.5 text-amber-400" />
+                    }
                 </span>
-                <span className="font-medium truncate">{node.title || "Untitled Folder"}</span>
+                <span className="font-medium truncate flex-1">{node.title || "未命名文件夹"}</span>
+                {childCount > 0 && (
+                    <span className="text-xs text-gray-400 flex-shrink-0">{childCount}</span>
+                )}
             </div>
             {expanded && node.children && (
                 <div>

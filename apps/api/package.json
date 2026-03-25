@@ -28,6 +28,8 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
@@ -36,6 +38,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/client": "^5.22.0",
     "bcrypt": "^6.0.0",
+    "cache-manager": "^7.2.8",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cos-nodejs-sdk-v5": "^2.15.4",

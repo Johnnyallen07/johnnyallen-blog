@@ -41,6 +41,7 @@ services:
       COS_SECRET_KEY: ${COS_SECRET_KEY}
       COS_PUBLIC_DOMAIN: ${COS_PUBLIC_DOMAIN:-}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       - ./cookies.txt:/app/cookies.txt:ro
     ports:
@@ -127,6 +128,30 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3003/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  teacher:
+    build:
+      context: .
+      dockerfile: apps/teacher/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+    image: johnny-blog-teacher:latest
+    pull_policy: if_not_present
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+      PORT: 3004
+    ports:
+      - '3004:3004'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3004/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10

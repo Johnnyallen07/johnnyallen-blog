@@ -1,14 +1,37 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 
 @Injectable()
 export class CategoriesService {
-  constructor(private prisma: PrismaService) {}
+  private cachedKeys = new Set<string>();
+
+  constructor(
+    private prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cache: Cache,
+  ) {}
+
+  private async cacheSet(key: string, value: unknown, ttl: number) {
+    this.cachedKeys.add(key);
+    await this.cache.set(key, value, ttl);
+  }
+
+  /** 清除所有分类相关缓存 */
+  private async invalidateCategoryCaches() {
+    const keysToDelete = [...this.cachedKeys];
+    await Promise.all(keysToDelete.map((k) => this.cache.del(k)));
+    this.cachedKeys.clear();
+  }
 
   async findAll() {
-    return this.prisma.category.findMany({
+    const cacheKey = 'categories:all';
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.prisma.category.findMany({
       include: {
         parent: true,
         children: true,
@@ -20,6 +43,9 @@ export class CategoriesService {
         createdAt: 'asc',
       },
     });
+
+    await this.cacheSet(cacheKey, result, 300 * 1000); // 5min
+    return result;
   }
 
   async findOne(id: string) {
@@ -40,6 +66,10 @@ export class CategoriesService {
   }
 
   async findBySlug(slug: string) {
+    const cacheKey = `categories:slug:${slug}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
     const category = await this.prisma.category.findUnique({
       where: { slug },
       include: {
@@ -67,30 +97,40 @@ export class CategoriesService {
       throw new NotFoundException(`Category with slug "${slug}" not found`);
     }
 
+    await this.cacheSet(cacheKey, category, 120 * 1000); // 2min
     return category;
   }
 
   async create(createCategoryDto: CreateCategoryDto) {
-    return this.prisma.category.create({
+    const result = await this.prisma.category.create({
       data: createCategoryDto,
     });
+
+    await this.invalidateCategoryCaches();
+    return result;
   }
 
   async update(id: string, updateCategoryDto: UpdateCategoryDto) {
     await this.findOne(id); // Check if exists
 
-    return this.prisma.category.update({
+    const result = await this.prisma.category.update({
       where: { id },
       data: updateCategoryDto,
     });
+
+    await this.invalidateCategoryCaches();
+    return result;
   }
 
   async remove(id: string) {
     await this.findOne(id); // Check if exists
 
-    return this.prisma.category.delete({
+    const result = await this.prisma.category.delete({
       where: { id },
     });
+
+    await this.invalidateCategoryCaches();
+    return result;
   }
 
   // Seed method for initial categories
@@ -135,6 +175,10 @@ export class CategoriesService {
     }
   }
   async getTree() {
+    const cacheKey = 'categories:tree';
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
     const categories = await this.prisma.category.findMany({
       include: {
         children: {
@@ -154,10 +198,16 @@ export class CategoriesService {
         createdAt: 'asc',
       },
     });
+
+    await this.cacheSet(cacheKey, categories, 300 * 1000); // 5min
     return categories;
   }
 
   async findContent(slug: string) {
+    const cacheKey = `categories:content:${slug}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
     const category = await this.prisma.category.findUnique({
       where: { slug },
       include: {
@@ -182,7 +232,7 @@ export class CategoriesService {
       throw new NotFoundException(`Category with slug "${slug}" not found`);
     }
 
-    return {
+    const result = {
       category: {
         id: category.id,
         name: category.name,
@@ -192,5 +242,8 @@ export class CategoriesService {
       series: category.series,
       posts: category.posts,
     };
+
+    await this.cacheSet(cacheKey, result, 60 * 1000); // 60s
+    return result;
   }
 }

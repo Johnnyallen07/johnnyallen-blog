@@ -125,6 +125,9 @@ export default function MusicManagePage() {
     const [tracks, setTracks] = useState<MusicTrack[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedFilter, setSelectedFilter] = useState("all");
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalTracks, setTotalTracks] = useState(0);
     const [playingId, setPlayingId] = useState<string | null>(null);
     const [editingTrack, setEditingTrack] = useState<MusicTrack | null>(null);
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -133,6 +136,7 @@ export default function MusicManagePage() {
     /* ── Sidebar entities ── */
     const [sidebarCategories, setSidebarCategories] = useState<SidebarEntity[]>([]);
     const [sidebarSeries, setSidebarSeries] = useState<SidebarEntity[]>([]);
+    const [serverCounts, setServerCounts] = useState<{ total: number; byCategory: { category: string; _count: number }[]; bySeries: { series: string; _count: number }[] } | null>(null);
 
     /* ── Drag state ── */
     const dragIndexRef = useRef<number | null>(null);
@@ -144,30 +148,55 @@ export default function MusicManagePage() {
         try {
             setIsLoading(true);
             const params = new URLSearchParams();
-            params.set("pageSize", "200");
-            if (searchQuery) params.set("search", searchQuery);
+            params.set("page", page.toString());
+            params.set("pageSize", "50");
+            if (searchQuery.trim()) params.set("search", searchQuery.trim());
+
+            if (selectedFilter !== "all") {
+                if (selectedFilter.startsWith("cat:")) {
+                    params.set("category", selectedFilter.slice(4));
+                } else if (selectedFilter.startsWith("series:")) {
+                    params.set("series", selectedFilter.slice(7));
+                }
+            }
+
             const result = await fetchClient(`/music?${params.toString()}`);
-            const list = result?.data ?? result;
-            setTracks(Array.isArray(list) ? list : []);
+            if (result && result.data) {
+                setTracks(Array.isArray(result.data) ? result.data : []);
+                setTotalPages(result.totalPages || 1);
+                setTotalTracks(result.total || 0);
+            } else {
+                const list = result?.data ?? result;
+                setTracks(Array.isArray(list) ? list : []);
+                setTotalPages(1);
+                setTotalTracks(list?.length || 0);
+            }
         } catch (error) {
             console.error("Failed to fetch tracks:", error);
         } finally {
             setIsLoading(false);
         }
-    }, [searchQuery]);
+    }, [searchQuery, selectedFilter, page]);
 
     const fetchSidebar = useCallback(async () => {
         try {
-            const [cats, srs] = await Promise.all([
+            const [cats, srs, counts] = await Promise.all([
                 fetchClient("/music-categories"),
                 fetchClient("/music-series"),
+                fetchClient("/music/counts").catch(() => null),
             ]);
             setSidebarCategories(Array.isArray(cats) ? cats : []);
             setSidebarSeries(Array.isArray(srs) ? srs : []);
+            if (counts) setServerCounts(counts);
         } catch {
             /* ignore */
         }
     }, []);
+
+    // reset page to 1 when filter/search changes
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery, selectedFilter]);
 
     useEffect(() => {
         fetchTracks();
@@ -179,45 +208,19 @@ export default function MusicManagePage() {
 
     /* ── Sidebar filter logic ── */
 
-    const filteredTracks = (() => {
-        let list = tracks;
-
-        // Sidebar filter
-        if (selectedFilter !== "all") {
-            if (selectedFilter.startsWith("cat:")) {
-                const catName = selectedFilter.slice(4);
-                list = list.filter((t) => t.category === catName);
-            } else if (selectedFilter.startsWith("series:")) {
-                const seriesName = selectedFilter.slice(7);
-                list = list.filter((t) => t.series === seriesName);
-            }
-        }
-
-        // Search filter
-        if (searchQuery.trim()) {
-            const q = searchQuery.trim().toLowerCase();
-            list = list.filter(
-                (t) =>
-                    t.title.toLowerCase().includes(q) ||
-                    t.musician.toLowerCase().includes(q) ||
-                    t.performer.toLowerCase().includes(q)
-            );
-        }
-
-        return list;
-    })();
+    const filteredTracks = tracks;
 
     /* ── Song counts ── */
     const songCountMap = (() => {
         const map: Record<string, number> = {};
-        map["all"] = tracks.length;
-        for (const t of tracks) {
-            const catKey = `cat:${t.category}`;
-            map[catKey] = (map[catKey] || 0) + 1;
-            if (t.series) {
-                const seriesKey = `series:${t.series}`;
-                map[seriesKey] = (map[seriesKey] || 0) + 1;
-            }
+        if (serverCounts) {
+            map["all"] = serverCounts.total;
+            serverCounts.byCategory?.forEach((c) => {
+                map[`cat:${c.category}`] = c._count;
+            });
+            serverCounts.bySeries?.forEach((s) => {
+                map[`series:${s.series}`] = s._count;
+            });
         }
         return map;
     })();
@@ -291,42 +294,13 @@ export default function MusicManagePage() {
         if (!dragged) return;
         newTracks.splice(dropIndex, 0, dragged);
 
-        // If we're viewing a filtered subset, we need to map back to the full tracks array
-        // For simplicity, when filtered, update the full list order
-        if (selectedFilter === "all" && !searchQuery.trim()) {
-            setTracks(newTracks);
-        } else {
-            // Update order within the filtered view
-            const newFull = [...tracks];
-            const filteredIds = newTracks.map((t) => t.id);
-            // Reorder only the filtered items within the full list
-            const filteredPositions = tracks
-                .map((t, i) => (filteredIds.includes(t.id) ? i : -1))
-                .filter((i) => i >= 0);
-            filteredPositions.forEach((pos, i) => {
-                newFull[pos] = newTracks[i]!;
-            });
-            setTracks(newFull);
-        }
+        setTracks(newTracks);
 
         try {
-            // For filtered reorder, we just reorder the filtered subset
             await fetchClient("/music/reorder/batch", {
                 method: "PATCH",
                 body: JSON.stringify({
-                    ids: selectedFilter === "all" && !searchQuery.trim()
-                        ? newTracks.map((t) => t.id)
-                        : (() => {
-                            const newFull = [...tracks];
-                            const filteredIds = newTracks.map((t) => t.id);
-                            const filteredPositions = tracks
-                                .map((t, i) => (filteredIds.includes(t.id) ? i : -1))
-                                .filter((i) => i >= 0);
-                            filteredPositions.forEach((pos, i) => {
-                                newFull[pos] = newTracks[i]!;
-                            });
-                            return newFull.map((t) => t.id);
-                        })(),
+                    ids: newTracks.map((t) => t.id),
                 }),
             });
         } catch (error) {
@@ -424,7 +398,7 @@ export default function MusicManagePage() {
                             </Button>
                             <h1 className="text-2xl font-bold text-gray-900">音乐管理</h1>
                             <span className="text-sm text-gray-500">
-                                共 {tracks.length} 首
+                                共 {totalTracks} 首
                             </span>
                         </div>
                         <div className="flex items-center gap-3">
@@ -439,19 +413,21 @@ export default function MusicManagePage() {
                                     className="pl-10 bg-white/60 border-gray-200/60"
                                 />
                             </div>
+                            {process.env.NODE_ENV === "development" && (
+                                <Button
+                                    variant="outline"
+                                    onClick={() => router.push("/music/youtube")}
+                                >
+                                    <Youtube className="h-4 w-4 mr-2" />
+                                    YouTube 下载
+                                </Button>
+                            )}
                             <Button
                                 variant="outline"
-                                onClick={() => router.push("/music/youtube")}
+                                onClick={() => router.push("/music/scores")}
                             >
-                                <Youtube className="h-4 w-4 mr-2" />
-                                YouTube 下载
-                            </Button>
-                            <Button
-                                variant="outline"
-                                onClick={() => router.push("/music/split")}
-                            >
-                                <Scissors className="h-4 w-4 mr-2" />
-                                音乐分割
+                                <FileMusic className="h-4 w-4 mr-2" />
+                                乐谱管理
                             </Button>
                             <Button
                                 variant="outline"
@@ -521,7 +497,7 @@ export default function MusicManagePage() {
                                     return (
                                         <div
                                             key={track.id}
-                                            draggable
+                                            draggable={selectedFilter === "all" && !searchQuery.trim() && page === 1}
                                             onDragStart={() => handleDragStart(index)}
                                             onDragOver={(e) => handleDragOver(e, index)}
                                             onDragLeave={handleDragLeave}
@@ -533,7 +509,7 @@ export default function MusicManagePage() {
                                                 }`}
                                         >
                                             {/* Drag handle */}
-                                            <div className="flex items-center justify-center cursor-grab active:cursor-grabbing">
+                                            <div className={`flex items-center justify-center ${selectedFilter === "all" && !searchQuery.trim() && page === 1 ? "cursor-grab active:cursor-grabbing" : "opacity-30 cursor-not-allowed"}`}>
                                                 <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
                                             </div>
 
@@ -636,6 +612,36 @@ export default function MusicManagePage() {
                                 </div>
                             )}
                         </div>
+
+                        {/* Pagination */}
+                        {totalPages > 1 && (
+                            <div className="px-4 py-4 flex items-center justify-between border-t border-gray-100 bg-white">
+                                <div className="text-sm text-gray-500">
+                                    显示 {(page - 1) * 50 + 1} 到 {Math.min(page * 50, totalTracks)} 条，共 {totalTracks} 条
+                                </div>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                                        disabled={page === 1}
+                                    >
+                                        上一页
+                                    </Button>
+                                    <div className="flex items-center px-4 text-sm text-gray-600 font-medium">
+                                        第 {page} / {totalPages} 页
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={page === totalPages}
+                                    >
+                                        下一页
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </main>
             </div>

@@ -44,7 +44,7 @@ interface SeriesItemDTO {
   postId: string | null;
   published: boolean;
   children: SeriesItemDTO[];
-  post?: { title: string };
+  post?: { title: string; published?: boolean };
 }
 
 interface SeriesInfo {
@@ -138,7 +138,7 @@ export default function SeriesEditorPage({ params }: SeriesEditorPageProps) {
           children: node.children ? mapTree(node.children) : undefined,
           expanded: true,
           postId: node.postId,
-          published: node.published,
+          published: node.postId ? (node.post?.published ?? node.published) : node.published,
         }));
       };
 

@@ -194,7 +194,7 @@ export default function AdminDashboard() {
             <Edit className="h-5 w-5 text-cyan-600" />
             内容管理
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* 创建文章 - 最突出 */}
             <button
               onClick={() => router.push("/posts/new")}
@@ -267,6 +267,24 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </button>
+
+            {/* AI 出题 */}
+            <button
+              onClick={() => router.push("/ai")}
+              className="group bg-white border-2 border-green-200 hover:border-green-400 rounded-2xl p-6 shadow-sm hover:shadow-lg transition-all duration-300 hover:scale-[1.02]"
+            >
+              <div className="flex flex-col items-center text-center gap-3">
+                <div className="w-14 h-14 bg-gradient-to-br from-green-100 to-teal-200 rounded-xl flex items-center justify-center group-hover:from-green-200 group-hover:to-teal-300 transition-colors">
+                  <Sparkles className="h-7 w-7 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">
+                    AI 出题
+                  </h3>
+                  <p className="text-sm text-gray-600">Gemini 智能出题</p>
+                </div>
+              </div>
+            </button>
           </div>
 
           {/* 音乐上传快捷入口 */}
@@ -334,10 +352,10 @@ export default function AdminDashboard() {
                 >
                   <div
                     className={`w-2 h-2 mt-2 rounded-full ${activity.type === "文章"
-                        ? "bg-cyan-500"
-                        : activity.type === "评论"
-                          ? "bg-purple-500"
-                          : "bg-pink-500"
+                      ? "bg-cyan-500"
+                      : activity.type === "评论"
+                        ? "bg-purple-500"
+                        : "bg-pink-500"
                       }`}
                   />
                   <div className="flex-1 min-w-0">
@@ -350,10 +368,10 @@ export default function AdminDashboard() {
                   </div>
                   <span
                     className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${activity.type === "文章"
-                        ? "bg-cyan-100 text-cyan-700"
-                        : activity.type === "评论"
-                          ? "bg-purple-100 text-purple-700"
-                          : "bg-pink-100 text-pink-700"
+                      ? "bg-cyan-100 text-cyan-700"
+                      : activity.type === "评论"
+                        ? "bg-purple-100 text-purple-700"
+                        : "bg-pink-100 text-pink-700"
                       }`}
                   >
                     {activity.type}

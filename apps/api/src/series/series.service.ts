@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSeriesDto } from './dto/create-series.dto';
 import { UpdateSeriesDto } from './dto/update-series.dto';
@@ -23,11 +25,30 @@ export interface SeriesTreeItem {
 
 @Injectable()
 export class SeriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private cachedKeys = new Set<string>();
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cache: Cache,
+  ) {}
+
+  private async cacheSet(key: string, value: unknown, ttl: number) {
+    this.cachedKeys.add(key);
+    await this.cache.set(key, value, ttl);
+  }
+
+  /** 清除所有 series 相关缓存 */
+  private async invalidateSeriesCaches(seriesId?: string) {
+    const keysToDelete = [...this.cachedKeys];
+    await Promise.all(keysToDelete.map((k) => this.cache.del(k)));
+    this.cachedKeys.clear();
+  }
 
   async create(createSeriesDto: CreateSeriesDto) {
     const { ...data } = createSeriesDto;
-    return this.prisma.series.create({ data });
+    const result = await this.prisma.series.create({ data });
+    await this.invalidateSeriesCaches();
+    return result;
   }
 
   async update(id: string, updateSeriesDto: UpdateSeriesDto) {
@@ -43,14 +64,21 @@ export class SeriesService {
       }
     }
 
-    return this.prisma.series.update({
+    const result = await this.prisma.series.update({
       where: { id },
       data,
     });
+
+    await this.invalidateSeriesCaches(id);
+    return result;
   }
 
   async findAll() {
-    return this.prisma.series.findMany({
+    const cacheKey = 'series:all';
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.prisma.series.findMany({
       include: {
         category: true,
         _count: {
@@ -59,6 +87,9 @@ export class SeriesService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    await this.cacheSet(cacheKey, result, 120 * 1000); // 2min
+    return result;
   }
 
   /**
@@ -190,23 +221,38 @@ export class SeriesService {
 
     const newOrder = (lastItem?.order ?? -1) + 1;
 
-    return this.prisma.seriesItem.create({
+    // 如果关联了 Post，继承 Post 的发布状态；文件夹默认未发布
+    let initialPublished = false;
+    if (type === 'POST' && postId) {
+      const post = await this.prisma.post.findUnique({
+        where: { id: postId },
+        select: { published: true },
+      });
+      initialPublished = post?.published ?? false;
+    }
+
+    const result = await this.prisma.seriesItem.create({
       data: {
         seriesId,
         parentId,
         postId: type === 'POST' ? postId : null,
         title: type === 'FOLDER' ? title : null,
         order: newOrder,
-        published: false, // 新建默认为未发布
+        published: initialPublished,
       },
       include: {
         post: true,
       },
     });
+
+    await this.invalidateSeriesCaches(seriesId);
+    return result;
   }
 
   async remove(id: string) {
-    return this.prisma.series.delete({ where: { id } });
+    const result = await this.prisma.series.delete({ where: { id } });
+    await this.invalidateSeriesCaches(id);
+    return result;
   }
 
   async removeSeriesItem(itemId: string) {
@@ -232,6 +278,7 @@ export class SeriesService {
     };
 
     await deleteRecursive(itemId);
+    await this.invalidateSeriesCaches(item.seriesId);
     return { success: true, id: itemId };
   }
 
@@ -280,7 +327,7 @@ export class SeriesService {
       await this.syncPublishRecursive(itemId, dto.published);
     }
 
-    return this.prisma.seriesItem.update({
+    const result = await this.prisma.seriesItem.update({
       where: { id: itemId },
       data,
       include: {
@@ -294,6 +341,9 @@ export class SeriesService {
         },
       },
     });
+
+    await this.invalidateSeriesCaches();
+    return result;
   }
 
   /**
