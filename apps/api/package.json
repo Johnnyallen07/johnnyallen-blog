@@ -28,7 +28,6 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",

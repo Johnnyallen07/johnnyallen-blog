@@ -41,7 +41,6 @@ services:
       COS_SECRET_KEY: ${COS_SECRET_KEY}
       COS_PUBLIC_DOMAIN: ${COS_PUBLIC_DOMAIN:-}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       - ./cookies.txt:/app/cookies.txt:ro
     ports:

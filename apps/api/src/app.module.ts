@@ -11,7 +11,6 @@ import { MediaModule } from './media/media.module';
 import { SeriesModule } from './series/series.module';
 import { MusicModule } from './music/music.module';
 import { AuthModule } from './auth/auth.module';
-import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -34,7 +33,6 @@ import { AiModule } from './ai/ai.module';
     MediaModule,
     SeriesModule,
     MusicModule,
-    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
