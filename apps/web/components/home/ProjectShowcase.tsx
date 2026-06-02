@@ -18,7 +18,7 @@ const PROJECTS: Project[] = [
         description: "为国际学生提供优质的线上平台服务",
         link: "https://fivestarsedu.com",
         image: "/images/fivestar-logo.jpg",
-        gradient: "from-blue-500 to-cyan-500",
+        gradient: "from-slate-700 to-slate-400",
     },
     {
         name: "Stock Price Generator",
@@ -27,18 +27,18 @@ const PROJECTS: Project[] = [
         link: "https://stanly-c2.itch.io/city-of-broken-dreamers",
         image: "",
         icon: "🎮",
-        gradient: "from-emerald-500 to-teal-500",
+        gradient: "from-slate-700 to-zinc-400",
     },
 ];
 
 export function ProjectShowcase() {
     return (
-        <div className="bg-transparent backdrop-blur-sm border border-white/40 rounded-2xl shadow-lg overflow-hidden group">
+        <div className="bg-white/[0.18] backdrop-blur-sm border border-slate-200/60 rounded-2xl shadow-lg shadow-slate-900/5 overflow-hidden group">
             {/* 标题栏 */}
             <div className="px-5 py-4 border-b border-white/30">
                 <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                        <Code2 className="h-5 w-5 text-cyan-600" />
+                        <Code2 className="h-5 w-5 text-slate-600" />
                         项目
                     </h3>
                     <span className="text-xs text-gray-500 bg-white/50 px-2 py-1 rounded-full">
@@ -63,7 +63,7 @@ export function ProjectShowcase() {
                         {/* 卡片容器 */}
                         <div className="relative hover:scale-[1.02] transition-all duration-500">
                             {/* 卡片主体 */}
-                            <div className="relative bg-white/60 backdrop-blur-sm border border-white/60 rounded-xl p-4 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group-hover/card:border-transparent">
+                            <div className="relative bg-white/55 backdrop-blur-sm border border-slate-200/70 rounded-xl p-4 shadow-sm hover:shadow-xl hover:shadow-slate-900/10 transition-all duration-300 overflow-hidden group-hover/card:border-transparent">
                                 {/* 悬停渐变边框 */}
                                 <div
                                     className={`absolute inset-0 bg-gradient-to-br ${project.gradient} opacity-0 group-hover/card:opacity-100 transition-opacity duration-300 rounded-xl`}
@@ -92,7 +92,7 @@ export function ProjectShowcase() {
                                             </div>
                                         )}
                                         <div className="flex-1 min-w-0">
-                                            <h4 className="font-bold text-gray-900 text-sm mb-1 truncate group-hover/card:text-transparent group-hover/card:bg-gradient-to-r group-hover/card:bg-clip-text group-hover/card:from-cyan-600 group-hover/card:to-purple-600 transition-all">
+                                            <h4 className="font-bold text-gray-900 text-sm mb-1 truncate group-hover/card:text-slate-950 transition-all">
                                                 {project.name}
                                             </h4>
                                             <p className="text-xs text-gray-600 leading-relaxed line-clamp-2">
@@ -103,7 +103,7 @@ export function ProjectShowcase() {
 
                                     {/* 链接 */}
                                     <div className="flex items-center justify-end text-xs text-gray-500">
-                                        <div className="flex items-center gap-1 group-hover/card:text-cyan-600 transition-colors">
+                                        <div className="flex items-center gap-1 group-hover/card:text-slate-950 transition-colors">
                                             <ExternalLink className="h-3.5 w-3.5" />
                                             <span>访问</span>
                                         </div>

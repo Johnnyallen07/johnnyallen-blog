@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_DB:-blog_db}
     # 只绑定 127.0.0.1，公网无法访问，SSH 隧道可连
-    # 本地开发: ssh -i devops/johnnyallenblog.pem -N -L 15432:localhost:5432 root@43.161.221.87
+    # 本地开发: ssh -i johnny.pem -N -L 15432:localhost:5432 ubuntu@43.161.236.200
     ports:
       - '127.0.0.1:5432:5432'
     volumes:
@@ -50,7 +50,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -71,6 +71,7 @@ services:
       # 浏览器用公网 API；服务端 SSR 用服务名 api 解析，避免解析到容器 ID 导致 EAI_AGAIN
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
       API_SERVER_URL: http://api:3001
+      HOSTNAME: 0.0.0.0
       PORT: 3000
     ports:
       - '3000:3000'
@@ -78,7 +79,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -95,6 +96,7 @@ services:
     restart: always
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
+      HOSTNAME: 0.0.0.0
       PORT: 3002
     ports:
       - '3002:3002'
@@ -102,7 +104,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -120,6 +122,7 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
       API_SERVER_URL: http://api:3001
+      HOSTNAME: 0.0.0.0
       PORT: 3003
     ports:
       - '3003:3003'
@@ -127,31 +130,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/ || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
-
-  teacher:
-    build:
-      context: .
-      dockerfile: apps/teacher/Dockerfile
-      args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
-    image: johnny-blog-teacher:latest
-    pull_policy: if_not_present
-    restart: always
-    environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.johnnyallen.blog}
-      PORT: 3004
-    ports:
-      - '3004:3004'
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3004/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10

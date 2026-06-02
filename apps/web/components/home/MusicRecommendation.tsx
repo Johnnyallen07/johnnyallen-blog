@@ -143,9 +143,9 @@ export function MusicRecommendation() {
   }
 
   return (
-    <div className="bg-transparent backdrop-blur-sm border border-white/40 rounded-xl p-6 shadow-sm hover:bg-white/20 hover:border-purple-300 transition-all duration-300">
+    <div className="bg-white/[0.18] backdrop-blur-sm border border-slate-200/60 rounded-xl p-6 shadow-sm hover:bg-white/30 hover:border-slate-400 transition-all duration-300">
       <div className="flex items-center gap-2 mb-4">
-        <Music className="h-5 w-5 text-purple-600" />
+        <Music className="h-5 w-5 text-slate-600" />
         <h3 className="text-lg font-semibold text-gray-900">音乐推荐</h3>
       </div>
 
@@ -160,18 +160,18 @@ export function MusicRecommendation() {
             <div
               key={track.id}
               className={`group flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer ${isPlaying
-                ? "border-purple-300 bg-purple-50/50"
-                : "border-white/40 hover:border-purple-300 hover:bg-white/30"
+                ? "border-slate-400 bg-white/45"
+                : "border-slate-200/60 hover:border-slate-400 hover:bg-white/30"
                 }`}
               onClick={() => handlePlayPause(track)}
             >
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br from-purple-100 to-pink-100">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-100">
                 {isPlaying ? (
                   <div className="flex items-end gap-0.5 h-5">
-                    <div className="w-1 bg-purple-600 rounded-full animate-pulse" style={{ height: "60%", animationDelay: "0s", animationDuration: "0.6s" }} />
-                    <div className="w-1 bg-purple-600 rounded-full animate-pulse" style={{ height: "100%", animationDelay: "0.15s", animationDuration: "0.6s" }} />
-                    <div className="w-1 bg-purple-600 rounded-full animate-pulse" style={{ height: "40%", animationDelay: "0.3s", animationDuration: "0.6s" }} />
-                    <div className="w-1 bg-purple-600 rounded-full animate-pulse" style={{ height: "80%", animationDelay: "0.45s", animationDuration: "0.6s" }} />
+                    <div className="w-1 bg-slate-700 rounded-full animate-pulse" style={{ height: "60%", animationDelay: "0s", animationDuration: "0.6s" }} />
+                    <div className="w-1 bg-slate-700 rounded-full animate-pulse" style={{ height: "100%", animationDelay: "0.15s", animationDuration: "0.6s" }} />
+                    <div className="w-1 bg-slate-700 rounded-full animate-pulse" style={{ height: "40%", animationDelay: "0.3s", animationDuration: "0.6s" }} />
+                    <div className="w-1 bg-slate-700 rounded-full animate-pulse" style={{ height: "80%", animationDelay: "0.45s", animationDuration: "0.6s" }} />
                   </div>
                 ) : (
                   <span className="text-lg">🎵</span>
@@ -179,7 +179,7 @@ export function MusicRecommendation() {
               </div>
 
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium truncate ${isPlaying ? "text-purple-700" : "text-gray-900"}`}>
+                <p className={`text-sm font-medium truncate ${isPlaying ? "text-slate-950" : "text-gray-900"}`}>
                   {track.title}
                 </p>
                 <p className="text-xs text-gray-500">
@@ -189,8 +189,8 @@ export function MusicRecommendation() {
 
               <button
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isPlaying
-                  ? "bg-purple-200 text-purple-700 opacity-100"
-                  : "bg-purple-100 text-purple-700 opacity-0 group-hover:opacity-100 hover:bg-purple-200"
+                  ? "bg-slate-200 text-slate-800 opacity-100"
+                  : "bg-slate-100 text-slate-800 opacity-0 group-hover:opacity-100 hover:bg-slate-200"
                   }`}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -213,7 +213,7 @@ export function MusicRecommendation() {
         href={MUSIC_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="mt-4 flex items-center justify-center gap-2 text-sm text-purple-600 hover:text-purple-700 bg-purple-50/50 hover:bg-purple-100/60 rounded-lg py-2.5 transition-all group"
+        className="mt-4 flex items-center justify-center gap-2 text-sm text-slate-700 hover:text-slate-950 bg-white/35 hover:bg-white/55 rounded-lg py-2.5 transition-all group"
       >
         <span>探索更多音乐</span>
         <ExternalLink className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />

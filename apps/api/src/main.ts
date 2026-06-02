@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import { config as dotenvConfig } from 'dotenv';
 
 // Preload root .env BEFORE any module imports that need env vars (e.g. Prisma)
 // Only needed in local dev — in production (Docker), env vars come from docker-compose
@@ -18,9 +19,7 @@ if (process.env.NODE_ENV !== 'production') {
 
   const rootEnv = findRootEnv();
   if (rootEnv) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { config } = require('dotenv');
-    config({ path: rootEnv });
+    dotenvConfig({ path: rootEnv });
   }
 }
 
@@ -45,6 +44,7 @@ async function bootstrap() {
       'https://johnnyallen.blog',
       /^https:\/\/[\w-]+\.johnnyallen\.blog$/,
       /^http:\/\/localhost(:\d+)?$/,
+      /^http:\/\/127\.0\.0\.1(:\d+)?$/,
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,

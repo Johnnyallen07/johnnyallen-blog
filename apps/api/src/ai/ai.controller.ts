@@ -8,8 +8,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { AiService, GeneratedQuestion } from './ai.service';
-import { GenerateQuestionsDto } from './dto/generate-questions.dto';
+import { AiService } from './ai.service';
 import {
   GenerateLatexDto,
   ChatLatexDto,
@@ -23,15 +22,6 @@ export class AiController {
   @Get('health')
   health(): { status: string; message: string } {
     return { status: 'ok', message: 'AI 模块运行正常' };
-  }
-
-  @Post('generate-questions')
-  @HttpCode(HttpStatus.OK)
-  async generateQuestions(
-    @Body() dto: GenerateQuestionsDto,
-  ): Promise<{ questions: GeneratedQuestion[] }> {
-    const questions = await this.aiService.generateQuestions(dto);
-    return { questions };
   }
 
   @Post('generate-latex')

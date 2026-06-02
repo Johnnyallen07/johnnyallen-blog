@@ -1,9 +1,25 @@
-/** 服务端用 API_SERVER_URL（Docker 内为 http://api:3001），客户端用 NEXT_PUBLIC_API_URL，避免解析到容器 ID 报 EAI_AGAIN */
+/** 服务端用 API_SERVER_URL（Docker 内为 http://api:3001），客户端本地开发走同源代理，避免 localhost/127.0.0.1 跨域。 */
 export function getApiBaseUrl(): string {
     if (typeof window === "undefined" && process.env.API_SERVER_URL) {
         return process.env.API_SERVER_URL;
     }
-    return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+    const publicApiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+    if (typeof window !== "undefined") {
+        if (!publicApiUrl) return "/api";
+
+        try {
+            const apiUrl = new URL(publicApiUrl);
+            if (apiUrl.hostname === "localhost" || apiUrl.hostname === "127.0.0.1") {
+                return "/api";
+            }
+        } catch {
+            return publicApiUrl;
+        }
+    }
+
+    return publicApiUrl || "http://localhost:3001";
 }
 
 export async function fetchClient(endpoint: string, options: RequestInit = {}) {

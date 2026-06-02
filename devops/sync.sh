@@ -3,11 +3,14 @@
 # 用法: ./devops/sync.sh
 set -e
 
-SERVER="${DEPLOY_HOST:-root@43.161.221.87}"
+SERVER="${DEPLOY_HOST:-ubuntu@43.161.236.200}"
 APP_DIR="/opt/johnny-blog"
-SSH_KEY="${SSH_KEY:-devops/johnnyallenblog.pem}"
+SSH_KEY="${SSH_KEY:-johnny.pem}"
 SSH_OPTS="-o StrictHostKeyChecking=accept-new"
 [[ -f "$SSH_KEY" ]] && SSH_OPTS="-i $SSH_KEY $SSH_OPTS"
+
+echo "==> 准备远程目录 $SERVER:$APP_DIR ..."
+ssh $SSH_OPTS "$SERVER" "sudo mkdir -p '$APP_DIR' && sudo chown -R \$(id -u):\$(id -g) '$APP_DIR'"
 
 echo "==> 同步项目到 $SERVER:$APP_DIR ..."
 rsync -avz --delete -e "ssh $SSH_OPTS" \
@@ -18,6 +21,7 @@ rsync -avz --delete -e "ssh $SSH_OPTS" \
   --exclude dist \
   --exclude "*.log" \
   --exclude "*.tsbuildinfo" \
+  --exclude "*.pem" \
   --exclude ".env" \
   --exclude ".env.local" \
   --exclude ".DS_Store" \

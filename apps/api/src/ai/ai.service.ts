@@ -7,11 +7,6 @@ import {
   Content,
   Part,
 } from '@google/generative-ai';
-import {
-  Difficulty,
-  QuestionType,
-  GenerateQuestionsDto,
-} from './dto/generate-questions.dto';
 import { GenerateLatexDto, ReferenceFileDto } from './dto/generate-latex.dto';
 import COS from 'cos-nodejs-sdk-v5';
 import { v4 as uuidv4 } from 'uuid';
@@ -22,15 +17,6 @@ import * as path from 'path';
 import * as os from 'os';
 
 const execFileAsync = promisify(execFile);
-
-export interface GeneratedQuestion {
-  id: number;
-  question: string;
-  type: QuestionType;
-  options?: string[];
-  answer: string;
-  explanation: string;
-}
 
 interface LatexSession {
   chat: ChatSession;
@@ -58,7 +44,7 @@ export class AiService {
       this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
       this.logger.log('Gemini AI 已初始化');
     } else {
-      this.logger.warn('未配置 GEMINI_API_KEY，AI 出题功能不可用');
+      this.logger.warn('未配置 GEMINI_API_KEY，AI LaTeX 功能不可用');
     }
 
     this.cos = new COS({
@@ -387,72 +373,5 @@ IMPORTANT: Return the COMPLETE updated LaTeX code. No markdown code fences, no e
         /* ignore */
       }
     }
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // 原有方法 — 基于 JSON 的出题
-  // ═══════════════════════════════════════════════════════════
-
-  async generateQuestions(
-    dto: GenerateQuestionsDto,
-  ): Promise<GeneratedQuestion[]> {
-    if (!this.model) {
-      throw new Error('Gemini AI 未初始化，请检查 GEMINI_API_KEY 配置');
-    }
-
-    const difficultyMap: Record<Difficulty, string> = {
-      [Difficulty.EASY]: '简单',
-      [Difficulty.MEDIUM]: '中等',
-      [Difficulty.HARD]: '困难',
-    };
-
-    const typeMap: Record<QuestionType, string> = {
-      [QuestionType.MULTIPLE_CHOICE]: '选择题（4个选项，其中只有一个正确答案）',
-      [QuestionType.TRUE_FALSE]: '判断题',
-      [QuestionType.SHORT_ANSWER]: '简答题',
-      [QuestionType.FILL_IN_BLANK]: '填空题',
-    };
-
-    const difficulty = difficultyMap[dto.difficulty ?? Difficulty.MEDIUM];
-    const questionType = typeMap[dto.type ?? QuestionType.MULTIPLE_CHOICE];
-    const additionalInstructions = dto.additionalInstructions
-      ? `\n额外要求：${dto.additionalInstructions}`
-      : '';
-
-    const prompt = `你是一位专业的${dto.subject}老师。请根据以下要求生成题目：
-
-学科：${dto.subject}
-主题：${dto.topic}
-题目数量：${dto.count}
-难度：${difficulty}
-题目类型：${questionType}${additionalInstructions}
-
-请严格以纯 JSON 数组格式返回，不要包含任何 markdown 标记或额外文本。每道题目的格式如下：
-{
-  "id": 题目编号(从1开始),
-  "question": "题目内容",
-  "type": "${dto.type ?? QuestionType.MULTIPLE_CHOICE}",
-  ${dto.type === QuestionType.MULTIPLE_CHOICE || !dto.type ? '"options": ["A. 选项1", "B. 选项2", "C. 选项3", "D. 选项4"],' : ''}
-  "answer": "正确答案",
-  "explanation": "解析说明"
-}
-
-确保题目内容准确、有教育价值，解析清晰易懂。`;
-
-    this.logger.log(
-      `正在生成 ${dto.count} 道${dto.subject}题目，主题：${dto.topic}`,
-    );
-
-    const result = await this.model.generateContent(prompt);
-    const text = result.response.text();
-
-    // 清理可能的 markdown 包裹
-    const cleaned = text
-      .replace(/```json\s*/g, '')
-      .replace(/```\s*/g, '')
-      .trim();
-
-    const questions = JSON.parse(cleaned) as GeneratedQuestion[];
-    return questions;
   }
 }

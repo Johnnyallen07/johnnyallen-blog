@@ -14,36 +14,36 @@ systemctl daemon-reload && systemctl restart docker
 
 ## 前提
 
-- 服务器 **43.161.221.87** 已能通过 SSH 登录（建议使用公钥：`ssh-copy-id root@43.161.221.87`）。
+- 服务器 **43.161.236.200** 已能通过 SSH 登录（建议使用公钥：`ssh-copy-id ubuntu@43.161.236.200`）。
 - DNS 已解析到该服务器：
-  - `johnnyallen.blog`、`www.johnnyallen.blog` → 43.161.221.87（A 记录）
-  - `api.johnnyallen.blog` → 43.161.221.87（A 记录）
-  - `static.johnnyallen.blog` → 43.161.221.87（**A 记录**；若当前是 CNAME 到 COS，需改为 A 记录才能由本机 Nginx 代理并申请证书）
+  - `johnnyallen.blog`、`www.johnnyallen.blog` → 43.161.236.200（A 记录）
+  - `api.johnnyallen.blog` → 43.161.236.200（A 记录）
+  - `static.johnnyallen.blog` → 43.161.236.200（**A 记录**；若当前是 CNAME 到 COS，需改为 A 记录才能由本机 Nginx 代理并申请证书）
 
 ## 一键部署（推荐在本机执行）
 
-在**项目根目录**执行（需已配置好 SSH 公钥，且本机可访问 43.161.221.87）：
+在**项目根目录**执行（需已配置好 SSH 公钥，且本机可访问 43.161.236.200）：
 
 ```bash
 chmod +x devops/deploy.sh
-SSH_KEY=devops/johnnyallenblog.pem ./devops/deploy.sh
+SSH_KEY=johnny.pem ./devops/deploy.sh
 ```
 
 若中途断线或构建时间过长，可改为「先同步代码，再在服务器上执行」：
 
 ```bash
 # 1. 本机：只同步代码（使用你的 PEM 密钥）
-rsync -avz --delete -e "ssh -i devops/johnnyallenblog.pem -o StrictHostKeyChecking=accept-new" \
+rsync -avz --delete -e "ssh -i johnny.pem -o StrictHostKeyChecking=accept-new" \
   --exclude node_modules --exclude .git --exclude apps/api/node_modules \
   --exclude apps/web/node_modules --exclude apps/web/.next --exclude .turbo \
-  ./ root@43.161.221.87:/opt/johnny-blog/
+  ./ ubuntu@43.161.236.200:/opt/johnny-blog/
 
-rsync -avz -e "ssh -i devops/johnnyallenblog.pem" ./devops/.env.production root@43.161.221.87:/opt/johnny-blog/.env.production
-rsync -avz -e "ssh -i devops/johnnyallenblog.pem" ./devops/nginx/ root@43.161.221.87:/opt/johnny-blog/devops/nginx/
-rsync -avz -e "ssh -i devops/johnnyallenblog.pem" ./devops/docker/ root@43.161.221.87:/opt/johnny-blog/devops/docker/
+rsync -avz -e "ssh -i johnny.pem" ./devops/.env.production ubuntu@43.161.236.200:/opt/johnny-blog/.env.production
+rsync -avz -e "ssh -i johnny.pem" ./devops/nginx/ ubuntu@43.161.236.200:/opt/johnny-blog/devops/nginx/
+rsync -avz -e "ssh -i johnny.pem" ./devops/docker/ ubuntu@43.161.236.200:/opt/johnny-blog/devops/docker/
 
 # 2. 登录服务器并执行部署脚本
-ssh -i devops/johnnyallenblog.pem root@43.161.221.87
+ssh -i johnny.pem ubuntu@43.161.236.200
 cd /opt/johnny-blog && bash devops/scripts/run-on-server.sh
 ```
 
@@ -80,7 +80,7 @@ cd /path/to/johnny-blog
 若尚未配置公钥：
 
 ```bash
-ssh-copy-id root@43.161.221.87
+ssh-copy-id ubuntu@43.161.236.200
 # 按提示输入密码 zzyy0226
 ./devops/deploy.sh
 ```
@@ -152,7 +152,7 @@ ssh-copy-id root@43.161.221.87
 
 - **站点无法访问（ERR_CONNECTION_TIMED_OUT）**  
   Nginx 未监听 80/443 时会出现。常见原因：Nginx 配置错误导致未启动。已修复：`devops/nginx/johnnyallen.blog.conf` 中错误的 `proxy_https_version` 已改为 `proxy_http_version 1.1`。  
-  **处理**：重新执行 `SSH_KEY=devops/johnnyallenblog.pem ./devops/deploy.sh` 同步配置并启动 Nginx。若仅改配置，可在服务器执行：
+  **处理**：重新执行 `SSH_KEY=johnny.pem ./devops/deploy.sh` 同步配置并启动 Nginx。若仅改配置，可在服务器执行：
   ```bash
   cp /opt/johnny-blog/devops/nginx/johnnyallen.blog.conf /etc/nginx/conf.d/johnnyallen.blog.conf
   nginx -t && systemctl start nginx && systemctl enable nginx

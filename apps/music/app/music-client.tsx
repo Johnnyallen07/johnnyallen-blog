@@ -5,7 +5,7 @@ import React from "react";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     Home, Play, Pause, SkipBack, SkipForward,
-    Volume2, Volume1, VolumeX, ListMusic, Heart, Music2,
+    Volume2, Volume1, VolumeX, ListMusic, Music2,
     Headphones, Search, Star, User, Music,
     Shuffle, Repeat, Repeat1, Loader2,
     Music4, Mic2, Guitar, Piano, Disc2, Disc3,
@@ -21,7 +21,7 @@ import {
 const ICON_MAP: Record<string, LucideIcon> = {
     Music, Music2, Music4, Mic2, Guitar, Piano,
     Disc2, Disc3, FileMusic, ListMusic, Users, AudioLines,
-    Headphones, Radio, Volume2, Star, Heart, Sparkles,
+    Headphones, Radio, Volume2, Star, Sparkles,
     Library, BookOpen, Waves, CirclePlay, User,
 };
 
@@ -97,12 +97,12 @@ const SidebarSection = React.memo(function SidebarSection({
                                 : "text-gray-600 hover:bg-white/40 hover:text-gray-900"
                                 }`}
                         >
-                            <span className={`transition-colors ${active ? "text-purple-600" : "text-gray-400"}`}>
+                            <span className={`transition-colors ${active ? "text-violet-600" : "text-gray-400"}`}>
                                 {item.icon}
                             </span>
                             <span className="text-sm truncate flex-1 text-left">{item.name}</span>
                             {count > 0 && (
-                                <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${active ? "text-purple-600 bg-purple-100" : "text-gray-400 bg-gray-100/80"}`}>
+                                <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${active ? "text-violet-700 bg-violet-100/70" : "text-gray-400 bg-gray-100/80"}`}>
                                     {count}
                                 </span>
                             )}
@@ -218,7 +218,6 @@ export default function MusicPageClient() {
 
     /* ── State: UI ── */
     const [selectedPlaylist, setSelectedPlaylist] = useState(() => savedStateRef.current?.playlist || "daily");
-    const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState("");
 
     /* ── State: Server-driven pagination ── */
@@ -1108,15 +1107,6 @@ export default function MusicPageClient() {
         }
     };
 
-    const toggleLike = (songId: string) => {
-        setLikedSongs((prev) => {
-            const next = new Set(prev);
-            if (next.has(songId)) next.delete(songId);
-            else next.add(songId);
-            return next;
-        });
-    };
-
     /* ── Play mode icon ── */
     const PlayModeIcon = useMemo(() => {
         if (playMode === "repeat-one") return Repeat1;
@@ -1143,48 +1133,147 @@ export default function MusicPageClient() {
     const AnimatedBackground = useMemo(
         () => (
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                {Array.from({ length: 12 }).map((_, i) => (
-                    <div
-                        key={`note-${i}`}
-                        className="absolute text-4xl opacity-[0.04]"
-                        style={{
-                            left: `${(i * 17 + 5) % 100}%`,
-                            top: `${(i * 23 + 10) % 100}%`,
-                            animation: `musicFloat ${8 + (i % 4) * 2}s ease-in-out infinite`,
-                            animationDelay: `${(i * 0.7) % 5}s`,
-                        }}
-                    >
-                        {["🎵", "🎶", "🎼", "🎹", "🎻"][i % 5]}
-                    </div>
-                ))}
+                <div className="absolute inset-0 bg-[#f8f6f1]" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_12%,rgba(255,255,255,0.86),transparent_30%),radial-gradient(circle_at_82%_78%,rgba(124,58,237,0.07),transparent_34%),linear-gradient(to_bottom,rgba(255,255,255,0.48),transparent_40%,rgba(255,255,255,0.72))]" />
 
-                <svg className="absolute inset-0 w-full h-full opacity-[0.04]">
+                {/* Piano keys */}
+                <div className="absolute -bottom-14 -left-12 flex h-52 rotate-[-8deg] opacity-[0.18]">
+                    {Array.from({ length: 18 }).map((_, index) => (
+                        <div
+                            key={`white-key-${index}`}
+                            className="relative h-full w-12 border border-slate-800/25 bg-white"
+                        >
+                            {[0, 1, 3, 4, 5].includes(index % 7) && (
+                                <div className="absolute -right-3 top-0 h-32 w-6 rounded-b-sm bg-slate-950" />
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                <div className="absolute -left-10 top-24 flex h-44 rotate-[9deg] opacity-[0.09] md:opacity-[0.12]">
+                    {Array.from({ length: 12 }).map((_, index) => (
+                        <div
+                            key={`side-key-${index}`}
+                            className="relative h-full w-10 border border-slate-800/20 bg-white"
+                        >
+                            {[0, 1, 3, 4, 5].includes(index % 7) && (
+                                <div className="absolute -right-2 top-0 h-28 w-5 rounded-b-sm bg-slate-950" />
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                <svg className="absolute inset-0 h-full w-full opacity-[0.13]" viewBox="0 0 1200 800" preserveAspectRatio="none">
                     <defs>
-                        <linearGradient id="waveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stopColor="#06b6d4" />
-                            <stop offset="50%" stopColor="#a855f7" />
-                            <stop offset="100%" stopColor="#ec4899" />
+                        <linearGradient id="musicLineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#334155" stopOpacity="0.35" />
+                            <stop offset="55%" stopColor="#7c3aed" stopOpacity="0.42" />
+                            <stop offset="100%" stopColor="#be185d" stopOpacity="0.32" />
                         </linearGradient>
                     </defs>
-                    {Array.from({ length: 6 }).map((_, i) => (
+
+                    {/* Staff lines */}
+                    {Array.from({ length: 5 }).map((_, index) => (
                         <path
-                            key={`wave-${i}`}
-                            d={`M 0 ${120 + i * 120} Q 250 ${80 + i * 120} 500 ${120 + i * 120} T 1000 ${120 + i * 120} T 1500 ${120 + i * 120} T 2000 ${120 + i * 120}`}
-                            stroke="url(#waveGradient)"
-                            strokeWidth="1.5"
+                            key={`staff-${index}`}
+                            d={`M 80 ${210 + index * 18} C 280 ${160 + index * 18}, 470 ${270 + index * 18}, 650 ${220 + index * 18} S 980 ${170 + index * 18}, 1160 ${235 + index * 18}`}
                             fill="none"
-                            className="animate-wave"
-                            style={{ animationDelay: `${i * 0.4}s` }}
+                            stroke="url(#musicLineGradient)"
+                            strokeWidth="1"
                         />
                     ))}
+
+                    {/* Violin body */}
+                    <path
+                        d="M 865 165 C 786 112, 730 200, 795 266 C 720 308, 742 430, 837 412 C 856 498, 986 501, 1000 410 C 1086 431, 1125 312, 1038 266 C 1094 192, 1025 111, 956 166 C 933 187, 889 187, 865 165 Z"
+                        fill="none"
+                        stroke="url(#musicLineGradient)"
+                        strokeWidth="3"
+                    />
+                    <path
+                        d="M 914 132 C 921 204, 919 306, 913 438"
+                        fill="none"
+                        stroke="#334155"
+                        strokeOpacity="0.22"
+                        strokeWidth="1.4"
+                    />
+                    <path
+                        d="M 952 132 C 946 212, 949 312, 958 438"
+                        fill="none"
+                        stroke="#334155"
+                        strokeOpacity="0.22"
+                        strokeWidth="1.4"
+                    />
+                    <path
+                        d="M 936 108 L 936 458"
+                        fill="none"
+                        stroke="#7c3aed"
+                        strokeOpacity="0.22"
+                        strokeWidth="1"
+                    />
+                    <path
+                        d="M 850 452 C 900 475, 974 475, 1026 452"
+                        fill="none"
+                        stroke="#334155"
+                        strokeOpacity="0.18"
+                        strokeWidth="2"
+                    />
+
+                    {/* Violin neck and bow */}
+                    <path
+                        d="M 935 104 C 939 69, 962 50, 1002 44"
+                        fill="none"
+                        stroke="#334155"
+                        strokeOpacity="0.2"
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                    />
+                    <path
+                        d="M 740 520 C 870 438, 1000 330, 1135 190"
+                        fill="none"
+                        stroke="#be185d"
+                        strokeOpacity="0.18"
+                        strokeWidth="2"
+                    />
+
+                    {/* Music notes */}
+                    <g fill="#7c3aed" fillOpacity="0.22">
+                        <circle cx="286" cy="256" r="10" />
+                        <rect x="294" y="190" width="4" height="68" rx="2" />
+                        <circle cx="408" cy="214" r="8" />
+                        <rect x="416" y="154" width="4" height="62" rx="2" />
+                        <path d="M 416 154 C 446 164, 458 176, 462 194" fill="none" stroke="#7c3aed" strokeOpacity="0.22" strokeWidth="4" />
+                    </g>
                 </svg>
 
-                <div className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full bg-gradient-to-r from-cyan-200/10 to-purple-200/10 blur-3xl animate-spin-slow" />
-                <div
-                    className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-gradient-to-r from-purple-200/10 to-pink-200/10 blur-3xl animate-spin-slow"
-                    style={{ animationDirection: "reverse", animationDuration: "20s" }}
-                />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-gradient-to-br from-amber-100/5 to-rose-100/5 blur-3xl animate-pulse" style={{ animationDuration: "8s" }} />
+                <svg
+                    className="absolute -right-10 top-28 h-[58vh] w-56 opacity-[0.11] md:right-[8%] md:top-20 md:h-[68vh] md:w-72"
+                    viewBox="0 0 260 520"
+                    fill="none"
+                >
+                    <path
+                        d="M122 78 C80 46 45 96 78 145 C36 178 47 252 99 248 C110 300 183 300 193 248 C245 252 257 177 214 145 C248 96 211 45 169 78 C156 90 135 90 122 78 Z"
+                        stroke="#7c3aed"
+                        strokeWidth="5"
+                        strokeOpacity="0.42"
+                    />
+                    <path d="M130 54 C135 142 134 252 126 336" stroke="#334155" strokeWidth="2" strokeOpacity="0.32" />
+                    <path d="M160 54 C153 142 155 250 165 336" stroke="#334155" strokeWidth="2" strokeOpacity="0.32" />
+                    <path d="M146 36 L146 370" stroke="#be185d" strokeWidth="1.5" strokeOpacity="0.35" />
+                    <path d="M92 360 C124 378 174 378 208 360" stroke="#334155" strokeWidth="4" strokeOpacity="0.24" />
+                    <path d="M146 36 C151 14 169 6 204 4" stroke="#334155" strokeWidth="8" strokeLinecap="round" strokeOpacity="0.22" />
+                    <path d="M36 454 C100 372 174 270 240 112" stroke="#be185d" strokeWidth="3" strokeOpacity="0.24" />
+                </svg>
+
+                <div className="absolute bottom-[16%] right-[10%] flex items-end gap-1 opacity-[0.08]">
+                    {Array.from({ length: 18 }).map((_, index) => (
+                        <div
+                            key={index}
+                            className="w-1 bg-violet-700"
+                            style={{ height: `${12 + ((index * 9) % 36)}px` }}
+                        />
+                    ))}
+                </div>
             </div>
         ),
         []
@@ -1195,7 +1284,7 @@ export default function MusicPageClient() {
     const progressPercent = audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-purple-50/60 to-pink-50/40 relative overflow-hidden">
+        <div className="min-h-screen bg-[#f8f6f1] relative overflow-hidden">
             {AnimatedBackground}
 
             {/* 主要内容 */}
@@ -1210,9 +1299,9 @@ export default function MusicPageClient() {
 
                 {/* ══════════ 左侧边栏 ══════════ */}
                 <aside className={`
-                    fixed inset-y-0 left-0 z-50 w-64 bg-white/90 backdrop-blur-xl shadow-xl
+                    fixed inset-y-0 left-0 z-50 w-64 bg-white/90 backdrop-blur-xl shadow-xl border-r border-slate-200/70
                     transform transition-transform duration-300 ease-in-out
-                    md:relative md:translate-x-0 md:shadow-none md:bg-transparent md:backdrop-blur-none
+                    md:relative md:translate-x-0 md:shadow-none md:bg-white/[0.18] md:backdrop-blur-sm
                     ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
                     h-full overflow-y-auto py-6 px-4 flex-shrink-0
                 `}>
@@ -1234,7 +1323,7 @@ export default function MusicPageClient() {
                     <div className="mt-4 px-3">
                         <a
                             href="/scores"
-                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-amber-600 hover:bg-amber-50/60 transition-all duration-200"
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-violet-700 hover:bg-white/45 transition-all duration-200"
                         >
                             <span className="text-base">🎼</span>
                             <span>乐谱</span>
@@ -1271,7 +1360,7 @@ export default function MusicPageClient() {
                                 placeholder="搜索音乐..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2.5 bg-white/50 backdrop-blur-sm border border-white/60 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-purple-300 focus:ring-2 focus:ring-purple-100 focus:bg-white/70 transition-all shadow-sm"
+                                className="w-full pl-10 pr-4 py-2.5 bg-white/45 backdrop-blur-sm border border-slate-200/70 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100/80 focus:bg-white/70 transition-all shadow-sm"
                             />
                         </div>
                     </div>
@@ -1279,8 +1368,8 @@ export default function MusicPageClient() {
                     {/* 播放列表头部 — 带分类 Logo */}
                     <div className="mb-4 md:mb-6">
                         <div className="flex items-center gap-3 md:gap-4">
-                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-200/50">
-                                <HeaderIcon className="h-5 w-5 md:h-6 md:w-6 text-white" />
+                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-white/55 border border-slate-200/70 flex items-center justify-center shadow-sm">
+                                <HeaderIcon className="h-5 w-5 md:h-6 md:w-6 text-violet-700" />
                             </div>
                             <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
                                 {playlistMeta.title}
@@ -1289,12 +1378,10 @@ export default function MusicPageClient() {
                     </div>
 
                     {/* 表头 - 桌面端 */}
-                    <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-200/50 mb-2">
+                    <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-slate-200/70 mb-2">
                         <div className="col-span-1 text-center">序号</div>
-                        <div className="col-span-5">标题</div>
-                        <div className="col-span-2">艺术家</div>
-                        <div className="col-span-1"></div>
-                        <div className="col-span-1 text-right">播放</div>
+                        <div className="col-span-6">标题</div>
+                        <div className="col-span-3">演奏 / 音乐家</div>
                         <div className="col-span-2 text-right">时长</div>
                     </div>
 
@@ -1309,15 +1396,14 @@ export default function MusicPageClient() {
                             <div className="space-y-0.5">
                                 {pageSongs.map((song, index) => {
                                     const isActive = currentSong?.id === song.id;
-                                    const isLiked = likedSongs.has(song.id);
                                     const globalIndex = (currentPage - 1) * PAGE_SIZE + index;
 
                                     return (
                                         <div
                                             key={song.id}
-                                            className={`flex items-center gap-3 md:grid md:grid-cols-12 md:gap-4 px-3 md:px-4 py-3 rounded-xl transition-all duration-200 group cursor-pointer ${isActive
-                                                ? "bg-white/60 shadow-sm"
-                                                : "hover:bg-white/40"
+                                            className={`flex items-center gap-3 md:grid md:grid-cols-12 md:gap-4 px-3 md:px-4 py-3 rounded-xl border transition-all duration-200 group cursor-pointer ${isActive
+                                                ? "bg-white/65 border-violet-200/80 shadow-sm"
+                                                : "border-transparent hover:border-slate-200/70 hover:bg-white/35"
                                                 }`}
                                             onClick={() => handlePlaySong(song)}
                                         >
@@ -1325,12 +1411,12 @@ export default function MusicPageClient() {
                                             <div className="w-6 flex-shrink-0 md:col-span-1 flex items-center justify-center">
                                                 {isActive && isPlaying ? (
                                                     <div className="flex items-center gap-[3px]">
-                                                        <div className="w-[3px] h-3 bg-purple-500 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0s" }} />
-                                                        <div className="w-[3px] h-4 bg-purple-500 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.2s" }} />
-                                                        <div className="w-[3px] h-3 bg-purple-500 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.4s" }} />
+                                                        <div className="w-[3px] h-3 bg-violet-600 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0s" }} />
+                                                        <div className="w-[3px] h-4 bg-violet-600 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.2s" }} />
+                                                        <div className="w-[3px] h-3 bg-violet-600 rounded-full origin-bottom" style={{ animation: "equalizer 0.8s ease-in-out infinite", animationDelay: "0.4s" }} />
                                                     </div>
                                                 ) : isActive && !isPlaying ? (
-                                                    <Pause className="h-4 w-4 text-purple-600" />
+                                                    <Pause className="h-4 w-4 text-violet-700" />
                                                 ) : (
                                                     <span className="text-sm text-gray-400">
                                                         {globalIndex + 1}
@@ -1339,18 +1425,18 @@ export default function MusicPageClient() {
                                             </div>
 
                                             {/* Category Icon + Title */}
-                                            <div className="flex-1 min-w-0 md:col-span-5 flex items-center gap-3">
+                                            <div className="flex-1 min-w-0 md:col-span-6 flex items-center gap-3">
                                                 {(() => {
                                                     const cat = sidebarCategories.find((c) => c.name === song.category);
                                                     const CatIcon = getIconComponent(cat?.icon, Music);
                                                     return (
-                                                        <div className="w-9 h-9 md:w-10 md:h-10 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center flex-shrink-0 shadow-sm">
-                                                            <CatIcon className={`h-4 w-4 md:h-5 md:w-5 ${isActive ? "text-purple-600" : "text-purple-400"}`} />
+                                                        <div className="w-9 h-9 md:w-10 md:h-10 rounded-lg bg-white/55 border border-slate-200/70 flex items-center justify-center flex-shrink-0 shadow-sm">
+                                                            <CatIcon className={`h-4 w-4 md:h-5 md:w-5 ${isActive ? "text-violet-700" : "text-slate-500"}`} />
                                                         </div>
                                                     );
                                                 })()}
                                                 <div className="min-w-0">
-                                                    <p className={`text-sm truncate ${isActive ? "font-semibold text-purple-700" : "font-medium text-gray-900"}`}>
+                                                    <p className={`text-sm truncate ${isActive ? "font-semibold text-violet-800" : "font-medium text-gray-900"}`}>
                                                         {song.title}
                                                     </p>
                                                     <p className="text-xs text-gray-400 truncate">
@@ -1360,24 +1446,11 @@ export default function MusicPageClient() {
                                             </div>
 
                                             {/* Artist (desktop only) */}
-                                            <div className="hidden md:flex col-span-2 items-center">
-                                                <span className="text-sm text-gray-500 truncate">{song.artist}</span>
-                                            </div>
-
-                                            {/* Like (desktop only) */}
-                                            <div className="hidden md:flex col-span-1 items-center justify-center">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); toggleLike(song.id); }}
-                                                    className="p-1.5 rounded-full hover:bg-white/60 transition-all opacity-0 group-hover:opacity-100"
-                                                >
-                                                    <Heart className={`h-4 w-4 transition-colors ${isLiked ? "text-pink-500 fill-pink-500" : "text-gray-400 hover:text-pink-400"}`} />
-                                                </button>
-                                            </div>
-
-                                            {/* Play Count (desktop only) */}
-                                            <div className="hidden md:flex col-span-1 items-center justify-end gap-1">
-                                                <Headphones className="h-3 w-3 text-gray-300" />
-                                                <span className="text-xs text-gray-400 tabular-nums">{song.playCount || 0}</span>
+                                            <div className="hidden md:flex col-span-3 items-center min-w-0">
+                                                <span className="text-sm text-gray-500 truncate">
+                                                    {song.artist}
+                                                    {song.musician ? ` · ${song.musician}` : ""}
+                                                </span>
                                             </div>
 
                                             {/* Duration */}
@@ -1404,7 +1477,7 @@ export default function MusicPageClient() {
                                             key={page}
                                             onClick={() => setCurrentPage(page)}
                                             className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${page === currentPage
-                                                ? "bg-purple-500 text-white shadow-sm"
+                                                ? "bg-violet-700 text-white shadow-sm"
                                                 : "text-gray-500 hover:bg-white/60"
                                                 }`}
                                         >
@@ -1427,7 +1500,7 @@ export default function MusicPageClient() {
 
             {/* ══════════ 底部播放器 ══════════ */}
             {currentSong && (
-                <div className="fixed bottom-0 left-0 right-0 glass-strong shadow-2xl z-50">
+                <div className="fixed bottom-0 left-0 right-0 bg-white/82 backdrop-blur-xl border-t border-slate-200/80 shadow-2xl shadow-slate-900/10 z-50">
                     {/* 进度条 — 可点击 / 可拖拽 */}
                     <div
                         ref={progressBarRef}
@@ -1436,12 +1509,12 @@ export default function MusicPageClient() {
                         onTouchStart={handleProgressTouchStart}
                     >
                         <div
-                            className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-r-full z-10 transition-[width] duration-75 ease-linear"
+                            className="absolute inset-y-0 left-0 bg-violet-700 rounded-r-full z-10 transition-[width] duration-75 ease-linear"
                             style={{ width: `${seekPreview !== null ? (audioDuration > 0 ? (seekPreview / audioDuration) * 100 : 0) : progressPercent}%` }}
                         />
                         {/* Drag thumb */}
                         <div
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 md:w-3.5 md:h-3.5 bg-white rounded-full shadow-md border-2 border-purple-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 md:w-3.5 md:h-3.5 bg-white rounded-full shadow-md border-2 border-violet-700 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
                             style={{
                                 left: `${seekPreview !== null ? (audioDuration > 0 ? (seekPreview / audioDuration) * 100 : 0) : progressPercent}%`,
                                 opacity: seekPreview !== null ? 1 : undefined,
@@ -1457,8 +1530,8 @@ export default function MusicPageClient() {
                                     const cat = sidebarCategories.find((c) => c.name === currentSong.category);
                                     const CatIcon = getIconComponent(cat?.icon, Music);
                                     return (
-                                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-md flex-shrink-0">
-                                            <CatIcon className="h-5 w-5 md:h-6 md:w-6 text-white" />
+                                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-white/70 border border-slate-200/80 flex items-center justify-center shadow-sm flex-shrink-0">
+                                            <CatIcon className="h-5 w-5 md:h-6 md:w-6 text-violet-700" />
                                         </div>
                                     );
                                 })()}
@@ -1474,7 +1547,7 @@ export default function MusicPageClient() {
 
                             {/* 播放控制 */}
                             <div className="flex items-center gap-1 md:gap-3">
-                                <button onClick={cyclePlayMode} className={`p-2 rounded-lg transition-all ${playModeActive ? "text-purple-600 hover:bg-purple-50" : "text-gray-400 hover:bg-gray-100"}`} title={playModeLabel}>
+                                <button onClick={cyclePlayMode} className={`p-2 rounded-lg transition-all ${playModeActive ? "text-violet-700 hover:bg-violet-50" : "text-gray-400 hover:bg-gray-100"}`} title={playModeLabel}>
                                     <PlayModeIcon className="h-4 w-4" />
                                 </button>
                                 <button onClick={playPrev} className="p-2 hover:bg-gray-100 rounded-lg transition-all">
@@ -1482,7 +1555,7 @@ export default function MusicPageClient() {
                                 </button>
                                 <button
                                     onClick={togglePlayPause}
-                                    className="p-3 md:p-3.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-full shadow-lg transition-all active:scale-95"
+                                    className="p-3 md:p-3.5 bg-gradient-to-r from-violet-700 to-rose-600 hover:from-violet-800 hover:to-rose-700 rounded-full shadow-lg shadow-violet-900/15 transition-all active:scale-95"
                                 >
                                     {isLoading ? (
                                         <Loader2 className="h-5 w-5 text-white animate-spin" />
@@ -1512,10 +1585,10 @@ export default function MusicPageClient() {
                                         onMouseDown={handleVolumeMouseDown}
                                     >
                                         <div
-                                            className="h-full bg-gradient-to-r from-purple-400 to-pink-400 group-hover:from-purple-500 group-hover:to-pink-500 transition-colors relative"
+                                            className="h-full bg-violet-600 transition-colors relative"
                                             style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
                                         >
-                                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full shadow border border-purple-400 opacity-0 group-hover:opacity-100 transition-opacity -mr-1" />
+                                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full shadow border border-violet-500 opacity-0 group-hover:opacity-100 transition-opacity -mr-1" />
                                         </div>
                                     </div>
                                 </div>

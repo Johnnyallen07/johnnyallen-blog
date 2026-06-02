@@ -20,7 +20,9 @@ interface Category {
   slug: string;
   emoji: string;
   color: string;
-  columnCount: number;
+  postCount: number;
+  seriesCount: number;
+  childCount: number;
 }
 
 interface CategoryFormData {
@@ -79,7 +81,7 @@ export function CategoryManager() {
         name: string;
         slug?: string;
         icon?: string;
-        _count?: { series: number };
+        _count?: { posts?: number; series?: number; children?: number };
       }
 
       const mapped: Category[] = (data as CategoryDTO[]).map(
@@ -91,7 +93,9 @@ export function CategoryManager() {
           color:
             GRADIENT_COLORS[index % GRADIENT_COLORS.length] ||
             "from-gray-500 to-gray-600",
-          columnCount: cat._count?.series ?? 0,
+          postCount: cat._count?.posts ?? 0,
+          seriesCount: cat._count?.series ?? 0,
+          childCount: cat._count?.children ?? 0,
         })
       );
       setCategories(mapped);
@@ -104,7 +108,9 @@ export function CategoryManager() {
           slug: "gaming",
           emoji: "🎮",
           color: "from-cyan-500 to-blue-500",
-          columnCount: 0,
+          postCount: 0,
+          seriesCount: 0,
+          childCount: 0,
         },
         {
           id: "2",
@@ -112,7 +118,9 @@ export function CategoryManager() {
           slug: "music",
           emoji: "🎵",
           color: "from-purple-500 to-pink-500",
-          columnCount: 0,
+          postCount: 0,
+          seriesCount: 0,
+          childCount: 0,
         },
         {
           id: "3",
@@ -120,7 +128,9 @@ export function CategoryManager() {
           slug: "tech",
           emoji: "💻",
           color: "from-green-500 to-teal-500",
-          columnCount: 0,
+          postCount: 0,
+          seriesCount: 0,
+          childCount: 0,
         },
       ]);
     } finally {
@@ -172,8 +182,12 @@ export function CategoryManager() {
 
   const handleDelete = async (id: string) => {
     const category = categories.find((c) => c.id === id);
-    if (category && category.columnCount > 0) {
-      toast.error("该分类下还有专栏，无法删除");
+    const contentCount = category
+      ? category.postCount + category.seriesCount + category.childCount
+      : 0;
+
+    if (category && contentCount > 0) {
+      toast.error("该分类下还有内容，请先移动或删除内容");
       return;
     }
 
@@ -185,7 +199,7 @@ export function CategoryManager() {
       toast.success("分类已删除");
     } catch (error) {
       console.error(error);
-      toast.error("删除分类失败");
+      toast.error(error instanceof Error ? error.message : "删除分类失败");
     }
   };
 
@@ -213,7 +227,9 @@ export function CategoryManager() {
         color:
           GRADIENT_COLORS[categories.length % GRADIENT_COLORS.length] ||
           "from-gray-500 to-gray-600",
-        columnCount: 0,
+        postCount: 0,
+        seriesCount: 0,
+        childCount: 0,
       };
 
       setCategories([...categories, newCat]);
@@ -323,18 +339,21 @@ export function CategoryManager() {
               key={category.id}
               className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
             >
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 min-w-0">
                 <div
-                  className={`w-12 h-12 rounded-lg bg-gradient-to-br ${category.color} flex items-center justify-center text-2xl shadow-lg`}
+                  className={`w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br ${category.color} flex items-center justify-center text-2xl shadow-lg`}
                 >
                   {category.emoji}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h3 className="font-semibold text-gray-900">
                     {category.name}
                   </h3>
                   <p className="text-sm text-gray-500">
-                    {category.columnCount} 个专栏
+                    {category.postCount} 篇文章 · {category.seriesCount} 个专栏
+                    {category.childCount > 0
+                      ? ` · ${category.childCount} 个子分类`
+                      : ""}
                   </p>
                 </div>
               </div>
@@ -353,7 +372,10 @@ export function CategoryManager() {
                   variant="ghost"
                   onClick={() => handleDelete(category.id)}
                   className="text-red-600 hover:bg-red-50"
-                  disabled={category.columnCount > 0}
+                  disabled={
+                    category.postCount + category.seriesCount + category.childCount >
+                    0
+                  }
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

@@ -32,17 +32,17 @@ function BilibiliIcon({ className }: { className?: string }) {
 }
 
 const NAV_ITEMS = [
-  { href: "/", label: "首页", icon: Home, hoverColor: "hover:text-cyan-600" },
-  { href: "/categories", label: "分类", icon: FolderOpen, hoverColor: "hover:text-cyan-600" },
-  { href: "/archive", label: "归档", icon: Calendar, hoverColor: "hover:text-purple-600" },
-  { href: "/about", label: "关于我", icon: User, hoverColor: "hover:text-pink-600" },
+  { href: "/", label: "首页", icon: Home, hoverColor: "hover:text-slate-950" },
+  { href: "/categories", label: "分类", icon: FolderOpen, hoverColor: "hover:text-slate-950" },
+  { href: "/archive", label: "归档", icon: Calendar, hoverColor: "hover:text-slate-950" },
+  { href: "/about", label: "关于我", icon: User, hoverColor: "hover:text-slate-950" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <div className="relative overflow-hidden bg-transparent rounded-2xl border border-white/30 shadow-lg">
+    <div className="relative overflow-hidden bg-white/[0.18] rounded-2xl border border-slate-200/60 shadow-lg shadow-slate-900/5">
       {/* 背景装饰 - 主题符号 */}
       <div className="absolute top-4 right-6 text-3xl opacity-10 rotate-12">
         🎵
@@ -72,7 +72,7 @@ export function Sidebar() {
       <div className="relative p-6 space-y-6">
         {/* 个人信息 */}
         <div className="flex flex-col items-center">
-          <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md mb-3 bg-gradient-to-br from-cyan-100 to-purple-100 flex items-center justify-center">
+          <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md mb-3 bg-slate-100 flex items-center justify-center">
             <Image
               src="/images/avatar.png"
               alt="Johnny 头像"
@@ -81,7 +81,7 @@ export function Sidebar() {
               className="w-full h-full object-cover"
             />
           </div>
-          <h3 className="text-xl font-bold bg-gradient-to-r from-cyan-600 to-purple-600 bg-clip-text text-transparent">
+          <h3 className="text-xl font-bold text-slate-950">
             Johnny
           </h3>
           <p className="text-sm text-gray-600 leading-relaxed text-center mt-2 mb-4">
@@ -95,7 +95,7 @@ export function Sidebar() {
               href="https://github.com/Johnnyallen07"
               target="_blank"
               rel="noopener noreferrer"
-              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/20 border border-white/40 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
+              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/30 border border-slate-200/70 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
               style={{ animation: 'float 6s ease-in-out infinite' }}
             >
               <Github className="h-4 w-4 text-gray-600 group-hover:text-gray-900 transition-colors" />
@@ -106,7 +106,7 @@ export function Sidebar() {
               href="https://www.linkedin.com/in/jieyu-zhao-88b264296/"
               target="_blank"
               rel="noopener noreferrer"
-              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/20 border border-white/40 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
+              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/30 border border-slate-200/70 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
               style={{ animation: 'float 6s ease-in-out infinite 1.5s' }}
             >
               <Linkedin className="h-4 w-4 text-gray-600 group-hover:text-blue-600 transition-colors" />
@@ -114,7 +114,7 @@ export function Sidebar() {
 
             {/* 微信 */}
             <button
-              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/20 border border-white/40 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
+              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/30 border border-slate-200/70 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
               style={{ animation: 'float 6s ease-in-out infinite 3s' }}
             >
               <WechatIcon className="h-4 w-4 text-gray-600 group-hover:text-green-600 transition-colors" />
@@ -125,7 +125,7 @@ export function Sidebar() {
               href="https://b23.tv/WwXUz18"
               target="_blank"
               rel="noopener noreferrer"
-              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/20 border border-white/40 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
+              className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/30 border border-slate-200/70 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
               style={{ animation: 'float 6s ease-in-out infinite 4.5s' }}
             >
               <BilibiliIcon className="h-4 w-4 text-gray-600 group-hover:text-pink-500 transition-colors" />
@@ -146,7 +146,7 @@ export function Sidebar() {
             <input
               type="text"
               placeholder="搜索文章..."
-              className="w-full pl-10 pr-4 py-2.5 bg-transparent backdrop-blur-sm border border-white/40 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200 transition-all shadow-sm"
+              className="w-full pl-10 pr-4 py-2.5 bg-transparent backdrop-blur-sm border border-slate-200/70 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 transition-all shadow-sm"
             />
           </div>
         </div>
@@ -163,8 +163,8 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg font-medium transition-all shadow-sm hover:shadow-md border border-white/40 ${isActive
-                    ? "text-cyan-600 bg-white/20 backdrop-blur-sm"
+                className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg font-medium transition-all shadow-sm hover:shadow-md border border-slate-200/70 ${isActive
+                    ? "text-slate-950 bg-white/40 backdrop-blur-sm"
                     : `text-gray-700 bg-transparent backdrop-blur-sm hover:bg-white/20 ${item.hoverColor}`
                   }`}
               >
@@ -175,33 +175,6 @@ export function Sidebar() {
           })}
         </nav>
 
-        {/* 分隔线 */}
-        <div className="h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent" />
-
-        {/* Logo 区域 - 底部 */}
-        <div className="text-center">
-          <Link
-            href="/"
-            className="inline-block hover:scale-105 transition-transform"
-          >
-            <div className="w-40 h-40 mx-auto flex items-center justify-center">
-              <Image
-                src="/images/logo.png"
-                alt="JohnnyBlog Logo"
-                width={160}
-                height={160}
-                className="w-full h-full object-contain"
-              />
-            </div>
-          </Link>
-        </div>
-
-        {/* 一言 */}
-        <div className="text-center -mt-2">
-          <p className="text-xs text-gray-500 italic leading-relaxed">
-            &quot;代码如诗，音乐如画&quot;
-          </p>
-        </div>
       </div>
     </div>
   );

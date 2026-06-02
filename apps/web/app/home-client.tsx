@@ -14,32 +14,26 @@ interface Article {
   excerpt: string;
   column: string;
   tags: string[];
-  views: number;
-  likes: number;
   date: string;
   articleId?: string;
 }
 
-function getRelativeTime(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
+const ARTICLES_PER_PAGE = 5;
 
-  if (diffMinutes < 1) return "刚刚";
-  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}小时前`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}天前`;
-  const diffWeeks = Math.floor(diffDays / 7);
-  if (diffWeeks < 4) return `${diffWeeks}周前`;
-  return date.toLocaleDateString("zh-CN");
+function formatPublishDate(dateStr: string): string {
+  const date = new Date(dateStr);
+
+  return date.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 
 export function HomePageClient() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -53,30 +47,33 @@ export function HomePageClient() {
         series?: { title: string };
         category?: { name: string };
         tags?: string[];
-        views?: number;
-        likes?: number;
-        updatedAt: string;
+        createdAt: string;
       }
 
       if (Array.isArray(data) && data.length > 0) {
-        const mapped: Article[] = (data as PostDTO[]).map((post) => ({
-          title: post.title || "未命名文章",
-          excerpt:
-            post.content
-              ?.replace(/<[^>]*>/g, "")
-              .substring(0, 120)
-              .trim() + "..." || "",
-          column:
-            post.series?.title || post.category?.name || "未分类",
-          tags: post.tags || [],
-          views: post.views || 0,
-          likes: post.likes || 0,
-          date: getRelativeTime(post.updatedAt),
-          articleId: post.slug || post.id,
-        }));
+        const mapped: Article[] = [...(data as PostDTO[])]
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )
+          .map((post) => ({
+            title: post.title || "未命名文章",
+            excerpt:
+              post.content
+                ?.replace(/<[^>]*>/g, "")
+                .substring(0, 120)
+                .trim() + "..." || "",
+            column:
+              post.series?.title || post.category?.name || "未分类",
+            tags: post.tags || [],
+            date: formatPublishDate(post.createdAt),
+            articleId: post.slug || post.id,
+          }));
         setArticles(mapped);
+        setCurrentPage(1);
       } else {
         setArticles([]);
+        setCurrentPage(1);
       }
     } catch {
       setArticles([]);
@@ -89,10 +86,27 @@ export function HomePageClient() {
     fetchArticles();
   }, [fetchArticles]);
 
+  const totalPages = Math.max(1, Math.ceil(articles.length / ARTICLES_PER_PAGE));
+  const visibleArticles = articles.slice(
+    (currentPage - 1) * ARTICLES_PER_PAGE,
+    currentPage * ARTICLES_PER_PAGE
+  );
+  const hasPagination = articles.length > ARTICLES_PER_PAGE;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 via-purple-50/20 to-pink-50/30 relative overflow-hidden">
+    <div className="min-h-screen bg-[#f7f8f8] relative overflow-hidden">
       {/* 全屏动态背景 */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(15,23,42,0.055)_1px,transparent_1px),linear-gradient(to_bottom,rgba(15,23,42,0.045)_1px,transparent_1px)] bg-[size:32px_32px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,transparent_0%,transparent_38%,rgba(20,184,166,0.055)_48%,transparent_58%,transparent_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.72),transparent_18%,transparent_82%,rgba(255,255,255,0.8))]" />
+        <div className="absolute inset-x-0 top-0 h-px bg-slate-950/10" />
+        <div className="absolute left-0 top-0 h-full w-px bg-slate-950/10" />
+        <div className="absolute top-24 left-[8%] h-px w-[34rem] bg-gradient-to-r from-transparent via-slate-700/12 to-transparent" />
+        <div className="absolute bottom-32 right-[6%] h-px w-[30rem] bg-gradient-to-r from-transparent via-teal-700/14 to-transparent" />
+        <div className="absolute top-0 right-[18%] h-full w-px bg-gradient-to-b from-transparent via-slate-700/10 to-transparent" />
+        <div className="absolute top-1/3 left-0 h-24 w-full bg-[repeating-linear-gradient(to_bottom,transparent_0px,transparent_11px,rgba(15,23,42,0.035)_12px)]" />
+
         {/* === 游戏元素 === */}
         <div className="absolute top-20 left-10 w-4 h-4 bg-cyan-400/15 animate-pulse" style={{ animationDelay: "0s", animationDuration: "3s" }} />
         <div className="absolute top-40 left-32 w-3 h-3 bg-cyan-400/15 animate-pulse" style={{ animationDelay: "0.5s", animationDuration: "2.5s" }} />
@@ -238,21 +252,24 @@ export function HomePageClient() {
 
         {/* === 装饰元素 === */}
         <div className="absolute top-16 right-1/4 w-20 h-20 border-2 border-cyan-400/10 rounded-lg animate-spin" style={{ animationDuration: "20s" }} />
-        <div className="absolute bottom-20 left-1/4 w-16 h-16 border-2 border-purple-400/10 rounded-full animate-spin" style={{ animationDuration: "18s", animationDirection: "reverse" }} />
+        <div className="absolute bottom-20 left-1/4 w-16 h-16 border-2 border-slate-500/10 rounded-full animate-spin" style={{ animationDuration: "18s", animationDirection: "reverse" }} />
 
         {/* 漂浮粒子 */}
         <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-cyan-400/20 rounded-full animate-bounce" style={{ animationDelay: "0s", animationDuration: "3s" }} />
-        <div className="absolute top-1/3 right-1/3 w-3 h-3 bg-purple-400/20 rounded-full animate-bounce" style={{ animationDelay: "0.5s", animationDuration: "3.5s" }} />
-        <div className="absolute bottom-1/3 left-1/2 w-2 h-2 bg-pink-400/20 rounded-full animate-bounce" style={{ animationDelay: "1s", animationDuration: "4s" }} />
-        <div className="absolute top-2/3 right-1/4 w-3 h-3 bg-amber-400/20 rounded-full animate-bounce" style={{ animationDelay: "1.5s", animationDuration: "3.2s" }} />
+        <div className="absolute top-1/3 right-1/3 w-3 h-3 bg-slate-400/20 rounded-full animate-bounce" style={{ animationDelay: "0.5s", animationDuration: "3.5s" }} />
+        <div className="absolute bottom-1/3 left-1/2 w-2 h-2 bg-teal-400/20 rounded-full animate-bounce" style={{ animationDelay: "1s", animationDuration: "4s" }} />
+        <div className="absolute top-2/3 right-1/4 w-3 h-3 bg-slate-400/20 rounded-full animate-bounce" style={{ animationDelay: "1.5s", animationDuration: "3.2s" }} />
         <div className="absolute bottom-1/4 left-1/3 w-2 h-2 bg-emerald-400/20 rounded-full animate-bounce" style={{ animationDelay: "2s", animationDuration: "3.8s" }} />
 
-        {/* 柔和的大型模糊圆形背景 */}
-        <div className="absolute top-1/4 -left-32 w-[500px] h-[500px] bg-cyan-400/[0.08] rounded-full blur-3xl animate-pulse" style={{ animationDelay: "0s", animationDuration: "8s" }} />
-        <div className="absolute bottom-1/4 -right-32 w-[500px] h-[500px] bg-purple-400/[0.08] rounded-full blur-3xl animate-pulse" style={{ animationDelay: "2s", animationDuration: "9s" }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-pink-400/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: "4s", animationDuration: "10s" }} />
-        <div className="absolute top-1/3 right-1/4 w-[400px] h-[400px] bg-amber-400/[0.06] rounded-full blur-3xl animate-pulse" style={{ animationDelay: "6s", animationDuration: "11s" }} />
-        <div className="absolute bottom-1/3 left-1/4 w-[450px] h-[450px] bg-emerald-400/[0.06] rounded-full blur-3xl animate-pulse" style={{ animationDelay: "3s", animationDuration: "9.5s" }} />
+        {/* 技术感底层结构 */}
+        <div className="absolute top-28 left-12 h-20 w-44 border-l border-t border-slate-400/15" />
+        <div className="absolute bottom-28 right-12 h-24 w-52 border-r border-b border-slate-400/15" />
+        <div className="absolute top-1/2 left-1/2 h-px w-64 -translate-x-1/2 bg-gradient-to-r from-transparent via-slate-600/10 to-transparent" />
+        <div className="absolute top-[18%] right-[14%] grid grid-cols-6 gap-1 opacity-[0.08]">
+          {Array.from({ length: 24 }).map((_, index) => (
+            <div key={index} className="h-1.5 w-1.5 bg-slate-700" />
+          ))}
+        </div>
       </div>
 
       {/* 自定义动画 */}
@@ -315,7 +332,7 @@ export function HomePageClient() {
             <div>
               <div className="flex items-center gap-3 mb-6">
                 <h2 className="text-2xl font-bold text-gray-900">最近发布</h2>
-                <div className="h-1 flex-1 bg-gradient-to-r from-cyan-500/30 via-purple-500/30 to-transparent rounded-full" />
+                <div className="h-px flex-1 bg-gradient-to-r from-slate-400/50 via-slate-300/30 to-transparent" />
               </div>
 
               {isLoading ? (
@@ -345,7 +362,7 @@ export function HomePageClient() {
                 </div>
               ) : articles.length > 0 ? (
                 <div className="space-y-4">
-                  {articles.map((article, index) => (
+                  {visibleArticles.map((article, index) => (
                     <ArticleCard key={index} {...article} />
                   ))}
                 </div>
@@ -353,13 +370,48 @@ export function HomePageClient() {
                 <p className="text-gray-500 text-center py-8">暂无文章</p>
               )}
 
-              {!isLoading && articles.length > 0 && (
-                <div className="mt-6 text-center">
+              {!isLoading && hasPagination && (
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                   <Button
                     variant="outline"
-                    className="border-gray-300 bg-white hover:bg-gray-50 hover:border-cyan-300 hover:text-cyan-600 transition-all"
+                    size="sm"
+                    className="border-slate-300 bg-white/70 text-slate-700 hover:bg-slate-950 hover:border-slate-950 hover:text-white transition-all disabled:opacity-40"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   >
-                    加载更多文章
+                    上一页
+                  </Button>
+
+                  <div className="flex flex-wrap items-center justify-center gap-1">
+                    {Array.from({ length: totalPages }).map((_, index) => {
+                      const page = index + 1;
+                      return (
+                        <Button
+                          key={page}
+                          variant="outline"
+                          size="sm"
+                          className={`h-9 w-9 border-slate-300 p-0 transition-all ${currentPage === page
+                            ? "bg-slate-950 text-white hover:bg-slate-950 hover:text-white"
+                            : "bg-white/70 text-slate-700 hover:bg-white hover:text-slate-950"
+                            }`}
+                          onClick={() => setCurrentPage(page)}
+                        >
+                          {page}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-slate-300 bg-white/70 text-slate-700 hover:bg-slate-950 hover:border-slate-950 hover:text-white transition-all disabled:opacity-40"
+                    disabled={currentPage === totalPages}
+                    onClick={() =>
+                      setCurrentPage((page) => Math.min(totalPages, page + 1))
+                    }
+                  >
+                    下一页
                   </Button>
                 </div>
               )}

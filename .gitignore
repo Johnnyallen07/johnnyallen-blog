@@ -149,8 +149,12 @@ test-data/
 # Seed file with local test data
 apps/api/prisma/seed.ts
 .agent
+.ssh-tunnel/
 
-devops/
+devops/*
+!devops/nginx/
+devops/nginx/*
+!devops/nginx/johnnyallen.blog.http.conf
 backups/
 
 apps/web/public/figma/

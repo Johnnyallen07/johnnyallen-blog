@@ -3,9 +3,12 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
-    "start": "pnpm --filter api start:prod & pnpm --filter web exec next start -p 3000 & pnpm --filter music exec next start -p 3002 & pnpm --filter admin exec next start -p 3003 & pnpm --filter teacher exec next start -p 3004",
-    "stop": "sh -c 'for p in 3000 3001; do lsof -ti:$p 2>/dev/null | xargs kill -9 2>/dev/null; done; true'",
+    "db:tunnel": "scripts/ensure-db-tunnel.sh",
+    "db:tunnel:stop": "scripts/stop-db-tunnel.sh",
+    "dev": "scripts/ensure-db-tunnel.sh && turbo run dev",
+    "start": "scripts/ensure-db-tunnel.sh && sh -c 'pnpm --filter api start:prod & pnpm --filter web exec next start -p 3000 & pnpm --filter music exec next start -p 3002 & pnpm --filter admin exec next start -p 3003 & wait'",
+    "stop": "sh -c 'for p in 3000 3001 3002 3003; do lsof -ti:$p 2>/dev/null | xargs kill -9 2>/dev/null; done; scripts/stop-db-tunnel.sh; true'",
+    "ports:free": "sh -c 'for p in 3000 3001 3002 3003; do lsof -ti:$p 2>/dev/null | xargs kill -9 2>/dev/null; done; scripts/stop-db-tunnel.sh; true'",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types"

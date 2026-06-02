@@ -1,4 +1,9 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
@@ -36,7 +41,7 @@ export class CategoriesService {
         parent: true,
         children: true,
         _count: {
-          select: { posts: true },
+          select: { posts: true, series: true, children: true },
         },
       },
       orderBy: {
@@ -53,7 +58,7 @@ export class CategoriesService {
       where: { id },
       include: {
         _count: {
-          select: { posts: true },
+          select: { posts: true, series: true, children: true },
         },
       },
     });
@@ -123,7 +128,24 @@ export class CategoriesService {
   }
 
   async remove(id: string) {
-    await this.findOne(id); // Check if exists
+    const category = await this.findOne(id); // Check if exists
+
+    const blockers: string[] = [];
+    if (category._count.posts > 0) {
+      blockers.push(`${category._count.posts} 篇文章`);
+    }
+    if (category._count.series > 0) {
+      blockers.push(`${category._count.series} 个专栏`);
+    }
+    if (category._count.children > 0) {
+      blockers.push(`${category._count.children} 个子分类`);
+    }
+
+    if (blockers.length > 0) {
+      throw new ConflictException(
+        `该分类下还有 ${blockers.join('、')}，请先移动或删除这些内容后再删除分类。`,
+      );
+    }
 
     const result = await this.prisma.category.delete({
       where: { id },
@@ -184,11 +206,11 @@ export class CategoriesService {
         children: {
           include: {
             children: true, // Support up to 2 levels of nesting for now
-            _count: { select: { posts: true } },
+            _count: { select: { posts: true, series: true, children: true } },
           },
         },
         _count: {
-          select: { posts: true },
+          select: { posts: true, series: true, children: true },
         },
       },
       where: {

@@ -14,9 +14,7 @@ import {
     Columns2,
     Rows2,
 } from "lucide-react";
-import * as pdfjsLib from "pdfjs-dist";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+import type { PDFDocumentProxy } from "pdfjs-dist";
 
 /* ───────── Types ───────── */
 
@@ -85,7 +83,7 @@ function ScoreViewer({
     score: MusicScore;
     onClose: () => void;
 }) {
-    const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
+    const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(0);
     const [isDoubleSpread, setIsDoubleSpread] = useState(true);
@@ -100,9 +98,12 @@ function ScoreViewer({
         let cancelled = false;
         setIsLoading(true);
 
-        pdfjsLib
-            .getDocument(score.fileUrl)
-            .promise.then((pdf) => {
+        void import("pdfjs-dist")
+            .then((pdfjsLib) => {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+                return pdfjsLib.getDocument(score.fileUrl).promise;
+            })
+            .then((pdf) => {
                 if (cancelled) return;
                 setPdfDoc(pdf);
                 setTotalPages(pdf.numPages);

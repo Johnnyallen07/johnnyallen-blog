@@ -31,16 +31,16 @@ export function TagCloud() {
   if (tags.length === 0) return null;
 
   return (
-    <div className="bg-transparent backdrop-blur-sm border border-white/40 rounded-xl p-5 shadow-sm hover:bg-white/20 hover:border-cyan-300 transition-all duration-300">
+    <div className="bg-white/[0.18] backdrop-blur-sm border border-slate-200/60 rounded-xl p-5 shadow-sm hover:bg-white/30 hover:border-slate-400 transition-all duration-300">
       <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-        <span className="text-purple-600">#</span>
+        <span className="text-slate-500">#</span>
         标签
       </h3>
       <div className="flex flex-wrap gap-2">
         {tags.map((tag) => (
           <button
             key={tag.id}
-            className="px-3 py-1.5 rounded-lg bg-white/30 backdrop-blur-sm border border-white/50 text-gray-700 hover:border-cyan-300 hover:text-cyan-600 hover:bg-white/50 transition-all text-sm"
+            className="px-3 py-1.5 rounded-lg bg-white/35 backdrop-blur-sm border border-slate-200/70 text-gray-700 hover:border-slate-500 hover:text-slate-950 hover:bg-white/55 transition-all text-sm"
           >
             #{tag.name}
           </button>

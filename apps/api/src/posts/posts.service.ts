@@ -21,7 +21,7 @@ export class PostsService {
   }
 
   /** 清除所有 post 相关缓存 */
-  private async invalidatePostCaches(slug?: string) {
+  private async invalidatePostCaches() {
     const keysToDelete = [...this.cachedKeys];
     await Promise.all(keysToDelete.map((k) => this.cache.del(k)));
     this.cachedKeys.clear();
@@ -293,7 +293,7 @@ export class PostsService {
   }
 
   async update(id: string, updatePostDto: UpdatePostDto) {
-    const existing = await this.findOne(id);
+    await this.findOne(id);
 
     // Extract seriesId from DTO (it's not a direct Post field)
     const { seriesId, ...postData } = updatePostDto;
@@ -318,7 +318,7 @@ export class PostsService {
     }
 
     // 清除缓存
-    await this.invalidatePostCaches(existing.slug);
+    await this.invalidatePostCaches();
 
     // Re-fetch to get updated data including series info
     return this.findOne(id);
@@ -405,13 +405,13 @@ export class PostsService {
   }
 
   async remove(id: string) {
-    const existing = await this.findOne(id);
+    await this.findOne(id);
 
     const result = await this.prisma.post.delete({
       where: { id },
     });
 
-    await this.invalidatePostCaches(existing.slug);
+    await this.invalidatePostCaches();
     return result;
   }
 

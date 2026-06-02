@@ -38,7 +38,7 @@ export class SeriesService {
   }
 
   /** 清除所有 series 相关缓存 */
-  private async invalidateSeriesCaches(seriesId?: string) {
+  private async invalidateSeriesCaches() {
     const keysToDelete = [...this.cachedKeys];
     await Promise.all(keysToDelete.map((k) => this.cache.del(k)));
     this.cachedKeys.clear();
@@ -69,7 +69,7 @@ export class SeriesService {
       data,
     });
 
-    await this.invalidateSeriesCaches(id);
+    await this.invalidateSeriesCaches();
     return result;
   }
 
@@ -245,13 +245,13 @@ export class SeriesService {
       },
     });
 
-    await this.invalidateSeriesCaches(seriesId);
+    await this.invalidateSeriesCaches();
     return result;
   }
 
   async remove(id: string) {
     const result = await this.prisma.series.delete({ where: { id } });
-    await this.invalidateSeriesCaches(id);
+    await this.invalidateSeriesCaches();
     return result;
   }
 
@@ -278,7 +278,7 @@ export class SeriesService {
     };
 
     await deleteRecursive(itemId);
-    await this.invalidateSeriesCaches(item.seriesId);
+    await this.invalidateSeriesCaches();
     return { success: true, id: itemId };
   }
 
