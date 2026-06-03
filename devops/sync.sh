@@ -16,6 +16,7 @@ echo "==> 同步项目到 $SERVER:$APP_DIR ..."
 rsync -avz --delete -e "ssh $SSH_OPTS" \
   --exclude node_modules \
   --exclude .git \
+  --exclude .ssh-tunnel \
   --exclude .turbo \
   --exclude .next \
   --exclude dist \

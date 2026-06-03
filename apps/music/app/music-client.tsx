@@ -187,7 +187,6 @@ export default function MusicPageClient() {
     const [currentTime, setCurrentTime] = useState(0);
     const [audioDuration, setAudioDuration] = useState(0);
 
-    // Restore persisted preferences on initial render
     const savedStateRef = useRef<{
         songId?: string;
         song?: Song;
@@ -197,27 +196,18 @@ export default function MusicPageClient() {
         playMode?: PlayMode;
         playlist?: string;
     } | null>(null);
+    const [hasRestoredState, setHasRestoredState] = useState(false);
 
-    // Read saved state once (before first render completes)
-    if (savedStateRef.current === null) {
-        try {
-            const raw = typeof window !== "undefined" ? localStorage.getItem("MUSIC_PLAYER_STATE") : null;
-            savedStateRef.current = raw ? JSON.parse(raw) : {};
-        } catch {
-            savedStateRef.current = {};
-        }
-    }
-
-    const [volume, setVolume] = useState(() => savedStateRef.current?.volume ?? 0.8);
-    const [isMuted, setIsMuted] = useState(() => savedStateRef.current?.muted ?? false);
-    const [playMode, setPlayMode] = useState<PlayMode>(() => (savedStateRef.current?.playMode as PlayMode) || "sequential");
+    const [volume, setVolume] = useState(0.8);
+    const [isMuted, setIsMuted] = useState(false);
+    const [playMode, setPlayMode] = useState<PlayMode>("sequential");
 
 
     /* ── State: Mobile ── */
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     /* ── State: UI ── */
-    const [selectedPlaylist, setSelectedPlaylist] = useState(() => savedStateRef.current?.playlist || "daily");
+    const [selectedPlaylist, setSelectedPlaylist] = useState("daily");
     const [searchQuery, setSearchQuery] = useState("");
 
     /* ── State: Server-driven pagination ── */
@@ -239,6 +229,28 @@ export default function MusicPageClient() {
     const halfPlayedRef = useRef<string | null>(null); // song id that has been counted
     const currentSongRef = useRef<Song | null>(null);
 
+    // Restore persisted state only after hydration so SSR and the first client render match.
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem("MUSIC_PLAYER_STATE");
+            const saved = raw ? JSON.parse(raw) : {};
+            savedStateRef.current = saved;
+
+            if (typeof saved.volume === "number") setVolume(saved.volume);
+            if (typeof saved.muted === "boolean") setIsMuted(saved.muted);
+            if (saved.playMode === "sequential" || saved.playMode === "repeat-one" || saved.playMode === "shuffle") {
+                setPlayMode(saved.playMode);
+            }
+            if (typeof saved.playlist === "string" && saved.playlist) {
+                setSelectedPlaylist(saved.playlist);
+            }
+        } catch {
+            savedStateRef.current = {};
+        } finally {
+            setHasRestoredState(true);
+        }
+    }, []);
+
     // Keep ref in sync with state (avoids stale closure in audio events)
     useEffect(() => {
         currentSongRef.current = currentSong;
@@ -254,6 +266,7 @@ export default function MusicPageClient() {
 
     // Save non-time state immediately when it changes
     useEffect(() => {
+        if (!hasRestoredState) return;
         try {
             const existing = localStorage.getItem("MUSIC_PLAYER_STATE");
             const state = existing ? JSON.parse(existing) : {};
@@ -267,7 +280,7 @@ export default function MusicPageClient() {
             }
             localStorage.setItem("MUSIC_PLAYER_STATE", JSON.stringify(state));
         } catch { /* localStorage may be unavailable */ }
-    }, [volume, isMuted, playMode, selectedPlaylist, currentSong]);
+    }, [volume, isMuted, playMode, selectedPlaylist, currentSong, hasRestoredState]);
 
     // Save currentTime every 5 seconds (throttled to avoid excessive writes)
     useEffect(() => {
@@ -342,15 +355,26 @@ export default function MusicPageClient() {
                 halfPlayedRef.current !== song.id
             ) {
                 halfPlayedRef.current = song.id;
-                fetch(`${API_BASE}/music/${song.id}/play`, { method: "PATCH" }).catch(() => { });
                 const songId = song.id;
-                setPageSongs((prev) =>
-                    prev.map((s) =>
-                        s.id === songId
-                            ? { ...s, playCount: (s.playCount || 0) + 1 }
-                            : s
-                    )
-                );
+                fetch(`${API_BASE}/music/${songId}/play`, { method: "PATCH" })
+                    .then((res) => {
+                        if (!res.ok) throw new Error("play count update failed");
+                        setPageSongs((prev) =>
+                            prev.map((s) =>
+                                s.id === songId
+                                    ? { ...s, playCount: (s.playCount || 0) + 1 }
+                                    : s
+                            )
+                        );
+                        setCurrentSong((prev) =>
+                            prev?.id === songId
+                                ? { ...prev, playCount: (prev.playCount || 0) + 1 }
+                                : prev
+                        );
+                    })
+                    .catch(() => {
+                        halfPlayedRef.current = null;
+                    });
             }
         };
         const onLoadedMetadata = () => {
@@ -699,6 +723,7 @@ export default function MusicPageClient() {
         }
 
         retryCountRef.current = 0;
+        halfPlayedRef.current = null;
         setCurrentSong(song);
         setCurrentTime(0);
         setAudioDuration(song.duration || 0);
@@ -1380,8 +1405,9 @@ export default function MusicPageClient() {
                     {/* 表头 - 桌面端 */}
                     <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-slate-200/70 mb-2">
                         <div className="col-span-1 text-center">序号</div>
-                        <div className="col-span-6">标题</div>
+                        <div className="col-span-5">标题</div>
                         <div className="col-span-3">演奏 / 音乐家</div>
+                        <div className="col-span-1 text-right">播放</div>
                         <div className="col-span-2 text-right">时长</div>
                     </div>
 
@@ -1425,7 +1451,7 @@ export default function MusicPageClient() {
                                             </div>
 
                                             {/* Category Icon + Title */}
-                                            <div className="flex-1 min-w-0 md:col-span-6 flex items-center gap-3">
+                                            <div className="flex-1 min-w-0 md:col-span-5 flex items-center gap-3">
                                                 {(() => {
                                                     const cat = sidebarCategories.find((c) => c.name === song.category);
                                                     const CatIcon = getIconComponent(cat?.icon, Music);
@@ -1442,6 +1468,9 @@ export default function MusicPageClient() {
                                                     <p className="text-xs text-gray-400 truncate">
                                                         {song.musician}
                                                     </p>
+                                                    <p className="md:hidden mt-0.5 text-[11px] text-gray-400 tabular-nums truncate">
+                                                        {song.playCount || 0} 次播放
+                                                    </p>
                                                 </div>
                                             </div>
 
@@ -1450,6 +1479,17 @@ export default function MusicPageClient() {
                                                 <span className="text-sm text-gray-500 truncate">
                                                     {song.artist}
                                                     {song.musician ? ` · ${song.musician}` : ""}
+                                                </span>
+                                            </div>
+
+                                            {/* Play count (desktop only) */}
+                                            <div className="hidden md:flex col-span-1 items-center justify-end min-w-0">
+                                                <span
+                                                    className="inline-flex items-center gap-1 text-xs text-gray-400 tabular-nums"
+                                                    title={`${song.playCount || 0} 次播放`}
+                                                >
+                                                    <Headphones className="h-3.5 w-3.5" />
+                                                    {song.playCount || 0}
                                                 </span>
                                             </div>
 
