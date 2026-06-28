@@ -20,10 +20,21 @@ import {
   Strikethrough,
   Upload,
   Download,
+  Palette,
+  Eraser,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { LucideIcon } from "lucide-react";
 import { type Editor } from "@tiptap/react";
+import {
+  EDITOR_COLOR_SWATCHES,
+  getEditorShortcutLabel,
+} from "@/lib/editor-shortcuts";
+import {
+  applyEditorColor,
+  setEditorLink,
+  smartToggleHeading,
+} from "@/lib/editor-commands";
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -34,88 +45,12 @@ interface EditorToolbarProps {
   onExport: () => void;
 }
 
-/**
- * Smart heading toggle that handles partial text selection.
- *
- * Standard Tiptap toggleHeading converts the entire block (paragraph) to a heading.
- * This function detects when the user has selected only part of a paragraph and:
- *   1. Splits the block at the selection boundaries to isolate the selected text
- *   2. Applies the heading to the newly isolated block
- *
- * If the selection covers the full block or the cursor is collapsed, it falls back
- * to the standard toggleHeading behavior.
- */
-function smartToggleHeading(editor: Editor, level: 1 | 2 | 3) {
-  const { state } = editor;
-  const { from, to, empty } = state.selection;
-
-  // If already a heading at this level, just toggle it off (back to paragraph)
-  if (editor.isActive("heading", { level })) {
-    editor.chain().focus().toggleHeading({ level }).run();
-    return;
-  }
-
-  // If cursor is collapsed (no selection), apply heading to the whole block — standard behavior
-  if (empty) {
-    editor.chain().focus().toggleHeading({ level }).run();
-    return;
-  }
-
-  // Determine the block that contains the selection start
-  const $from = state.doc.resolve(from);
-  const $to = state.doc.resolve(to);
-  const blockStart = $from.start($from.depth);
-  const blockEnd = $from.end($from.depth);
-
-  // If selection spans multiple blocks, or covers the full block, use standard behavior
-  if ($from.depth !== $to.depth || $from.parent !== $to.parent) {
-    editor.chain().focus().toggleHeading({ level }).run();
-    return;
-  }
-
-  const selectionCoversFullBlock = from <= blockStart && to >= blockEnd;
-  if (selectionCoversFullBlock) {
-    editor.chain().focus().toggleHeading({ level }).run();
-    return;
-  }
-
-  // Partial selection within a single block — split and isolate
-  const hasTextBefore = from > blockStart;
-  const hasTextAfter = to < blockEnd;
-
-  // Build a transaction with the necessary splits
-  const { tr } = editor.state;
-
-  if (hasTextAfter) {
-    // Split at the end of the selection first (preserves earlier positions)
-    tr.split(to);
-  }
-  if (hasTextBefore) {
-    // Split at the beginning of the selection
-    tr.split(from);
-  }
-
-  editor.view.dispatch(tr);
-
-  // After splitting, the selected text is now in its own block.
-  // Use requestAnimationFrame to let the DOM update, then apply heading.
-  requestAnimationFrame(() => {
-    // Position the cursor inside the isolated block
-    const targetPos = hasTextBefore ? from + 1 : from;
-    editor
-      .chain()
-      .focus()
-      .setTextSelection(targetPos)
-      .toggleHeading({ level })
-      .run();
-  });
-}
-
 interface ToolbarButton {
   icon: LucideIcon;
   command: (editor: Editor) => void;
   isActive?: (editor: Editor) => boolean;
   label: string;
+  shortcutId?: string;
 }
 
 const toolbarButtons: ToolbarButton[] = [
@@ -123,77 +58,90 @@ const toolbarButtons: ToolbarButton[] = [
     icon: Undo,
     command: (editor) => editor.chain().focus().undo().run(),
     label: "撤销",
+    shortcutId: "undo",
   },
   {
     icon: Redo,
     command: (editor) => editor.chain().focus().redo().run(),
     label: "重做",
+    shortcutId: "redo",
   },
   {
     icon: Bold,
     command: (editor) => editor.chain().focus().toggleBold().run(),
     isActive: (editor) => editor.isActive("bold"),
     label: "粗体",
+    shortcutId: "bold",
   },
   {
     icon: Italic,
     command: (editor) => editor.chain().focus().toggleItalic().run(),
     isActive: (editor) => editor.isActive("italic"),
     label: "斜体",
+    shortcutId: "italic",
   },
   {
     icon: Underline,
     command: (editor) => editor.chain().focus().toggleUnderline().run(),
     isActive: (editor) => editor.isActive("underline"),
     label: "下划线",
+    shortcutId: "underline",
   },
   {
     icon: Strikethrough,
     command: (editor) => editor.chain().focus().toggleStrike().run(),
     isActive: (editor) => editor.isActive("strike"),
     label: "删除线",
+    shortcutId: "strike",
   },
   {
     icon: Heading1,
     command: (editor) => smartToggleHeading(editor, 1),
     isActive: (editor) => editor.isActive("heading", { level: 1 }),
     label: "一级标题",
+    shortcutId: "heading-1",
   },
   {
     icon: Heading2,
     command: (editor) => smartToggleHeading(editor, 2),
     isActive: (editor) => editor.isActive("heading", { level: 2 }),
     label: "二级标题",
+    shortcutId: "heading-2",
   },
   {
     icon: Heading3,
     command: (editor) => smartToggleHeading(editor, 3),
     isActive: (editor) => editor.isActive("heading", { level: 3 }),
     label: "三级标题",
+    shortcutId: "heading-3",
   },
   {
     icon: List,
     command: (editor) => editor.chain().focus().toggleBulletList().run(),
     isActive: (editor) => editor.isActive("bulletList"),
     label: "无序列表",
+    shortcutId: "bullet-list",
   },
   {
     icon: ListOrdered,
     command: (editor) => editor.chain().focus().toggleOrderedList().run(),
     isActive: (editor) => editor.isActive("orderedList"),
     label: "有序列表",
+    shortcutId: "ordered-list",
   },
   {
     icon: Quote,
     command: (editor) => editor.chain().focus().toggleBlockquote().run(),
     isActive: (editor) => editor.isActive("blockquote"),
     label: "引用",
+    shortcutId: "blockquote",
   },
   {
     icon: Code,
     command: (editor) => editor.chain().focus().toggleCodeBlock().run(),
     isActive: (editor) => editor.isActive("codeBlock"),
     label: "代码块",
+    shortcutId: "code-block",
   },
 ];
 
@@ -209,20 +157,16 @@ export function EditorToolbar({
     return null;
   }
 
-  const setLink = () => {
-    const previousUrl = editor.getAttributes("link").href;
-    const url = window.prompt("URL", previousUrl);
-
-    if (url === null) {
-      return;
-    }
-
-    if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-      return;
-    }
-
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+  const platform =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "mac"
+      : "windows";
+  const currentColor = editor.getAttributes("textStyle").color || "#374151";
+  const labelWithShortcut = (label: string, shortcutId?: string) => {
+    const shortcut = shortcutId
+      ? getEditorShortcutLabel(shortcutId, platform)
+      : "";
+    return shortcut ? `${label} (${shortcut})` : label;
   };
 
   return (
@@ -238,7 +182,7 @@ export function EditorToolbar({
             size="sm"
             onClick={() => button.command(editor)}
             className={`h-8 w-8 p-0 ${isActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-200"}`}
-            title={button.label}
+            title={labelWithShortcut(button.label, button.shortcutId)}
           >
             <IconComponent className="h-4 w-4" />
           </Button>
@@ -248,12 +192,58 @@ export function EditorToolbar({
       <Button
         variant={editor.isActive("link") ? "secondary" : "ghost"}
         size="sm"
-        onClick={setLink}
+        onClick={() => setEditorLink(editor)}
         className={`h-8 w-8 p-0 ${editor.isActive("link") ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-200"}`}
-        title="链接"
+        title={labelWithShortcut("链接", "link")}
       >
         <Link className="h-4 w-4" />
       </Button>
+
+      <div className="w-px h-6 bg-gray-300 mx-1" />
+
+      <div className="flex items-center gap-1" aria-label="字体颜色">
+        <label
+          className="relative h-8 w-8 rounded-md inline-flex items-center justify-center text-gray-600 hover:bg-gray-200 cursor-pointer"
+          title="自定义字体颜色"
+        >
+          <Palette className="h-4 w-4" />
+          <span
+            className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full"
+            style={{ backgroundColor: currentColor }}
+          />
+          <input
+            type="color"
+            value={currentColor}
+            onChange={(event) => applyEditorColor(editor, event.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            aria-label="自定义字体颜色"
+          />
+        </label>
+        {EDITOR_COLOR_SWATCHES.map((swatch) => {
+          const isActive =
+            swatch.value === null
+              ? !editor.getAttributes("textStyle").color
+              : currentColor.toLowerCase() === swatch.value.toLowerCase();
+          return (
+            <button
+              key={swatch.label}
+              type="button"
+              onClick={() => applyEditorColor(editor, swatch.value)}
+              title={swatch.label}
+              className={`h-6 w-6 rounded-md border flex items-center justify-center ${
+                isActive ? "border-gray-900" : "border-gray-300"
+              }`}
+              style={{
+                backgroundColor: swatch.value || "#ffffff",
+              }}
+            >
+              {swatch.value === null && (
+                <Eraser className="h-3.5 w-3.5 text-gray-500" />
+              )}
+            </button>
+          );
+        })}
+      </div>
 
       <div className="w-px h-6 bg-gray-300 mx-1" />
 

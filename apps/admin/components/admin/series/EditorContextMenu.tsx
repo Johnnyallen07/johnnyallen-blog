@@ -19,6 +19,13 @@ import {
 } from "lucide-react";
 import type { Editor } from "@tiptap/react";
 import type { LucideIcon } from "lucide-react";
+import {
+  getEditorShortcutLabel,
+} from "@/lib/editor-shortcuts";
+import {
+  setEditorLink,
+  smartToggleHeading,
+} from "@/lib/editor-commands";
 
 interface EditorContextMenuProps {
   editor: Editor;
@@ -32,6 +39,7 @@ interface MenuItem {
   icon?: LucideIcon;
   label?: string;
   shortcut?: string;
+  shortcutId?: string;
   action?: (editor: Editor) => void;
   isActive?: (editor: Editor) => boolean;
 }
@@ -41,7 +49,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Bold,
     label: "加粗",
-    shortcut: "Ctrl+B",
+    shortcutId: "bold",
     action: (editor) => editor.chain().focus().toggleBold().run(),
     isActive: (editor) => editor.isActive("bold"),
   },
@@ -49,7 +57,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Italic,
     label: "斜体",
-    shortcut: "Ctrl+I",
+    shortcutId: "italic",
     action: (editor) => editor.chain().focus().toggleItalic().run(),
     isActive: (editor) => editor.isActive("italic"),
   },
@@ -57,7 +65,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Underline,
     label: "下划线",
-    shortcut: "Ctrl+U",
+    shortcutId: "underline",
     action: (editor) => editor.chain().focus().toggleUnderline().run(),
     isActive: (editor) => editor.isActive("underline"),
   },
@@ -65,6 +73,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Strikethrough,
     label: "删除线",
+    shortcutId: "strike",
     action: (editor) => editor.chain().focus().toggleStrike().run(),
     isActive: (editor) => editor.isActive("strike"),
   },
@@ -73,24 +82,24 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Heading1,
     label: "一级标题",
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 1 }).run(),
+    shortcutId: "heading-1",
+    action: (editor) => smartToggleHeading(editor, 1),
     isActive: (editor) => editor.isActive("heading", { level: 1 }),
   },
   {
     type: "action",
     icon: Heading2,
     label: "二级标题",
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 2 }).run(),
+    shortcutId: "heading-2",
+    action: (editor) => smartToggleHeading(editor, 2),
     isActive: (editor) => editor.isActive("heading", { level: 2 }),
   },
   {
     type: "action",
     icon: Heading3,
     label: "三级标题",
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 3 }).run(),
+    shortcutId: "heading-3",
+    action: (editor) => smartToggleHeading(editor, 3),
     isActive: (editor) => editor.isActive("heading", { level: 3 }),
   },
   { type: "separator" },
@@ -98,6 +107,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: List,
     label: "无序列表",
+    shortcutId: "bullet-list",
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
     isActive: (editor) => editor.isActive("bulletList"),
   },
@@ -105,6 +115,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: ListOrdered,
     label: "有序列表",
+    shortcutId: "ordered-list",
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
     isActive: (editor) => editor.isActive("orderedList"),
   },
@@ -112,6 +123,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Quote,
     label: "引用",
+    shortcutId: "blockquote",
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
     isActive: (editor) => editor.isActive("blockquote"),
   },
@@ -119,6 +131,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Code,
     label: "代码块",
+    shortcutId: "code-block",
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
     isActive: (editor) => editor.isActive("codeBlock"),
   },
@@ -133,7 +146,7 @@ const menuItems: MenuItem[] = [
     type: "action",
     icon: Link,
     label: "插入链接",
-    shortcut: "Ctrl+K",
+    shortcutId: "link",
     // handled separately
     isActive: (editor) => editor.isActive("link"),
   },
@@ -152,6 +165,10 @@ export function EditorContextMenu({
   onImageUpload,
 }: EditorContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const platform =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "mac"
+      : "windows";
 
   // Close on click outside or Escape
   useEffect(() => {
@@ -197,22 +214,7 @@ export function EditorContextMenu({
 
   const handleAction = (item: MenuItem) => {
     if (item.label === "插入链接") {
-      const previousUrl = editor.getAttributes("link").href;
-      const url = window.prompt("输入链接地址", previousUrl);
-      if (url === null) {
-        onClose();
-        return;
-      }
-      if (url === "") {
-        editor.chain().focus().extendMarkRange("link").unsetLink().run();
-      } else {
-        editor
-          .chain()
-          .focus()
-          .extendMarkRange("link")
-          .setLink({ href: url })
-          .run();
-      }
+      setEditorLink(editor);
       onClose();
       return;
     }
@@ -247,6 +249,11 @@ export function EditorContextMenu({
 
         const IconComponent = item.icon!;
         const isActive = item.isActive ? item.isActive(editor) : false;
+        const shortcut =
+          item.shortcut ||
+          (item.shortcutId
+            ? getEditorShortcutLabel(item.shortcutId, platform)
+            : "");
 
         return (
           <button
@@ -258,9 +265,9 @@ export function EditorContextMenu({
           >
             <IconComponent className="h-4 w-4 flex-shrink-0" />
             <span className="flex-1 text-left">{item.label}</span>
-            {item.shortcut && (
+            {shortcut && (
               <span className="text-xs text-gray-400 ml-4">
-                {item.shortcut}
+                {shortcut}
               </span>
             )}
           </button>

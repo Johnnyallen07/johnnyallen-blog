@@ -14,6 +14,7 @@ import { EditorToolbar } from "./EditorToolbar";
 import { EditorContextMenu } from "./EditorContextMenu";
 import { fetchClient, getApiBaseUrl } from "@/lib/api";
 import { importMarkdownFile, exportAsZip } from "@/lib/importExport";
+import { createEditorShortcutsExtension } from "@/lib/editor-commands";
 import { toast } from "sonner";
 import { useEffect, useState, useCallback, useRef } from "react";
 
@@ -505,6 +506,7 @@ export function RichTextEditor({
       }),
       TextStyle,
       Color,
+      createEditorShortcutsExtension(onSave),
       VideoExtension,
       AttachmentExtension,
     ],
@@ -701,15 +703,6 @@ export function RichTextEditor({
           return true;
         }
 
-        return false;
-      },
-      handleKeyDown: (_view, event) => {
-        // Ctrl+S / Cmd+S to save
-        if ((event.ctrlKey || event.metaKey) && event.key === "s") {
-          event.preventDefault();
-          onSave?.();
-          return true;
-        }
         return false;
       },
     },

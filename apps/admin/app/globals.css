@@ -302,6 +302,18 @@
   margin-bottom: 0;
 }
 
+.ProseMirror s,
+.ProseMirror strike,
+.prose s,
+.prose strike {
+  text-decoration: line-through;
+}
+
+.ProseMirror span[style*="color"],
+.prose span[style*="color"] {
+  text-decoration-color: currentColor;
+}
+
 .ProseMirror .attachment-card,
 .prose .attachment-card {
   display: flex;
