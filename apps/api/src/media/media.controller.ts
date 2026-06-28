@@ -1,4 +1,13 @@
-import { Controller, Post, Body, Get, Head, Param, Res } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Head,
+  Param,
+  Res,
+  Query,
+} from '@nestjs/common';
 import { MediaService } from './media.service';
 import type { Response } from 'express';
 
@@ -18,9 +27,30 @@ export class MediaController {
   async confirmUpload(
     @Body('key') key: string,
     @Body('url') url: string,
-    @Body('type') type: 'IMAGE' | 'VIDEO',
+    @Body('type') type: 'IMAGE' | 'VIDEO' | 'FILE',
   ) {
     return this.mediaService.saveMediaReference(key, url, type);
+  }
+
+  @Get('download/*key')
+  async downloadMedia(
+    @Param('key') key: string | string[],
+    @Query('filename') filename: string | undefined,
+    @Res() res: Response,
+  ) {
+    const cleanKey = (Array.isArray(key) ? key.join('/') : key).replace(
+      /^\/+/,
+      '',
+    );
+    const { stream, contentType } = await this.mediaService.getMedia(cleanKey);
+    const fileName = encodeURIComponent(
+      filename || cleanKey.split('/').pop() || 'download',
+    );
+    res.set('Content-Type', contentType || 'application/octet-stream');
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${fileName}`);
+    res.set('Cache-Control', 'private, max-age=0, no-cache');
+    res.set('Access-Control-Allow-Origin', '*');
+    stream.pipe(res);
   }
 
   @Head('*key')

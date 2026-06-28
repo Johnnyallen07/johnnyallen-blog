@@ -234,9 +234,9 @@
 }
 
 /* 第一个标题不需要顶部间距 */
-.ProseMirror>h1:first-child,
-.ProseMirror>h2:first-child,
-.ProseMirror>h3:first-child {
+.ProseMirror > h1:first-child,
+.ProseMirror > h2:first-child,
+.ProseMirror > h3:first-child {
   margin-top: 0;
 }
 
@@ -263,7 +263,7 @@
 }
 
 /* 列表项内 p 标签去除多余间距 */
-.ProseMirror li>p {
+.ProseMirror li > p {
   margin: 0;
 }
 
@@ -363,9 +363,9 @@
 }
 
 /* 第一个标题不需要顶部间距 */
-.prose>h1:first-child,
-.prose>h2:first-child,
-.prose>h3:first-child {
+.prose > h1:first-child,
+.prose > h2:first-child,
+.prose > h3:first-child {
   margin-top: 0 !important;
 }
 
@@ -408,6 +408,68 @@
   margin: 1.5em 0 !important;
 }
 
+.prose .attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  margin: 1.25rem 0 !important;
+  padding: 0.875rem 1rem;
+  border: 1px solid #bae6fd;
+  border-radius: 0.5rem;
+  background: #f0f9ff;
+  color: #075985 !important;
+  text-decoration: none !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.prose .attachment-card:hover {
+  border-color: #38bdf8;
+  background: #e0f2fe;
+  text-decoration: none !important;
+}
+
+.prose .attachment-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.375rem;
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  flex: 0 0 auto;
+}
+
+.prose .attachment-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.prose .attachment-title {
+  color: #0f172a;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.prose .attachment-subtitle {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.prose .attachment-action {
+  color: #0369a1;
+  font-size: 0.85rem;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
 .prose li {
   display: list-item !important;
 }
@@ -443,7 +505,6 @@
 }
 
 @keyframes floatUpDown {
-
   0%,
   100% {
     transform: translateY(0);
@@ -455,7 +516,6 @@
 }
 
 @keyframes rotate3d {
-
   0%,
   100% {
     transform: rotateX(0deg);
@@ -477,7 +537,6 @@
 }
 
 @keyframes spectrumBar {
-
   0%,
   100% {
     transform: scaleY(1);
@@ -489,7 +548,6 @@
 }
 
 @keyframes musicFlow {
-
   0%,
   100% {
     transform: translateX(0);
@@ -501,7 +559,6 @@
 }
 
 @keyframes pianoKey {
-
   0%,
   100% {
     opacity: 0.08;
@@ -575,7 +632,6 @@
 }
 
 @keyframes fadeInOut {
-
   0%,
   100% {
     opacity: 0;
@@ -587,7 +643,6 @@
 }
 
 @keyframes textFlicker {
-
   0%,
   100% {
     opacity: 1;
@@ -599,7 +654,6 @@
 }
 
 @keyframes healthPulse {
-
   0%,
   100% {
     width: 75%;
@@ -611,7 +665,6 @@
 }
 
 @keyframes manaPulse {
-
   0%,
   100% {
     width: 60%;
@@ -623,7 +676,6 @@
 }
 
 @keyframes expGrow {
-
   0%,
   100% {
     width: 45%;

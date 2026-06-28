@@ -4,6 +4,7 @@ import type { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
+import { MediaService } from '../media/media.service';
 
 @Injectable()
 export class PostsService {
@@ -13,6 +14,7 @@ export class PostsService {
   constructor(
     private prisma: PrismaService,
     @Inject(CACHE_MANAGER) private cache: Cache,
+    private mediaService: MediaService,
   ) {}
 
   private async cacheSet(key: string, value: unknown, ttl: number) {
@@ -289,6 +291,7 @@ export class PostsService {
     });
 
     await this.invalidatePostCaches();
+    await this.mediaService.syncPostMedia(result.id, result.content);
     return result;
   }
 
@@ -319,6 +322,9 @@ export class PostsService {
 
     // 清除缓存
     await this.invalidatePostCaches();
+    if (postData.content !== undefined) {
+      await this.mediaService.syncPostMedia(id, postData.content);
+    }
 
     // Re-fetch to get updated data including series info
     return this.findOne(id);
@@ -405,12 +411,17 @@ export class PostsService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const post = await this.findOne(id);
+    const contentKeys = this.mediaService
+      .extractMediaRefsFromHtml(post.content)
+      .map((media) => media.key);
+    const keys = [...post.media.map((media) => media.key), ...contentKeys];
 
     const result = await this.prisma.post.delete({
       where: { id },
     });
 
+    await this.mediaService.deleteMediaObjects(keys);
     await this.invalidatePostCaches();
     return result;
   }

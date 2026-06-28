@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import {
   Search,
   Github,
@@ -12,6 +13,8 @@ import {
   User,
   Linkedin,
 } from "lucide-react";
+import { BILIBILI_URL } from "@/lib/contact";
+import { WechatContactDialog } from "./WechatContactDialog";
 
 /** 微信 SVG 图标 */
 function WechatIcon({ className }: { className?: string }) {
@@ -40,6 +43,7 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [wechatOpen, setWechatOpen] = useState(false);
 
   return (
     <div className="relative overflow-hidden bg-white/[0.18] rounded-2xl border border-slate-200/60 shadow-lg shadow-slate-900/5">
@@ -114,6 +118,9 @@ export function Sidebar() {
 
             {/* 微信 */}
             <button
+              type="button"
+              onClick={() => setWechatOpen(true)}
+              aria-label="打开微信二维码"
               className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/30 border border-slate-200/70 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
               style={{ animation: 'float 6s ease-in-out infinite 3s' }}
             >
@@ -122,7 +129,7 @@ export function Sidebar() {
 
             {/* Bilibili */}
             <a
-              href="https://b23.tv/WwXUz18"
+              href={BILIBILI_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/30 border border-slate-200/70 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
@@ -176,6 +183,7 @@ export function Sidebar() {
         </nav>
 
       </div>
+      <WechatContactDialog open={wechatOpen} onOpenChange={setWechatOpen} />
     </div>
   );
 }

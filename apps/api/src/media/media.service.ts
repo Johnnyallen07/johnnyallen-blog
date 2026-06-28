@@ -118,7 +118,151 @@ export class MediaService {
     }
   }
 
-  async saveMediaReference(key: string, url: string, type: 'IMAGE' | 'VIDEO') {
+  private deleteObjectAsync(key: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.cos.deleteObject(
+        {
+          Bucket: this.getBucket(),
+          Region: this.getRegion(),
+          Key: key,
+        },
+        (err) => {
+          if (err) {
+            reject(
+              err instanceof Error
+                ? err
+                : new Error(
+                    (err as { message?: string }).message ?? 'COS delete error',
+                  ),
+            );
+          } else {
+            resolve();
+          }
+        },
+      );
+    });
+  }
+
+  getDownloadUrl(key: string): string {
+    return `${this.getPublicDomain()}/${key}`;
+  }
+
+  extractMediaRefsFromHtml(html?: string | null): {
+    key: string;
+    url: string;
+    type: 'IMAGE' | 'VIDEO' | 'FILE';
+  }[] {
+    if (!html) return [];
+
+    const refs = new Map<
+      string,
+      { key: string; url: string; type: 'IMAGE' | 'VIDEO' | 'FILE' }
+    >();
+    const publicDomain = this.getPublicDomain();
+
+    const addRef = (
+      rawUrl: string | undefined,
+      type: 'IMAGE' | 'VIDEO' | 'FILE',
+      rawKey?: string,
+    ) => {
+      const key = rawKey || this.extractKeyFromUrl(rawUrl, publicDomain);
+      if (!key || !key.startsWith('assets/')) return;
+      refs.set(key, {
+        key,
+        url: rawUrl || `${publicDomain}/${key}`,
+        type,
+      });
+    };
+
+    for (const match of html.matchAll(
+      /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi,
+    )) {
+      addRef(match[1], 'IMAGE');
+    }
+
+    for (const match of html.matchAll(
+      /<video\b[^>]*(?:\bsrc=["']([^"']+)["'])?[^>]*>[\s\S]*?<\/video>/gi,
+    )) {
+      const block = match[0];
+      const source = block.match(/<source\b[^>]*\bsrc=["']([^"']+)["']/i);
+      addRef(match[1] || source?.[1], 'VIDEO');
+    }
+
+    for (const match of html.matchAll(
+      /<a\b[^>]*\bdata-attachment=["']true["'][^>]*>/gi,
+    )) {
+      const tag = match[0];
+      const href = tag.match(/\bhref=["']([^"']+)["']/i)?.[1];
+      const key = tag.match(/\bdata-key=["']([^"']+)["']/i)?.[1];
+      addRef(href, 'FILE', key);
+    }
+
+    return [...refs.values()];
+  }
+
+  async syncPostMedia(postId: string, html?: string | null) {
+    const refs = this.extractMediaRefsFromHtml(html);
+    const existing = await this.prisma.media.findMany({
+      where: { postId },
+      select: { key: true },
+    });
+    const nextKeys = new Set(refs.map((ref) => ref.key));
+    const staleKeys = existing
+      .map((media) => media.key)
+      .filter((key) => key.startsWith('assets/') && !nextKeys.has(key));
+
+    await this.prisma.media.deleteMany({ where: { postId } });
+    if (staleKeys.length > 0) {
+      await this.deleteMediaObjects(staleKeys);
+    }
+    if (refs.length === 0) return;
+
+    await this.prisma.media.createMany({
+      data: refs.map((ref) => ({
+        postId,
+        key: ref.key,
+        url: ref.url,
+        type: ref.type,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  async deleteMediaObjects(keys: string[]) {
+    const uniqueKeys = [...new Set(keys)].filter(Boolean);
+    await Promise.allSettled(
+      uniqueKeys.map((key) => this.deleteObjectAsync(key)),
+    );
+  }
+
+  private extractKeyFromUrl(url: string | undefined, publicDomain: string) {
+    if (!url) return null;
+    try {
+      if (url.startsWith(publicDomain)) {
+        return decodeURIComponent(url.slice(publicDomain.length + 1));
+      }
+      const parsed = new URL(url, 'http://local');
+      const pathname = parsed.pathname.replace(/^\/+/, '');
+      if (pathname.startsWith('media/download/')) {
+        return decodeURIComponent(pathname.replace(/^media\/download\//, ''));
+      }
+      if (pathname.startsWith('media/')) {
+        return decodeURIComponent(pathname.replace(/^media\//, ''));
+      }
+      if (pathname.startsWith('assets/')) {
+        return decodeURIComponent(pathname);
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async saveMediaReference(
+    key: string,
+    url: string,
+    type: 'IMAGE' | 'VIDEO' | 'FILE',
+  ) {
     return this.prisma.media.create({
       data: {
         key,

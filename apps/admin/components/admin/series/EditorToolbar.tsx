@@ -12,6 +12,7 @@ import {
   Link,
   Image,
   Video,
+  FileUp,
   Code,
   Quote,
   Undo,
@@ -28,6 +29,7 @@ interface EditorToolbarProps {
   editor: Editor | null;
   onImageUpload: () => void;
   onVideoUpload: () => void;
+  onAttachmentUpload: () => void;
   onImport: () => void;
   onExport: () => void;
 }
@@ -195,7 +197,14 @@ const toolbarButtons: ToolbarButton[] = [
   },
 ];
 
-export function EditorToolbar({ editor, onImageUpload, onVideoUpload, onImport, onExport }: EditorToolbarProps) {
+export function EditorToolbar({
+  editor,
+  onImageUpload,
+  onVideoUpload,
+  onAttachmentUpload,
+  onImport,
+  onExport,
+}: EditorToolbarProps) {
   if (!editor) {
     return null;
   }
@@ -266,6 +275,16 @@ export function EditorToolbar({ editor, onImageUpload, onVideoUpload, onImport, 
         title="插入视频 (≤30s, ≤20MB)"
       >
         <Video className="h-4 w-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onAttachmentUpload}
+        className="h-8 w-8 p-0 hover:bg-cyan-100 hover:text-cyan-600 text-gray-600"
+        title="插入可下载附件"
+      >
+        <FileUp className="h-4 w-4" />
       </Button>
 
       <div className="w-px h-6 bg-gray-300 mx-1" />

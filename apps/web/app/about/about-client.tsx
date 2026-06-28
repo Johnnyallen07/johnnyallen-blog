@@ -9,13 +9,9 @@ import {
   Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Navbar } from "@/components/home/Navbar";
+import { WechatContactDialog } from "@/components/home/WechatContactDialog";
+import { BILIBILI_URL } from "@/lib/contact";
 
 /** B 站 logo 图标 */
 function BilibiliIcon({ className }: { className?: string }) {
@@ -141,7 +137,7 @@ export function AboutPageClient() {
           <h2 className="text-2xl font-bold text-gray-900 mb-6">关于我</h2>
           <div className="prose prose-gray max-w-none">
             <p className="text-gray-700 leading-relaxed mb-4">
-              帝国理工本科大三数学；在 Google 当了三个月的 prompt engineer，被 manager 一对一开会骂我在 commit 测试系统里面写 f**k；皮包国际教育机构老板；教微积分桃李满天下的老师但是不想教书；超级希望玩「缺氧」的 Steam 玩家。
+              帝国理工本科大三数学；在 Google 当了三个月的 prompt engineer，被 manager 一对一开会骂我在 commit 测试系统里面写 f**k；皮包国际教育机构老板；教微积分桃李满天下的老师但是不想教书；超级喜欢玩「缺氧」的 Steam 玩家。
             </p>
             <p className="text-gray-700 leading-relaxed">
               博客全是 AI 写的，除了这段文字。
@@ -191,7 +187,7 @@ export function AboutPageClient() {
               className="border-2 border-gray-300 bg-white/90 text-gray-800 shadow-sm hover:border-cyan-400 hover:bg-cyan-50 hover:text-cyan-700 hover:shadow-md transition-all duration-200"
               asChild
             >
-              <Link href="https://b23.tv/WwXUz18" target="_blank" rel="noopener noreferrer">
+              <Link href={BILIBILI_URL} target="_blank" rel="noopener noreferrer">
                 <BilibiliIcon className="h-4 w-4 mr-2" />
                 Bilibili
               </Link>
@@ -208,28 +204,7 @@ export function AboutPageClient() {
         </div>
       </div>
 
-      {/* 微信二维码弹窗 */}
-      <Dialog open={wechatOpen} onOpenChange={setWechatOpen}>
-        <DialogContent className="sm:max-w-sm p-0 overflow-hidden border-0 shadow-xl">
-          <DialogHeader className="p-6 pb-2">
-            <DialogTitle className="text-center">添加微信好友</DialogTitle>
-          </DialogHeader>
-          <div className="px-6 pb-6 flex flex-col items-center">
-            <p className="text-sm text-gray-600 text-center mb-4">
-              扫一扫下方二维码，加我为朋友
-            </p>
-            <div className="relative rounded-lg overflow-hidden bg-white border border-gray-100">
-              <Image
-                src="/images/wechat-qr.png"
-                alt="微信好友二维码"
-                width={280}
-                height={360}
-                className="object-contain w-[280px] h-auto"
-              />
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <WechatContactDialog open={wechatOpen} onOpenChange={setWechatOpen} />
     </div>
   );
 }

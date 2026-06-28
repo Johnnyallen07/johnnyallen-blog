@@ -5,52 +5,23 @@ import { usePathname } from "next/navigation";
 import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-
-interface SeriesItem {
-    id: string;
-    title: string | null;
-    children: SeriesItem[];
-    postId: string | null;
-    post?: {
-        id: string;
-        title: string;
-        slug: string;
-        published?: boolean;
-    };
-}
+import {
+    filterPublished,
+    getMobileSeriesRecommendations,
+    type SeriesSidebarItem,
+} from "@/lib/series-sidebar";
 
 interface SeriesSidebarProps {
     title: string;
     slug: string;
     emoji: string;
-    items: SeriesItem[];
-}
-
-/**
- * Check if a node (or any descendant) has a published post.
- * Folders are visible if they have at least one published descendant.
- */
-function hasPublishedDescendant(node: SeriesItem): boolean {
-    if (node.postId && node.post?.published !== false) return true;
-    return node.children?.some(hasPublishedDescendant) || false;
-}
-
-/**
- * Filter tree to only include nodes with published posts
- * or folders that contain published descendants.
- */
-function filterPublished(nodes: SeriesItem[]): SeriesItem[] {
-    return nodes
-        .filter(hasPublishedDescendant)
-        .map((node) => ({
-            ...node,
-            children: node.children ? filterPublished(node.children) : [],
-        }));
+    items: SeriesSidebarItem[];
 }
 
 export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
     const pathname = usePathname();
     const visibleItems = filterPublished(items);
+    const mobileRecommendations = getMobileSeriesRecommendations(items, pathname);
 
     return (
         <div className="lg:sticky lg:top-24">
@@ -65,7 +36,7 @@ export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
                 </div>
 
                 {/* Tree */}
-                <div className="p-2 max-h-[calc(100vh-220px)] overflow-y-auto">
+                <div className="hidden lg:block p-2 max-h-[calc(100vh-220px)] overflow-y-auto">
                     {visibleItems.length > 0 ? (
                         visibleItems.map((item) => (
                             <SeriesNode
@@ -75,6 +46,38 @@ export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
                                 activePath={pathname}
                             />
                         ))
+                    ) : (
+                        <div className="text-center py-6 text-sm text-gray-400">
+                            暂无已发布内容
+                        </div>
+                    )}
+                </div>
+
+                <div className="lg:hidden p-2">
+                    {mobileRecommendations.length > 0 ? (
+                        <div className="space-y-1">
+                            {mobileRecommendations.map((item) => {
+                                const isActive = pathname === `/article/${item.slug}`;
+                                return (
+                                    <Link
+                                        key={item.id}
+                                        href={`/article/${item.slug}`}
+                                        className={cn(
+                                            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all",
+                                            isActive
+                                                ? "bg-gradient-to-r from-cyan-50 to-blue-50 text-cyan-700 font-medium border border-cyan-200/60"
+                                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                                        )}
+                                    >
+                                        <FileText className={cn(
+                                            "h-3.5 w-3.5 flex-shrink-0",
+                                            isActive ? "text-cyan-500" : "text-gray-400"
+                                        )} />
+                                        <span className="truncate">{item.title}</span>
+                                    </Link>
+                                );
+                            })}
+                        </div>
                     ) : (
                         <div className="text-center py-6 text-sm text-gray-400">
                             暂无已发布内容
@@ -91,11 +94,11 @@ function SeriesNode({
     level,
     activePath
 }: {
-    node: SeriesItem;
+    node: SeriesSidebarItem;
     level: number;
     activePath: string;
 }) {
-    const containsActive = (n: SeriesItem): boolean => {
+    const containsActive = (n: SeriesSidebarItem): boolean => {
         if (n.post && `/article/${n.post.slug}` === activePath) return true;
         return n.children?.some(containsActive) || false;
     };

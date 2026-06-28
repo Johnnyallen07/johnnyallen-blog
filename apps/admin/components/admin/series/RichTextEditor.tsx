@@ -1,6 +1,7 @@
 "use client";
 
 import { useEditor, EditorContent } from "@tiptap/react";
+import { Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import ImageExtension from "@tiptap/extension-image";
 import LinkExtension from "@tiptap/extension-link";
@@ -27,6 +28,117 @@ interface RichTextEditorProps {
   articleTitle?: string;
 }
 
+interface UploadedAttachment {
+  key: string;
+  publicUrl: string;
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function getAttachmentIcon(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() || "";
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "ZIP";
+  if (["jar", "mod"].includes(ext)) return "JAR";
+  if (["pdf"].includes(ext)) return "PDF";
+  if (["doc", "docx"].includes(ext)) return "DOC";
+  if (["xls", "xlsx", "csv"].includes(ext)) return "XLS";
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) return "IMG";
+  return "FILE";
+}
+
+const AttachmentExtension = Node.create({
+  name: "attachment",
+  group: "block",
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      href: { default: null },
+      key: { default: null },
+      fileName: { default: "attachment" },
+      fileSize: { default: 0 },
+      icon: { default: "FILE" },
+    };
+  },
+
+  parseHTML() {
+    return [
+      {
+        tag: 'a[data-attachment="true"]',
+        getAttrs: (element) => {
+          const el = element as HTMLElement;
+          const href = el.getAttribute("href");
+          const fileName =
+            el.getAttribute("data-filename") || el.textContent || "attachment";
+          return {
+            href,
+            key: el.getAttribute("data-key"),
+            fileName,
+            fileSize: Number(el.getAttribute("data-size") || 0),
+            icon: getAttachmentIcon(fileName),
+          };
+        },
+      },
+    ];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    const fileName = HTMLAttributes.fileName || "attachment";
+    const fileSize = Number(HTMLAttributes.fileSize || 0);
+    const icon = HTMLAttributes.icon || getAttachmentIcon(fileName);
+    return [
+      "a",
+      mergeAttributes({
+        href: HTMLAttributes.href,
+        "data-attachment": "true",
+        "data-key": HTMLAttributes.key,
+        "data-filename": fileName,
+        "data-size": String(fileSize),
+        download: fileName,
+        class: "attachment-card",
+        title: `点击下载 ${fileName}`,
+      }),
+      ["span", { class: "attachment-icon" }, icon],
+      [
+        "span",
+        { class: "attachment-meta" },
+        ["span", { class: "attachment-title" }, fileName],
+        [
+          "span",
+          { class: "attachment-subtitle" },
+          `点击下载 · ${formatBytes(fileSize)}`,
+        ],
+      ],
+      ["span", { class: "attachment-action" }, "下载"],
+    ];
+  },
+});
+
+function buildAttachmentNode(file: UploadedAttachment) {
+  return {
+    type: "attachment",
+    attrs: {
+      href: file.publicUrl,
+      key: file.key,
+      fileName: file.fileName,
+      fileSize: file.fileSize,
+      icon: getAttachmentIcon(file.fileName),
+    },
+  };
+}
+
 /**
  * Validate video file size and duration before upload.
  * Returns null if valid, or an error message string.
@@ -44,7 +156,7 @@ async function validateVideo(file: File): Promise<string | null> {
       URL.revokeObjectURL(video.src);
       if (video.duration > MAX_VIDEO_DURATION_SECONDS) {
         resolve(
-          `视频时长 ${Math.ceil(video.duration)} 秒，超过 ${MAX_VIDEO_DURATION_SECONDS} 秒限制`
+          `视频时长 ${Math.ceil(video.duration)} 秒，超过 ${MAX_VIDEO_DURATION_SECONDS} 秒限制`,
         );
       } else {
         resolve(null);
@@ -58,97 +170,167 @@ async function validateVideo(file: File): Promise<string | null> {
   });
 }
 
-export function RichTextEditor({ content, onChange, onSave, articleTitle }: RichTextEditorProps) {
+export function RichTextEditor({
+  content,
+  onChange,
+  onSave,
+  articleTitle,
+}: RichTextEditorProps) {
   const [isUploading, setIsUploading] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
-  const uploadImage = useCallback(async (file: File): Promise<string | null> => {
-    try {
-      setIsUploading(true);
-      const toastId = toast.loading("正在上传图片...");
+  const uploadImage = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        setIsUploading(true);
+        const toastId = toast.loading("正在上传图片...");
 
-      // 1. Get presigned URL
-      const { uploadUrl, publicUrl } = await fetchClient("/media/upload-url", {
-        method: "POST",
-        body: JSON.stringify({
-          fileName: file.name,
-          contentType: file.type,
-          type: "image",
-        }),
-      });
+        // 1. Get presigned URL
+        const { uploadUrl, publicUrl } = await fetchClient(
+          "/media/upload-url",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              fileName: file.name,
+              contentType: file.type,
+              type: "image",
+            }),
+          },
+        );
 
-      // 2. 上传到存储桶（腾讯云 COS）
-      const uploadRes = await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: {
-          "Content-Type": file.type,
-        },
-      });
+        // 2. 上传到存储桶（腾讯云 COS）
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          body: file,
+          headers: {
+            "Content-Type": file.type,
+          },
+        });
 
-      if (!uploadRes.ok) {
-        throw new Error("上传到存储失败");
-      }
+        if (!uploadRes.ok) {
+          throw new Error("上传到存储失败");
+        }
 
-      toast.dismiss(toastId);
-      toast.success("图片上传成功");
-      return publicUrl;
-    } catch (error) {
-      console.error(error);
-      toast.error("图片上传失败");
-      return null;
-    } finally {
-      setIsUploading(false);
-    }
-  }, []);
-
-  const uploadVideo = useCallback(async (file: File): Promise<string | null> => {
-    try {
-      // Validate before uploading
-      const validationError = await validateVideo(file);
-      if (validationError) {
-        toast.error(validationError);
+        toast.dismiss(toastId);
+        toast.success("图片上传成功");
+        return publicUrl;
+      } catch (error) {
+        console.error(error);
+        toast.error("图片上传失败");
         return null;
+      } finally {
+        setIsUploading(false);
       }
+    },
+    [],
+  );
 
-      setIsUploading(true);
-      const toastId = toast.loading("正在上传视频...");
+  const uploadVideo = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        // Validate before uploading
+        const validationError = await validateVideo(file);
+        if (validationError) {
+          toast.error(validationError);
+          return null;
+        }
 
-      // 1. Get presigned URL
-      const { uploadUrl, publicUrl } = await fetchClient("/media/upload-url", {
-        method: "POST",
-        body: JSON.stringify({
+        setIsUploading(true);
+        const toastId = toast.loading("正在上传视频...");
+
+        // 1. Get presigned URL
+        const { uploadUrl, publicUrl } = await fetchClient(
+          "/media/upload-url",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              fileName: file.name,
+              contentType: file.type,
+              type: "video",
+            }),
+          },
+        );
+
+        // 2. Upload to COS
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          body: file,
+          headers: {
+            "Content-Type": file.type,
+          },
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error("上传到存储失败");
+        }
+
+        toast.dismiss(toastId);
+        toast.success("视频上传成功");
+        return publicUrl;
+      } catch (error) {
+        console.error(error);
+        toast.error("视频上传失败");
+        return null;
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [],
+  );
+
+  const uploadAttachment = useCallback(
+    async (file: File): Promise<UploadedAttachment | null> => {
+      try {
+        setIsUploading(true);
+        const toastId = toast.loading("正在上传附件...");
+
+        const { uploadUrl, key, publicUrl } = await fetchClient(
+          "/media/upload-url",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              fileName: file.name,
+              contentType: file.type || "application/octet-stream",
+              type: "file",
+            }),
+          },
+        );
+
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          body: file,
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error("上传到存储失败");
+        }
+
+        toast.dismiss(toastId);
+        toast.success("附件上传成功");
+        return {
+          key,
+          publicUrl,
           fileName: file.name,
-          contentType: file.type,
-          type: "video",
-        }),
-      });
-
-      // 2. Upload to COS
-      const uploadRes = await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: {
-          "Content-Type": file.type,
-        },
-      });
-
-      if (!uploadRes.ok) {
-        throw new Error("上传到存储失败");
+          fileSize: file.size,
+          contentType: file.type || "application/octet-stream",
+        };
+      } catch (error) {
+        console.error(error);
+        toast.error("附件上传失败");
+        return null;
+      } finally {
+        setIsUploading(false);
       }
-
-      toast.dismiss(toastId);
-      toast.success("视频上传成功");
-      return publicUrl;
-    } catch (error) {
-      console.error(error);
-      toast.error("视频上传失败");
-      return null;
-    } finally {
-      setIsUploading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -177,6 +359,7 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
       TextStyle,
       Color,
       VideoExtension,
+      AttachmentExtension,
     ],
     content: content,
     onUpdate: ({ editor: ed }) => {
@@ -186,7 +369,8 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
     },
     editorProps: {
       attributes: {
-        class: "prose prose-gray max-w-none focus:outline-none min-h-[400px] p-6",
+        class:
+          "prose prose-gray max-w-none focus:outline-none min-h-[400px] p-6",
       },
       handleDrop: (view, event, _slice, moved) => {
         if (
@@ -219,15 +403,21 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
                     const tr = view.state.tr.insert(insertPos, node);
                     view.dispatch(tr);
                   } catch (e) {
-                    console.warn("Drop position insert failed, using cursor position:", e);
+                    console.warn(
+                      "Drop position insert failed, using cursor position:",
+                      e,
+                    );
                     try {
                       const tr = view.state.tr.insert(
                         view.state.selection.anchor,
-                        node
+                        node,
                       );
                       view.dispatch(tr);
                     } catch (e2) {
-                      console.warn("Cursor insert also failed, using editor API:", e2);
+                      console.warn(
+                        "Cursor insert also failed, using editor API:",
+                        e2,
+                      );
                       editorRef.current
                         ?.chain()
                         .focus()
@@ -252,6 +442,19 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
             });
             return true;
           }
+
+          // Handle generic file drop
+          event.preventDefault();
+          uploadAttachment(file).then((attachment) => {
+            if (attachment && editorRef.current) {
+              editorRef.current
+                .chain()
+                .focus()
+                .insertContent(buildAttachmentNode(attachment))
+                .run();
+            }
+          });
+          return true;
         }
         return false;
       },
@@ -288,7 +491,28 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
               if (file) {
                 uploadVideo(file).then((url) => {
                   if (url && editorRef.current) {
-                    editorRef.current.chain().focus().setVideo({ src: url }).run();
+                    editorRef.current
+                      .chain()
+                      .focus()
+                      .setVideo({ src: url })
+                      .run();
+                  }
+                });
+              }
+              return true;
+            }
+
+            if (item && item.kind === "file") {
+              event.preventDefault();
+              const file = item.getAsFile();
+              if (file) {
+                uploadAttachment(file).then((attachment) => {
+                  if (attachment && editorRef.current) {
+                    editorRef.current
+                      .chain()
+                      .focus()
+                      .insertContent(buildAttachmentNode(attachment))
+                      .run();
                   }
                 });
               }
@@ -330,17 +554,14 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
   }, [content, editor]);
 
   // Handle right-click context menu
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      // Only show context menu if right-clicking inside the editor content area
-      const target = e.target as HTMLElement;
-      if (target.closest(".ProseMirror")) {
-        e.preventDefault();
-        setContextMenu({ x: e.clientX, y: e.clientY });
-      }
-    },
-    []
-  );
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // Only show context menu if right-clicking inside the editor content area
+    const target = e.target as HTMLElement;
+    if (target.closest(".ProseMirror")) {
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    }
+  }, []);
 
   const handleImageUploadButton = () => {
     const input = document.createElement("input");
@@ -366,6 +587,24 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
         const url = await uploadVideo(input.files[0]);
         if (url && editor) {
           editor.chain().focus().setVideo({ src: url }).run();
+        }
+      }
+    };
+    input.click();
+  };
+
+  const handleAttachmentUploadButton = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.onchange = async () => {
+      if (input.files?.length && input.files[0]) {
+        const attachment = await uploadAttachment(input.files[0]);
+        if (attachment && editor) {
+          editor
+            .chain()
+            .focus()
+            .insertContent(buildAttachmentNode(attachment))
+            .run();
         }
       }
     };
@@ -426,6 +665,7 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
         editor={editor}
         onImageUpload={handleImageUploadButton}
         onVideoUpload={handleVideoUploadButton}
+        onAttachmentUpload={handleAttachmentUploadButton}
         onImport={handleImport}
         onExport={handleExport}
       />
@@ -435,7 +675,7 @@ export function RichTextEditor({ content, onChange, onSave, articleTitle }: Rich
       </div>
       <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 flex justify-between text-xs text-gray-500">
         <span>{editor.storage.characterCount?.words?.() || 0} 字</span>
-        <span>Ctrl+S 保存 · 右键快捷操作 · 支持拖拽上传图片/视频</span>
+        <span>Ctrl+S 保存 · 右键快捷操作 · 支持拖拽上传图片/视频/附件</span>
       </div>
 
       {/* Right-click context menu */}

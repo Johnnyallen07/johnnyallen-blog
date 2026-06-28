@@ -1,9 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { Calendar, Eye, ThumbsUp, Tag, User } from "lucide-react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { Calendar, Check, Copy, Eye, Link2, ThumbsUp, Tag, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchClient } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { fetchClient, getApiBaseUrl } from "@/lib/api";
+import { buildArticleShareText, stripHtmlForShare } from "@/lib/share";
 import { toast } from "sonner";
 
 interface ArticleContentProps {
@@ -33,6 +41,24 @@ export function ArticleContent({
 }: ArticleContentProps) {
   const [likesCount, setLikesCount] = useState(initialLikes);
   const [hasLiked, setHasLiked] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [copiedTarget, setCopiedTarget] = useState<"link" | "text" | null>(null);
+  const [shareUrl, setShareUrl] = useState("");
+
+  const shareExcerpt = useMemo(() => stripHtmlForShare(content), [content]);
+  const shareText = useMemo(
+    () =>
+      buildArticleShareText({
+        title,
+        url: shareUrl,
+        excerpt: shareExcerpt,
+      }),
+    [shareExcerpt, shareUrl, title],
+  );
+
+  useEffect(() => {
+    setShareUrl(window.location.href);
+  }, []);
 
   const handleLike = async () => {
     if (!postId) return;
@@ -49,6 +75,34 @@ export function ArticleContent({
       toast.error("操作失败");
     }
   };
+
+  const handleContentClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    const link = target.closest<HTMLAnchorElement>('a[data-attachment="true"]');
+    if (!link) return;
+
+    const key = link.dataset.key;
+    if (!key) return;
+
+    event.preventDefault();
+    const filename = link.dataset.filename || "";
+    const query = filename ? `?filename=${encodeURIComponent(filename)}` : "";
+    window.location.href = `${getApiBaseUrl()}/media/download/${key}${query}`;
+  };
+
+  const copyToClipboard = async (value: string, target: "link" | "text") => {
+    if (!value) return;
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedTarget(target);
+      toast.success(target === "link" ? "链接已复制" : "分享文案已复制");
+      window.setTimeout(() => setCopiedTarget(null), 1800);
+    } catch {
+      toast.error("复制失败，请手动复制");
+    }
+  };
+
   return (
     <article className="bg-transparent backdrop-blur-sm border border-white/20 rounded-2xl shadow-sm overflow-hidden">
       {/* 顶部装饰条 */}
@@ -117,6 +171,7 @@ export function ArticleContent({
 
         {/* 文章内容 - 增加行高和字间距 */}
         <div
+          onClick={handleContentClick}
           className="prose prose-gray prose-lg max-w-none
             prose-headings:font-bold prose-headings:text-gray-900
             prose-a:text-cyan-600 prose-a:no-underline hover:prose-a:underline
@@ -150,12 +205,67 @@ export function ArticleContent({
             <Button
               variant="outline"
               className="border-gray-300 hover:bg-gray-50"
+              onClick={() => setIsShareOpen(true)}
             >
+              <Link2 className="h-4 w-4 mr-2" />
               分享
             </Button>
           </div>
         </footer>
       </div>
+
+      <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>分享文章</DialogTitle>
+            <DialogDescription className="line-clamp-2">{title}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-700">文章链接</div>
+              <div className="flex gap-2">
+                <div className="min-w-0 flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 truncate">
+                  {shareUrl}
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => copyToClipboard(shareUrl, "link")}
+                  aria-label="复制文章链接"
+                >
+                  {copiedTarget === "link" ? (
+                    <Check className="h-4 w-4 text-cyan-600" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-700">推荐文案</div>
+              <textarea
+                readOnly
+                value={shareText}
+                className="min-h-28 w-full resize-none rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-relaxed text-gray-700 outline-none"
+              />
+              <Button
+                variant="outline"
+                className="w-full border-gray-300 hover:bg-gray-50"
+                onClick={() => copyToClipboard(shareText, "text")}
+              >
+                {copiedTarget === "text" ? (
+                  <Check className="h-4 w-4 mr-2 text-cyan-600" />
+                ) : (
+                  <Copy className="h-4 w-4 mr-2" />
+                )}
+                复制文案
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </article>
   );
 }

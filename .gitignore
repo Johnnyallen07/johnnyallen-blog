@@ -23,6 +23,7 @@ pids
 *.pid
 *.seed
 *.pid.lock
+cookies.txt
 
 # Coverage directory used by tools like istanbul
 coverage

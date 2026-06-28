@@ -23,8 +23,8 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# ffmpeg: 音乐分割功能；texlive: LaTeX 编译（YouTube 下载仅限本地，不在容器中安装 yt-dlp）
-RUN apk add --no-cache ffmpeg texlive
+# ffmpeg: 音乐分割/音频转码；yt-dlp: YouTube 音频下载；texlive: LaTeX 编译
+RUN apk add --no-cache ffmpeg yt-dlp texlive
 
 # --ignore-scripts 跳过 postinstall（prisma generate），避免 prisma CLI 不存在报错
 # Prisma Client 会从 builder 阶段复制，无需重新生成
@@ -48,4 +48,3 @@ USER nestjs
 
 EXPOSE 3001
 CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/src/main"]
-

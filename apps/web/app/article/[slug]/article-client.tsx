@@ -8,6 +8,7 @@ import { ArticleContent } from "@/components/article/ArticleContent";
 import { TableOfContents } from "@/components/article/TableOfContents";
 import { SimilarArticles } from "@/components/article/SimilarArticles";
 import { fetchClient } from "@/lib/api";
+import { normalizeArticleMediaHtml } from "@/lib/media-url";
 import { SeriesSidebar } from "@/components/home/SeriesSidebar";
 import { AnimatedBackground } from "@/components/article/AnimatedBackground";
 
@@ -273,9 +274,13 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
   }, [fetchArticle]);
 
   const rawContent = post?.content ?? "";
-  const { items: tocItems, html: articleContent } = useMemo(
-    () => extractTocAndInjectIds(rawContent),
+  const normalizedContent = useMemo(
+    () => normalizeArticleMediaHtml(rawContent),
     [rawContent]
+  );
+  const { items: tocItems, html: articleContent } = useMemo(
+    () => extractTocAndInjectIds(normalizedContent),
+    [normalizedContent]
   );
 
   if (isLoading) {
