@@ -202,19 +202,11 @@ export class MediaService {
 
   async syncPostMedia(postId: string, html?: string | null) {
     const refs = this.extractMediaRefsFromHtml(html);
-    const existing = await this.prisma.media.findMany({
-      where: { postId },
-      select: { key: true },
-    });
-    const nextKeys = new Set(refs.map((ref) => ref.key));
-    const staleKeys = existing
-      .map((media) => media.key)
-      .filter((key) => key.startsWith('assets/') && !nextKeys.has(key));
 
+    // Post updates can temporarily remove media while the editor is autosaving
+    // or while content is being copied around. Keep COS objects intact here and
+    // only sync relational references.
     await this.prisma.media.deleteMany({ where: { postId } });
-    if (staleKeys.length > 0) {
-      await this.deleteMediaObjects(staleKeys);
-    }
     if (refs.length === 0) return;
 
     await this.prisma.media.createMany({
@@ -226,6 +218,47 @@ export class MediaService {
       })),
       skipDuplicates: true,
     });
+  }
+
+  async deleteUnreferencedMediaObjects(keys: string[]) {
+    const uniqueKeys = [...new Set(keys)].filter((key) =>
+      key?.startsWith('assets/'),
+    );
+    if (uniqueKeys.length === 0) return;
+
+    const mediaRefs = await this.prisma.media.findMany({
+      where: {
+        key: { in: uniqueKeys },
+        postId: { not: null },
+      },
+      select: { key: true },
+    });
+
+    const referencedKeys = new Set(mediaRefs.map((media) => media.key));
+    const keysToCheckInContent = uniqueKeys.filter(
+      (key) => !referencedKeys.has(key),
+    );
+
+    if (keysToCheckInContent.length > 0) {
+      const posts = await this.prisma.post.findMany({
+        where: {
+          OR: keysToCheckInContent.map((key) => ({
+            content: { contains: key },
+          })),
+        },
+        select: { content: true },
+      });
+
+      for (const key of keysToCheckInContent) {
+        if (posts.some((post) => post.content?.includes(key))) {
+          referencedKeys.add(key);
+        }
+      }
+    }
+
+    await this.deleteMediaObjects(
+      uniqueKeys.filter((key) => !referencedKeys.has(key)),
+    );
   }
 
   async deleteMediaObjects(keys: string[]) {

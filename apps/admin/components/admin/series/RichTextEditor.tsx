@@ -12,7 +12,7 @@ import { Color } from "@tiptap/extension-color";
 import { VideoExtension } from "@/lib/tiptap-video";
 import { EditorToolbar } from "./EditorToolbar";
 import { EditorContextMenu } from "./EditorContextMenu";
-import { fetchClient } from "@/lib/api";
+import { fetchClient, getApiBaseUrl } from "@/lib/api";
 import { importMarkdownFile, exportAsZip } from "@/lib/importExport";
 import { toast } from "sonner";
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -36,6 +36,17 @@ interface UploadedAttachment {
   contentType: string;
 }
 
+interface UploadImageOptions {
+  quiet?: boolean;
+}
+
+interface PastedHtmlImageResult {
+  html: string;
+  imageCount: number;
+  uploadedCount: number;
+  failedCount: number;
+}
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -44,6 +55,135 @@ function formatBytes(bytes: number): string {
     units.length - 1,
   );
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function hasPastedHtmlImages(html?: string | null): boolean {
+  return Boolean(html && /<img\b[^>]*\bsrc=["'][^"']+["'][^>]*>/i.test(html));
+}
+
+function extensionFromMime(contentType: string | undefined): string {
+  const type = contentType?.split(";")[0]?.trim().toLowerCase();
+  if (type === "image/jpeg") return "jpg";
+  if (type === "image/png") return "png";
+  if (type === "image/gif") return "gif";
+  if (type === "image/webp") return "webp";
+  if (type === "image/svg+xml") return "svg";
+  return "png";
+}
+
+function filenameFromImageSource(
+  src: string,
+  contentType: string,
+  index: number,
+) {
+  try {
+    const parsed = new URL(src, window.location.href);
+    const rawName = parsed.pathname.split("/").filter(Boolean).pop();
+    if (rawName && /\.[a-z0-9]+$/i.test(rawName)) {
+      return decodeURIComponent(rawName);
+    }
+  } catch {
+    // Fall back to a generated name below.
+  }
+  return `pasted-image-${index + 1}.${extensionFromMime(contentType)}`;
+}
+
+function resolvePastedImageSource(src: string): string {
+  if (/^data:/i.test(src)) return src;
+  if (/^\/?assets\//i.test(src)) {
+    const key = src.replace(/^\/+/, "");
+    return `${getApiBaseUrl()}/media/${key}`;
+  }
+  if (/^\/media\//i.test(src)) {
+    return `${getApiBaseUrl()}${src}`;
+  }
+  if (/^\/\//.test(src)) {
+    return `${window.location.protocol}${src}`;
+  }
+  return new URL(src, window.location.href).toString();
+}
+
+function fileFromDataUrl(src: string, index: number): File {
+  const [metadata = "", data = ""] = src.split(",");
+  const contentType = metadata.match(/^data:([^;,]+)/i)?.[1] || "image/png";
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new File(
+    [bytes],
+    `pasted-image-${index + 1}.${extensionFromMime(contentType)}`,
+    { type: contentType },
+  );
+}
+
+async function fileFromImageSource(src: string, index: number): Promise<File> {
+  if (/^data:/i.test(src)) {
+    return fileFromDataUrl(src, index);
+  }
+
+  const resolvedSrc = resolvePastedImageSource(src);
+  const response = await fetch(resolvedSrc, {
+    cache: "reload",
+    credentials: "omit",
+  });
+  if (!response.ok) {
+    throw new Error(`Image fetch failed: ${response.status}`);
+  }
+
+  const contentType =
+    response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+  if (!contentType.startsWith("image/")) {
+    throw new Error(`Unsupported image content type: ${contentType}`);
+  }
+
+  const blob = await response.blob();
+  return new File([blob], filenameFromImageSource(src, contentType, index), {
+    type: contentType,
+  });
+}
+
+async function uploadImagesFromPastedHtml(
+  html: string,
+  uploadImage: (
+    file: File,
+    options?: UploadImageOptions,
+  ) => Promise<string | null>,
+): Promise<PastedHtmlImageResult | null> {
+  if (!hasPastedHtmlImages(html)) return null;
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const images = Array.from(doc.body.querySelectorAll("img[src]"));
+  if (images.length === 0) return null;
+
+  let uploadedCount = 0;
+  let failedCount = 0;
+
+  for (let i = 0; i < images.length; i++) {
+    const image = images[i];
+    const src = image?.getAttribute("src");
+    if (!image || !src) continue;
+
+    try {
+      const file = await fileFromImageSource(src, i);
+      const url = await uploadImage(file, { quiet: true });
+      if (!url) throw new Error("Image upload returned an empty URL");
+      image.setAttribute("src", url);
+      uploadedCount += 1;
+    } catch (error) {
+      console.warn("Failed to re-upload pasted image:", error);
+      image.remove();
+      failedCount += 1;
+    }
+  }
+
+  return {
+    html: doc.body.innerHTML,
+    imageCount: images.length,
+    uploadedCount,
+    failedCount,
+  };
 }
 
 function getAttachmentIcon(fileName: string): string {
@@ -184,10 +324,15 @@ export function RichTextEditor({
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
   const uploadImage = useCallback(
-    async (file: File): Promise<string | null> => {
+    async (
+      file: File,
+      options?: UploadImageOptions,
+    ): Promise<string | null> => {
       try {
         setIsUploading(true);
-        const toastId = toast.loading("正在上传图片...");
+        const toastId = options?.quiet
+          ? null
+          : toast.loading("正在上传图片...");
 
         // 1. Get presigned URL
         const { uploadUrl, publicUrl } = await fetchClient(
@@ -215,12 +360,14 @@ export function RichTextEditor({
           throw new Error("上传到存储失败");
         }
 
-        toast.dismiss(toastId);
-        toast.success("图片上传成功");
+        if (toastId !== null) {
+          toast.dismiss(toastId);
+          toast.success("图片上传成功");
+        }
         return publicUrl;
       } catch (error) {
         console.error(error);
-        toast.error("图片上传失败");
+        if (!options?.quiet) toast.error("图片上传失败");
         return null;
       } finally {
         setIsUploading(false);
@@ -520,6 +667,40 @@ export function RichTextEditor({
             }
           }
         }
+
+        const html = event.clipboardData?.getData("text/html");
+        if (hasPastedHtmlImages(html)) {
+          event.preventDefault();
+          const toastId = toast.loading("正在处理粘贴的图片...");
+
+          uploadImagesFromPastedHtml(html || "", uploadImage)
+            .then((result) => {
+              toast.dismiss(toastId);
+              if (!result) return;
+
+              editorRef.current
+                ?.chain()
+                .focus()
+                .insertContent(result.html)
+                .run();
+
+              if (result.failedCount > 0) {
+                toast.error(
+                  `已重新上传 ${result.uploadedCount} 张图片，${result.failedCount} 张源图不可访问，已跳过。`,
+                );
+                return;
+              }
+
+              toast.success(`已重新上传 ${result.uploadedCount} 张粘贴图片`);
+            })
+            .catch((error) => {
+              console.error(error);
+              toast.dismiss(toastId);
+              toast.error("粘贴图片处理失败，请重新上传图片");
+            });
+          return true;
+        }
+
         return false;
       },
       handleKeyDown: (_view, event) => {

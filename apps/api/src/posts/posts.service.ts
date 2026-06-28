@@ -421,7 +421,7 @@ export class PostsService {
       where: { id },
     });
 
-    await this.mediaService.deleteMediaObjects(keys);
+    await this.mediaService.deleteUnreferencedMediaObjects(keys);
     await this.invalidatePostCaches();
     return result;
   }
