@@ -345,7 +345,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-pulse flex flex-col items-center">
-          <div className="h-8 w-8 bg-cyan-500 rounded-full mb-4" />
+          <div className="h-8 w-8 bg-amber-500 rounded-full mb-4" />
           <div className="text-gray-400 text-sm">加载文章中...</div>
         </div>
       </div>
@@ -380,13 +380,13 @@ export default function EditPostPage({ params }: EditPostPageProps) {
             {published ? "已发布" : "草稿"}
           </span>
           {selectedSeries && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
               {selectedSeries.emoji} {selectedSeries.title}
             </span>
           )}
           <span className="text-sm text-gray-500">编辑文章</span>
           {isSaving ? (
-            <span className="text-xs text-cyan-600 animate-pulse">正在保存...</span>
+            <span className="text-xs text-amber-600 animate-pulse">正在保存...</span>
           ) : lastSaved ? (
             <span className="text-xs text-gray-400">
               · 已保存于 {lastSaved.toLocaleTimeString("zh-CN")}
@@ -428,7 +428,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                   所属分类
                 </Label>
                 <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger className="border-gray-300 focus:border-cyan-500 focus:ring-cyan-500/30">
+                  <SelectTrigger className="border-gray-300 focus:border-amber-500 focus:ring-amber-500/30">
                     <SelectValue placeholder="选择分类" />
                   </SelectTrigger>
                   <SelectContent className="bg-white border-gray-200">
@@ -449,14 +449,14 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                   <span className="text-xs text-gray-400 font-normal ml-1">（可选）</span>
                 </Label>
                 {selectedSeries ? (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-md">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
                     <span className="text-base">{selectedSeries.emoji}</span>
-                    <span className="text-sm font-medium text-purple-800 flex-1 truncate">
+                    <span className="text-sm font-medium text-amber-800 flex-1 truncate">
                       {selectedSeries.title}
                     </span>
                     <button
                       onClick={() => setSeriesId(null)}
-                      className="text-purple-400 hover:text-purple-600 transition-colors"
+                      className="text-amber-500 hover:text-amber-600 transition-colors"
                       title="从专栏中分离"
                     >
                       <X className="h-4 w-4" />
@@ -467,7 +467,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                     value={seriesId || "__standalone__"}
                     onValueChange={handleSeriesChange}
                   >
-                    <SelectTrigger className="border-gray-300 focus:border-purple-500 focus:ring-purple-500/30">
+                    <SelectTrigger className="border-gray-300 focus:border-amber-500 focus:ring-amber-500/30">
                       <SelectValue placeholder="选择专栏..." />
                     </SelectTrigger>
                     <SelectContent className="bg-white border-gray-200">
@@ -517,7 +517,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="输入文章标题..."
-                  className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                  className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
                 />
               </div>
 
@@ -532,7 +532,7 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                     value={slug}
                     onChange={(e) => setSlug(e.target.value)}
                     placeholder="article-slug"
-                    className={`border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30 ${isSlugDuplicate ? "border-red-400 focus:border-red-500" : ""
+                    className={`border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30 ${isSlugDuplicate ? "border-red-400 focus:border-red-500" : ""
                       }`}
                   />
                 </div>
@@ -604,9 +604,8 @@ export default function EditPostPage({ params }: EditPostPageProps) {
                 <Button
                   onClick={handlePublish}
                   disabled={isSaving}
-                  className="w-full relative overflow-hidden bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/40 hover:scale-[1.02]"
+                  className="w-full relative overflow-hidden bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm transition-all duration-300"
                 >
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 -translate-x-full animate-[shimmer_2s_infinite]" />
                   <Sparkles className="h-4 w-4 mr-2" />
                   <span>发布文章</span>
                 </Button>

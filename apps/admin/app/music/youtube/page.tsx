@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
     ArrowLeft,
@@ -11,10 +11,22 @@ import {
     Plus,
     X,
     Pencil,
+    KeyRound,
+    Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog";
 import {
     Select,
     SelectContent,
@@ -99,6 +111,11 @@ export default function YoutubeDownloadPage() {
 
     const [categories, setCategories] = useState<SidebarEntity[]>([]);
     const [seriesList, setSeriesList] = useState<SidebarEntity[]>([]);
+    const [cookieDialogOpen, setCookieDialogOpen] = useState(false);
+    const [cookieText, setCookieText] = useState("");
+    const [cookieFileName, setCookieFileName] = useState("");
+    const [cookieStatus, setCookieStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+    const [isUpdatingCookie, setIsUpdatingCookie] = useState(false);
 
     // Refs for metadata so auto-upload closure always reads latest values
     const metaRef = useRef({ musician: "", performer: "", categoryId: "", seriesId: "" });
@@ -127,6 +144,40 @@ export default function YoutubeDownloadPage() {
         const timers = pollingTimers.current;
         return () => { timers.forEach((timer) => clearInterval(timer)); };
     }, []);
+
+    const handleCookieFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        setCookieStatus(null);
+        setCookieFileName(file.name);
+        setCookieText(await file.text());
+    };
+
+    const updateYoutubeCookies = async () => {
+        const cookies = cookieText.trim();
+        if (!cookies) return;
+
+        setIsUpdatingCookie(true);
+        setCookieStatus(null);
+        try {
+            const result = await fetchClient("/music/youtube-cookies", {
+                method: "POST",
+                body: JSON.stringify({ cookies }),
+            }) as { bytes?: number; updatedAt?: string };
+
+            const size = typeof result.bytes === "number" ? `${result.bytes} bytes` : "已保存";
+            setCookieStatus({ type: "success", message: `Cookie 已更新：${size}` });
+            setCookieText("");
+            setCookieFileName("");
+        } catch (error) {
+            setCookieStatus({
+                type: "error",
+                message: error instanceof Error ? error.message : "Cookie 更新失败",
+            });
+        } finally {
+            setIsUpdatingCookie(false);
+        }
+    };
 
     /* ── Add URLs ── */
 
@@ -325,9 +376,9 @@ export default function YoutubeDownloadPage() {
     const statusIcon = (item: QueueItem) => {
         switch (item.status) {
             case "saved": return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-            case "uploading": return <Loader2 className="h-5 w-5 text-purple-500 animate-spin" />;
+            case "uploading": return <Loader2 className="h-5 w-5 text-amber-500 animate-spin" />;
             case "downloaded": return metaReady
-                ? <Loader2 className="h-5 w-5 text-purple-500 animate-spin" />
+                ? <Loader2 className="h-5 w-5 text-amber-500 animate-spin" />
                 : <CheckCircle2 className="h-5 w-5 text-amber-500" />;
             case "error": return <AlertCircle className="h-5 w-5 text-red-500" />;
             case "downloading": return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
@@ -338,8 +389,8 @@ export default function YoutubeDownloadPage() {
     const statusColor = (status: ItemStatus) => {
         switch (status) {
             case "saved": return "bg-green-50/60 border-green-200";
-            case "uploading": return "bg-purple-50/40 border-purple-200";
-            case "downloaded": return metaReady ? "bg-purple-50/40 border-purple-200" : "bg-amber-50/40 border-amber-200";
+            case "uploading": return "bg-amber-50/40 border-amber-200";
+            case "downloaded": return metaReady ? "bg-amber-50/40 border-amber-200" : "bg-amber-50/40 border-amber-200";
             case "error": return "bg-red-50/60 border-red-200";
             case "downloading": return "bg-blue-50/50 border-blue-200";
             default: return "bg-gray-50/50 border-gray-100";
@@ -347,21 +398,100 @@ export default function YoutubeDownloadPage() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50">
+        <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
             {/* Header */}
             <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
                 <div className="max-w-4xl mx-auto px-8 py-4 flex items-center justify-between">
                     <Button variant="ghost" size="sm" onClick={() => router.push("/music")}>
                         <ArrowLeft className="h-4 w-4 mr-1" /> 返回音乐管理
                     </Button>
-                    {queue.length > 0 && (
-                        <div className="text-sm text-gray-500">
-                            {savedCount}/{queue.length} 已完成
-                            {downloadingCount > 0 && ` · ${downloadingCount} 下载中`}
-                            {uploadingCount > 0 && ` · ${uploadingCount} 上传中`}
-                            {errorCount > 0 && <span className="text-red-500"> · {errorCount} 失败</span>}
-                        </div>
-                    )}
+                    <div className="flex items-center gap-3">
+                        {queue.length > 0 && (
+                            <div className="text-sm text-gray-500">
+                                {savedCount}/{queue.length} 已完成
+                                {downloadingCount > 0 && ` · ${downloadingCount} 下载中`}
+                                {uploadingCount > 0 && ` · ${uploadingCount} 上传中`}
+                                {errorCount > 0 && <span className="text-red-500"> · {errorCount} 失败</span>}
+                            </div>
+                        )}
+                        <Dialog open={cookieDialogOpen} onOpenChange={setCookieDialogOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" size="sm">
+                                    <KeyRound className="h-4 w-4 mr-1" />
+                                    更新 Cookie
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+                                <DialogHeader>
+                                    <DialogTitle>更新 YouTube Cookie</DialogTitle>
+                                    <DialogDescription>
+                                        选择新导出的 cookies.txt，或粘贴 Netscape 格式内容。
+                                    </DialogDescription>
+                                </DialogHeader>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <Label htmlFor="youtube-cookie-file">cookies.txt</Label>
+                                        <Input
+                                            id="youtube-cookie-file"
+                                            type="file"
+                                            accept=".txt,text/plain"
+                                            onChange={handleCookieFileChange}
+                                            className="mt-1.5"
+                                        />
+                                        {cookieFileName && (
+                                            <p className="mt-1 text-xs text-gray-500">{cookieFileName}</p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="youtube-cookie-text">Cookie 内容</Label>
+                                        <Textarea
+                                            id="youtube-cookie-text"
+                                            value={cookieText}
+                                            onChange={(event) => {
+                                                setCookieText(event.target.value);
+                                                setCookieStatus(null);
+                                            }}
+                                            rows={9}
+                                            spellCheck={false}
+                                            className="mt-1.5 h-48 max-h-72 resize-y overflow-auto font-mono text-xs [field-sizing:fixed]"
+                                            placeholder="# Netscape HTTP Cookie File"
+                                        />
+                                    </div>
+                                    {cookieStatus && (
+                                        <div className={`rounded-md px-3 py-2 text-sm ${cookieStatus.type === "success"
+                                            ? "bg-green-50 text-green-700"
+                                            : "bg-red-50 text-red-700"
+                                            }`}>
+                                            {cookieStatus.message}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <DialogFooter>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setCookieDialogOpen(false)}
+                                        disabled={isUpdatingCookie}
+                                    >
+                                        关闭
+                                    </Button>
+                                    <Button
+                                        onClick={updateYoutubeCookies}
+                                        disabled={!cookieText.trim() || isUpdatingCookie}
+                                        className="bg-red-600 hover:bg-red-700"
+                                    >
+                                        {isUpdatingCookie ? (
+                                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                        ) : (
+                                            <Upload className="h-4 w-4 mr-1" />
+                                        )}
+                                        保存 Cookie
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
                 </div>
             </div>
 
@@ -401,7 +531,7 @@ export default function YoutubeDownloadPage() {
                 {queue.length > 0 && (
                     <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
                         <h2 className="text-lg font-semibold mb-1 flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-6 h-6 bg-pink-100 text-pink-600 rounded-full text-xs font-bold">2</span>
+                            <span className="inline-flex items-center justify-center w-6 h-6 bg-amber-100 text-amber-600 rounded-full text-xs font-bold">2</span>
                             公共属性
                         </h2>
                         <p className="text-xs text-gray-400 mb-4 ml-8">
@@ -467,7 +597,7 @@ export default function YoutubeDownloadPage() {
                                 </div>
                                 <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
                                     <div
-                                        className="h-full bg-gradient-to-r from-blue-400 via-purple-500 to-green-500 rounded-full transition-all duration-500"
+                                        className="h-full bg-gradient-to-r from-blue-400 via-amber-500 to-green-500 rounded-full transition-all duration-500"
                                         style={{ width: `${overallProgress}%` }}
                                     />
                                 </div>
@@ -488,7 +618,7 @@ export default function YoutubeDownloadPage() {
                                                     <input
                                                         type="text" value={item.editedTitle}
                                                         onChange={(e) => updateTitle(item.id, e.target.value)}
-                                                        className="text-sm font-medium text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:border-purple-400 focus:outline-none w-full py-0.5"
+                                                        className="text-sm font-medium text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:border-amber-400 focus:outline-none w-full py-0.5"
                                                     />
                                                 </div>
                                             ) : (
@@ -501,9 +631,9 @@ export default function YoutubeDownloadPage() {
                                             <div className="flex items-center gap-3 mt-1">
                                                 <span className={`text-xs ${item.status === "saved" ? "text-green-600"
                                                     : item.status === "error" ? "text-red-600"
-                                                        : item.status === "uploading" ? "text-purple-600"
+                                                        : item.status === "uploading" ? "text-amber-600"
                                                             : item.status === "downloading" ? "text-blue-600"
-                                                                : item.status === "downloaded" ? (metaReady ? "text-purple-600" : "text-amber-600")
+                                                                : item.status === "downloaded" ? (metaReady ? "text-amber-600" : "text-amber-600")
                                                                     : "text-gray-400"
                                                     }`}>
                                                     {item.status === "downloaded" && !metaReady ? "等待填写公共属性..." : item.statusLabel}

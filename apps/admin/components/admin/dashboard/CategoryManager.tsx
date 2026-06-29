@@ -31,13 +31,13 @@ interface CategoryFormData {
 }
 
 const GRADIENT_COLORS = [
-  "from-cyan-500 to-blue-500",
-  "from-purple-500 to-pink-500",
+  "from-amber-500 to-blue-500",
+  "from-amber-500 to-amber-500",
   "from-green-500 to-teal-500",
   "from-orange-500 to-red-500",
   "from-yellow-500 to-orange-500",
-  "from-indigo-500 to-purple-500",
-  "from-pink-500 to-rose-500",
+  "from-indigo-500 to-amber-500",
+  "from-amber-500 to-rose-500",
 ];
 
 const EMOJI_OPTIONS = [
@@ -107,7 +107,7 @@ export function CategoryManager() {
           name: "游戏",
           slug: "gaming",
           emoji: "🎮",
-          color: "from-cyan-500 to-blue-500",
+          color: "from-amber-500 to-blue-500",
           postCount: 0,
           seriesCount: 0,
           childCount: 0,
@@ -117,7 +117,7 @@ export function CategoryManager() {
           name: "音乐",
           slug: "music",
           emoji: "🎵",
-          color: "from-purple-500 to-pink-500",
+          color: "from-amber-500 to-amber-500",
           postCount: 0,
           seriesCount: 0,
           childCount: 0,
@@ -264,7 +264,7 @@ export function CategoryManager() {
             onClick={() => setIsAdding(!isAdding)}
             size="sm"
             variant="outline"
-            className="border-cyan-300 text-cyan-700 hover:bg-cyan-50"
+            className="border-amber-300 text-amber-700 hover:bg-amber-50"
           >
             {isAdding ? (
               <>
@@ -282,7 +282,7 @@ export function CategoryManager() {
 
         {/* 新增分类表单 */}
         {isAdding && (
-          <div className="mb-4 p-4 bg-gradient-to-br from-cyan-50 to-purple-50 rounded-lg border border-cyan-200">
+          <div className="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200">
             <div className="space-y-3">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block">
@@ -297,7 +297,7 @@ export function CategoryManager() {
                       }
                       className={`text-xl w-10 h-10 rounded-lg border-2 transition-all ${
                         newCategory.emoji === emoji
-                          ? "border-cyan-500 bg-white scale-110"
+                          ? "border-amber-500 bg-amber-50"
                           : "border-gray-200 hover:border-gray-300"
                       }`}
                     >
@@ -321,7 +321,7 @@ export function CategoryManager() {
                   />
                   <Button
                     onClick={handleAdd}
-                    className="bg-gradient-to-r from-cyan-500 to-purple-500 hover:from-cyan-600 hover:to-purple-600 text-white"
+                    className="bg-amber-500 hover:bg-amber-600 text-white"
                   >
                     <Save className="h-4 w-4 mr-2" />
                     保存
@@ -340,9 +340,7 @@ export function CategoryManager() {
               className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-center gap-4 min-w-0">
-                <div
-                  className={`w-12 h-12 shrink-0 rounded-lg bg-gradient-to-br ${category.color} flex items-center justify-center text-2xl shadow-lg`}
-                >
+                <div className="w-12 h-12 shrink-0 rounded-lg bg-amber-100 flex items-center justify-center text-2xl">
                   {category.emoji}
                 </div>
                 <div className="min-w-0">
@@ -363,7 +361,7 @@ export function CategoryManager() {
                   size="sm"
                   variant="ghost"
                   onClick={() => handleOpenEdit(category)}
-                  className="text-cyan-600 hover:bg-cyan-50"
+                  className="text-amber-600 hover:bg-amber-50"
                 >
                   <Edit className="h-4 w-4" />
                 </Button>
@@ -396,7 +394,7 @@ export function CategoryManager() {
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="bg-white border-gray-200 max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold bg-gradient-to-r from-cyan-600 to-purple-600 bg-clip-text text-transparent">
+            <DialogTitle className="text-xl font-bold text-gray-900">
               编辑分类
             </DialogTitle>
           </DialogHeader>
@@ -417,7 +415,7 @@ export function CategoryManager() {
                     }
                     className={`text-2xl w-12 h-12 rounded-lg border-2 transition-all ${
                       editForm.emoji === emoji
-                        ? "border-cyan-500 bg-cyan-50 scale-110"
+                        ? "border-amber-500 bg-amber-50"
                         : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                     }`}
                   >
@@ -438,7 +436,7 @@ export function CategoryManager() {
                   setEditForm((prev) => ({ ...prev, name: e.target.value }))
                 }
                 placeholder="输入分类名称"
-                className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
                 autoFocus
               />
             </div>
@@ -456,7 +454,7 @@ export function CategoryManager() {
               <Button
                 type="button"
                 onClick={handleSaveEdit}
-                className="flex-1 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30"
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm"
               >
                 保存修改
               </Button>

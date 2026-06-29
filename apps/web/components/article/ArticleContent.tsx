@@ -27,6 +27,38 @@ interface ArticleContentProps {
   column?: string;
 }
 
+const MUSIC_URL = process.env.NEXT_PUBLIC_MUSIC_URL || "/music";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderScoreReferences(html: string): string {
+  return html.replace(
+    /(?:<p>)?\[\[score:([a-zA-Z0-9_-]+)(?:\|([^\]]+))?\]\](?:<\/p>)?/g,
+    (_match, scoreId: string, label?: string) => {
+      const title = escapeHtml(label?.trim() || "查看关联乐谱");
+      const href = `${MUSIC_URL}/scores?score=${encodeURIComponent(scoreId)}`;
+
+      return `
+        <a href="${href}" target="_blank" rel="noopener noreferrer" class="not-prose my-5 flex items-center gap-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-slate-800 no-underline shadow-sm transition hover:border-amber-300 hover:bg-amber-50">
+          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-amber-600 shadow-sm">♬</span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold">${title}</span>
+            <span class="block text-xs text-slate-500">打开乐谱 PDF</span>
+          </span>
+          <span class="text-xs text-amber-700">查看</span>
+        </a>
+      `;
+    }
+  );
+}
+
 export function ArticleContent({
   postId,
   title,
@@ -46,6 +78,7 @@ export function ArticleContent({
   const [shareUrl, setShareUrl] = useState("");
 
   const shareExcerpt = useMemo(() => stripHtmlForShare(content), [content]);
+  const renderedContent = useMemo(() => renderScoreReferences(content), [content]);
   const shareText = useMemo(
     () =>
       buildArticleShareText({
@@ -180,7 +213,7 @@ export function ArticleContent({
             prose-pre:bg-gray-900 prose-pre:text-gray-100
             prose-img:rounded-xl prose-img:shadow-md
             prose-blockquote:border-l-4 prose-blockquote:border-cyan-500 prose-blockquote:bg-cyan-50"
-          dangerouslySetInnerHTML={{ __html: content }}
+          dangerouslySetInnerHTML={{ __html: renderedContent }}
         />
 
         {/* 文章底部 */}

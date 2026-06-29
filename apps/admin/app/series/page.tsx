@@ -202,21 +202,8 @@ export default function SeriesListPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 to-purple-50/30">
-      {/* 背景装饰 */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 -left-20 w-96 h-96 bg-cyan-400/10 rounded-full blur-3xl animate-pulse" />
-        <div
-          className="absolute bottom-1/4 -right-20 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl animate-pulse"
-          style={{ animationDelay: "1s" }}
-        />
-        <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-pink-400/5 rounded-full blur-3xl animate-pulse"
-          style={{ animationDelay: "2s" }}
-        />
-      </div>
-
-      <div className="relative z-10 max-w-7xl mx-auto px-6 py-12">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
+      <div className="max-w-7xl mx-auto px-6 py-10">
         {/* 头部 */}
         <div className="mb-12">
           <Button
@@ -230,11 +217,11 @@ export default function SeriesListPage() {
           </Button>
 
           <div className="flex items-center gap-3 mb-3">
-            <div className="p-3 bg-gradient-to-br from-cyan-500 to-purple-500 rounded-xl shadow-lg shadow-purple-500/30">
-              <Sparkles className="h-8 w-8 text-white" />
+            <div className="p-3 bg-amber-100 rounded-xl">
+              <Sparkles className="h-8 w-8 text-amber-600" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+              <h1 className="text-3xl font-semibold text-gray-900">
                 我的专栏
               </h1>
               <p className="text-gray-600 mt-1">管理和创作你的内容世界</p>
@@ -250,14 +237,13 @@ export default function SeriesListPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索专栏..."
-              className="pl-10 bg-gray-50 border-gray-200 focus:border-cyan-500"
+              className="pl-10 bg-gray-50 border-gray-200 focus:border-amber-500"
             />
           </div>
           <Button
             onClick={handleCreateSeries}
-            className="relative overflow-hidden bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/40 hover:scale-[1.02] w-full sm:w-auto"
+            className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm transition-colors w-full sm:w-auto"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 -translate-x-full animate-[shimmer_2s_infinite]" />
             <Plus className="h-5 w-5 mr-2" />
             <span>创建新专栏</span>
           </Button>
@@ -292,7 +278,7 @@ export default function SeriesListPage() {
             {!searchQuery && (
               <Button
                 onClick={handleCreateSeries}
-                className="bg-gradient-to-r from-cyan-500 to-purple-500 hover:from-cyan-600 hover:to-purple-600 text-white"
+                className="bg-amber-500 hover:bg-amber-600 text-white"
               >
                 <Plus className="h-5 w-5 mr-2" />
                 创建新专栏

@@ -10,18 +10,21 @@ import {
     ChevronLeft,
     ChevronRight,
     BookOpen,
-    FileText,
+    Search,
     Columns2,
     Rows2,
+    ZoomIn,
+    ZoomOut,
 } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { getApiBaseUrl } from "@/lib/api";
 
 /* ───────── Types ───────── */
 
 interface MusicScore {
     id: string;
     title: string;
-    composer: string;
+    composer: string | null;
     instrument: string;
     fileUrl: string;
     fileSize: number;
@@ -30,7 +33,7 @@ interface MusicScore {
 
 /* ───────── Constants ───────── */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_BASE = getApiBaseUrl();
 
 const INSTRUMENTS = [
     { value: "all", label: "全部" },
@@ -38,9 +41,9 @@ const INSTRUMENTS = [
     { value: "钢琴", label: "🎹 钢琴" },
 ];
 
-/* ───────── Score Card ───────── */
+/* ───────── Score List Item ───────── */
 
-function ScoreCard({
+function ScoreListItem({
     score,
     onClick,
 }: {
@@ -50,25 +53,33 @@ function ScoreCard({
     return (
         <button
             onClick={onClick}
-            className="group relative bg-white/80 backdrop-blur-sm rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 text-left w-full"
+            className="group grid w-full grid-cols-[auto_1fr_auto] items-center gap-4 rounded-xl border border-slate-200/70 bg-white/70 px-4 py-3 text-left shadow-sm transition-all duration-200 hover:border-amber-300/70 hover:bg-white hover:shadow-md"
         >
-            {/* PDF 封面区域 */}
-            <div className="relative aspect-[3/4] bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 flex items-center justify-center">
-                <div className="text-center p-4">
-                    <FileText className="w-12 h-12 text-amber-400 mx-auto mb-2 group-hover:scale-110 transition-transform" />
-                    <p className="text-[10px] text-amber-600/60 font-medium">{score.pageCount} 页</p>
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-amber-200/70 bg-amber-50 text-amber-600">
+                <BookOpen className="h-5 w-5" />
+            </div>
+
+            <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                    <h3 className="truncate text-sm font-semibold text-slate-950">
+                        {score.title}
+                    </h3>
+                    <span className="hidden shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-0.5 text-[11px] text-slate-500 sm:inline-flex">
+                        {score.pageCount} 页
+                    </span>
                 </div>
-                {/* Instrument badge */}
-                <span className="absolute top-2 right-2 text-xs px-2 py-0.5 bg-white/90 text-gray-600 rounded-full shadow-sm">
+                <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-500">
+                    {score.composer && <span className="truncate">{score.composer}</span>}
+                    {score.composer && <span className="text-slate-300">/</span>}
+                    <span className="truncate">{score.instrument}</span>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+                <span className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 sm:inline-flex">
                     {score.instrument}
                 </span>
-            </div>
-            {/* 信息 */}
-            <div className="p-3">
-                <h3 className="text-sm font-semibold text-gray-900 truncate leading-tight">
-                    {score.title}
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5 truncate">{score.composer}</p>
+                <ChevronRight className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-amber-500" />
             </div>
         </button>
     );
@@ -89,6 +100,7 @@ function ScoreViewer({
     const [isDoubleSpread, setIsDoubleSpread] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [zoom, setZoom] = useState(1);
     const leftCanvasRef = useRef<HTMLCanvasElement>(null);
     const rightCanvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -128,10 +140,10 @@ function ScoreViewer({
             const container = containerRef.current;
             if (!container) return;
 
-            // Calculate scale to fit within container
-            const containerHeight = container.clientHeight - 80; // padding for controls
+            // Calculate base scale to fit within container, then apply user zoom.
+            const containerHeight = container.clientHeight - 96; // padding for controls
             const viewport = page.getViewport({ scale: 1 });
-            const scale = containerHeight / viewport.height;
+            const scale = (containerHeight / viewport.height) * zoom;
             const scaledViewport = page.getViewport({ scale });
 
             canvas.height = scaledViewport.height;
@@ -145,7 +157,7 @@ function ScoreViewer({
                 viewport: scaledViewport,
             }).promise;
         },
-        [pdfDoc, totalPages]
+        [pdfDoc, totalPages, zoom]
     );
 
     // Render current page(s)
@@ -156,8 +168,15 @@ function ScoreViewer({
 
         if (isDoubleSpread && currentPage + 1 <= totalPages) {
             renderPage(currentPage + 1, rightCanvasRef.current);
+        } else {
+            const ctx = rightCanvasRef.current?.getContext("2d");
+            if (rightCanvasRef.current && ctx) {
+                ctx.clearRect(0, 0, rightCanvasRef.current.width, rightCanvasRef.current.height);
+                rightCanvasRef.current.width = 0;
+                rightCanvasRef.current.height = 0;
+            }
         }
-    }, [pdfDoc, currentPage, isDoubleSpread, totalPages, renderPage]);
+    }, [pdfDoc, currentPage, isDoubleSpread, totalPages, renderPage, zoom]);
 
     // Navigation
     const pageStep = isDoubleSpread ? 2 : 1;
@@ -205,6 +224,18 @@ function ScoreViewer({
         }
     }, []);
 
+    const zoomOut = useCallback(() => {
+        setZoom((value) => Math.max(0.7, Number((value - 0.1).toFixed(2))));
+    }, []);
+
+    const zoomIn = useCallback(() => {
+        setZoom((value) => Math.min(2.4, Number((value + 0.1).toFixed(2))));
+    }, []);
+
+    const resetZoom = useCallback(() => {
+        setZoom(1);
+    }, []);
+
     useEffect(() => {
         const onFullscreenChange = () => {
             setIsFullscreen(!!document.fullscreenElement);
@@ -239,7 +270,9 @@ function ScoreViewer({
                     </button>
                     <div>
                         <h2 className="text-white text-sm font-medium">{score.title}</h2>
-                        <p className="text-gray-500 text-xs">{score.composer}</p>
+                        {score.composer && (
+                            <p className="text-gray-500 text-xs">{score.composer}</p>
+                        )}
                     </div>
                 </div>
 
@@ -271,6 +304,30 @@ function ScoreViewer({
                     <div className="w-px h-4 bg-white/10 mx-1" />
 
                     <button
+                        onClick={zoomOut}
+                        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+                        title="缩小"
+                    >
+                        <ZoomOut className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={resetZoom}
+                        className="min-w-12 rounded-lg px-2 py-1.5 text-xs tabular-nums text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
+                        title="重置缩放"
+                    >
+                        {Math.round(zoom * 100)}%
+                    </button>
+                    <button
+                        onClick={zoomIn}
+                        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+                        title="放大"
+                    >
+                        <ZoomIn className="w-4 h-4" />
+                    </button>
+
+                    <div className="w-px h-4 bg-white/10 mx-1" />
+
+                    <button
                         onClick={handleDownload}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
                         title="下载 PDF"
@@ -292,9 +349,9 @@ function ScoreViewer({
             </div>
 
             {/* PDF display area */}
-            <div className="flex-1 flex items-center justify-center relative overflow-hidden select-none">
+            <div className="flex-1 relative overflow-auto select-none px-6 py-4">
                 {isLoading ? (
-                    <div className="flex flex-col items-center text-gray-500">
+                    <div className="flex h-full flex-col items-center justify-center text-gray-500">
                         <div className="w-8 h-8 border-2 border-gray-600 border-t-gray-300 rounded-full animate-spin mb-3" />
                         <p className="text-sm">加载乐谱中...</p>
                     </div>
@@ -310,15 +367,15 @@ function ScoreViewer({
                         </button>
 
                         {/* Pages */}
-                        <div className="flex items-center gap-1">
+                        <div className="flex min-h-full items-center justify-center gap-3">
                             <canvas
                                 ref={leftCanvasRef}
-                                className="max-h-[calc(100vh-80px)] shadow-2xl rounded-sm"
+                                className="shadow-2xl rounded-sm"
                             />
                             {isDoubleSpread && currentPage + 1 <= totalPages && (
                                 <canvas
                                     ref={rightCanvasRef}
-                                    className="max-h-[calc(100vh-80px)] shadow-2xl rounded-sm"
+                                    className="shadow-2xl rounded-sm"
                                 />
                             )}
                         </div>
@@ -369,7 +426,9 @@ export default function ScorePageClient() {
     const [scores, setScores] = useState<MusicScore[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filterInstrument, setFilterInstrument] = useState("all");
+    const [searchQuery, setSearchQuery] = useState("");
     const [viewingScore, setViewingScore] = useState<MusicScore | null>(null);
+    const hasHandledInitialScoreRef = useRef(false);
 
     const fetchScores = useCallback(async () => {
         try {
@@ -380,7 +439,7 @@ export default function ScorePageClient() {
             const data = await res.json();
             setScores(Array.isArray(data) ? data : []);
         } catch {
-            console.error("Failed to fetch scores");
+            setScores([]);
         } finally {
             setIsLoading(false);
         }
@@ -390,75 +449,129 @@ export default function ScorePageClient() {
         fetchScores();
     }, [fetchScores]);
 
+    useEffect(() => {
+        if (hasHandledInitialScoreRef.current || scores.length === 0) return;
+        const scoreId = new URLSearchParams(window.location.search).get("score");
+        if (!scoreId) return;
+
+        const score = scores.find((item) => item.id === scoreId);
+        if (score) {
+            setViewingScore(score);
+            hasHandledInitialScoreRef.current = true;
+        }
+    }, [scores]);
+
+    const filteredScores = scores.filter((score) => {
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return true;
+
+        return [score.title, score.composer, score.instrument]
+            .filter(Boolean)
+            .some((value) => value!.toLowerCase().includes(query));
+    });
+
+    const openScore = (score: MusicScore) => {
+        setViewingScore(score);
+        const url = new URL(window.location.href);
+        url.searchParams.set("score", score.id);
+        window.history.replaceState(null, "", url.toString());
+    };
+
+    const closeScore = () => {
+        setViewingScore(null);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("score");
+        window.history.replaceState(null, "", url.toString());
+    };
+
     if (viewingScore) {
         return (
             <ScoreViewer
                 score={viewingScore}
-                onClose={() => setViewingScore(null)}
+                onClose={closeScore}
             />
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
+        <div className="min-h-screen bg-[#f8f6f1]">
             {/* Header */}
-            <div className="sticky top-0 z-10 bg-white/60 backdrop-blur-xl border-b border-gray-200/40">
+            <div className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/75 backdrop-blur-xl">
                 <div className="max-w-6xl mx-auto px-6 py-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div className="flex items-center gap-3">
                             <Link
                                 href="/"
-                                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/60 transition-colors"
+                                className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-white/70 transition-colors"
                             >
                                 <ArrowLeft className="w-5 h-5" />
                             </Link>
                             <div className="flex items-center gap-2">
-                                <BookOpen className="w-5 h-5 text-amber-500" />
-                                <h1 className="text-lg font-semibold text-gray-900">乐谱</h1>
+                                <BookOpen className="w-5 h-5 text-amber-600" />
+                                <div>
+                                    <h1 className="text-lg font-semibold text-slate-950">乐谱</h1>
+                                    <p className="text-xs text-slate-500">打开或引用你的 PDF 谱库</p>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Instrument filter tabs */}
-                        <div className="flex bg-white/60 rounded-xl p-0.5 border border-gray-200/40">
-                            {INSTRUMENTS.map((inst) => (
-                                <button
-                                    key={inst.value}
-                                    onClick={() => setFilterInstrument(inst.value)}
-                                    className={`px-4 py-1.5 rounded-lg text-sm transition-all ${
-                                        filterInstrument === inst.value
-                                            ? "bg-amber-500 text-white shadow-sm"
-                                            : "text-gray-600 hover:text-gray-900"
-                                    }`}
-                                >
-                                    {inst.label}
-                                </button>
-                            ))}
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div className="relative sm:w-72">
+                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    value={searchQuery}
+                                    onChange={(event) => setSearchQuery(event.target.value)}
+                                    placeholder="搜索乐谱、作曲家..."
+                                    className="w-full rounded-xl border border-slate-200/80 bg-white/70 py-2.5 pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                                />
+                            </div>
+
+                            <div className="flex rounded-xl border border-slate-200/70 bg-white/60 p-0.5">
+                                {INSTRUMENTS.map((inst) => (
+                                    <button
+                                        key={inst.value}
+                                        onClick={() => setFilterInstrument(inst.value)}
+                                        className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+                                            filterInstrument === inst.value
+                                                ? "bg-amber-500 text-white shadow-sm"
+                                                : "text-slate-600 hover:text-slate-950"
+                                        }`}
+                                    >
+                                        {inst.label}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Score grid */}
+            {/* Score list */}
             <div className="max-w-6xl mx-auto px-6 py-8">
                 {isLoading ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-gray-400">
+                    <div className="flex flex-col items-center justify-center py-24 text-slate-400">
                         <div className="w-8 h-8 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin mb-3" />
                         <p className="text-sm">加载中...</p>
                     </div>
-                ) : scores.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                        {scores.map((score) => (
-                            <ScoreCard
+                ) : filteredScores.length > 0 ? (
+                    <div className="space-y-3">
+                        <div className="hidden grid-cols-[auto_1fr_auto] gap-4 px-4 text-xs font-medium uppercase tracking-wider text-slate-400 md:grid">
+                            <span className="w-11" />
+                            <span>标题 / 作曲家</span>
+                            <span className="pr-7 text-right">乐器</span>
+                        </div>
+                        {filteredScores.map((score) => (
+                            <ScoreListItem
                                 key={score.id}
                                 score={score}
-                                onClick={() => setViewingScore(score)}
+                                onClick={() => openScore(score)}
                             />
                         ))}
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center justify-center py-24 text-gray-400">
-                        <BookOpen className="w-12 h-12 mb-3 text-gray-300" />
-                        <p className="text-sm">暂无乐谱</p>
+                    <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+                        <BookOpen className="w-12 h-12 mb-3 text-slate-300" />
+                        <p className="text-sm">{searchQuery ? "没有找到匹配的乐谱" : "暂无乐谱"}</p>
                     </div>
                 )}
             </div>

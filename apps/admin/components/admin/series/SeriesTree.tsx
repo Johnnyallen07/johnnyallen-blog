@@ -288,7 +288,7 @@ export function SeriesTree({
             onDrop={(e) => handleDrop(e, node)}
             className={`flex items-center rounded-lg transition-all ${
               isDragOver
-                ? "ring-2 ring-cyan-400 bg-cyan-50"
+                ? "ring-2 ring-amber-400 bg-amber-50"
                 : ""
             }`}
           >
@@ -307,7 +307,7 @@ export function SeriesTree({
                 <ChevronRight className="h-4 w-4 text-gray-500 flex-shrink-0" />
               )}
               {node.expanded ? (
-                <FolderOpen className="h-4 w-4 text-cyan-600 flex-shrink-0" />
+                <FolderOpen className="h-4 w-4 text-amber-600 flex-shrink-0" />
               ) : (
                 <Folder className="h-4 w-4 text-gray-500 flex-shrink-0" />
               )}
@@ -341,7 +341,7 @@ export function SeriesTree({
           onContextMenu={(e) => handleContextMenu(e, node)}
           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors text-left ${
             selectedPostId === node.id
-              ? "bg-gradient-to-r from-cyan-50 to-purple-50 text-cyan-900 border border-cyan-200"
+              ? "bg-amber-50 text-amber-900 border border-amber-200"
               : "hover:bg-gray-50 text-gray-700"
           } ${!node.published ? "opacity-60" : ""}`}
           style={{ paddingLeft: `${level * 12 + 8}px` }}
@@ -349,7 +349,7 @@ export function SeriesTree({
           <GripVertical className="h-3 w-3 text-gray-300 flex-shrink-0 cursor-grab" />
           <FileText
             className={`h-4 w-4 flex-shrink-0 ${
-              selectedPostId === node.id ? "text-cyan-600" : "text-gray-400"
+              selectedPostId === node.id ? "text-amber-600" : "text-gray-400"
             }`}
           />
           <span className="text-sm truncate flex-1">{node.name}</span>
@@ -362,8 +362,8 @@ export function SeriesTree({
   return (
     <div className="h-full flex flex-col bg-white border-r border-gray-200 relative">
       {/* 专栏标题 */}
-      <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-cyan-50 to-purple-50">
-        <h2 className="text-lg font-bold bg-gradient-to-r from-cyan-600 to-purple-600 bg-clip-text text-transparent mb-1">
+      <div className="p-4 border-b border-gray-200 bg-amber-50">
+        <h2 className="text-lg font-bold text-gray-900 mb-1">
           {seriesEmoji} {seriesName}
         </h2>
         <p className="text-xs text-gray-500">{seriesSlug}</p>
@@ -388,7 +388,7 @@ export function SeriesTree({
           size="sm"
           variant="outline"
           onClick={() => onAddFolder?.()}
-          className="flex-1 h-8 text-xs border-cyan-300 text-cyan-700 hover:bg-cyan-50 hover:border-cyan-400"
+          className="flex-1 h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400"
         >
           <FolderPlus className="h-3.5 w-3.5 mr-1.5" />
           新建文件夹
@@ -397,7 +397,7 @@ export function SeriesTree({
           size="sm"
           variant="outline"
           onClick={() => onAddPost?.()}
-          className="flex-1 h-8 text-xs border-purple-300 text-purple-700 hover:bg-purple-50 hover:border-purple-400"
+          className="flex-1 h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400"
         >
           <FilePlus className="h-3.5 w-3.5 mr-1.5" />
           新建文章
@@ -417,7 +417,7 @@ export function SeriesTree({
       {/* 文件树 (drop zone for root level) */}
       <div
         className={`flex-1 overflow-y-auto p-2 transition-colors ${
-          dragOverRoot ? "bg-cyan-50/50 ring-2 ring-inset ring-cyan-300" : ""
+          dragOverRoot ? "bg-amber-50/50 ring-2 ring-inset ring-amber-300" : ""
         }`}
         onDragOver={handleRootDragOver}
         onDragLeave={handleRootDragLeave}

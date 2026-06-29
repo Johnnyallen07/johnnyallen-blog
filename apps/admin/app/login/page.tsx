@@ -52,7 +52,7 @@ export default function AdminLoginPage() {
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
             <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
                 <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 mb-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-amber-50 text-amber-600 mb-4">
                         <Lock className="w-6 h-6" />
                     </div>
                     <h1 className="text-2xl font-bold text-gray-900">管理员登录</h1>
@@ -88,7 +88,7 @@ export default function AdminLoginPage() {
 
                     <Button
                         type="submit"
-                        className="w-full bg-gradient-to-r from-cyan-600 to-purple-600 hover:opacity-90 transition-opacity"
+                        className="w-full bg-amber-500 hover:bg-amber-600 text-white transition-colors"
                         disabled={isLoading}
                     >
                         {isLoading ? "登录中..." : "登录"}

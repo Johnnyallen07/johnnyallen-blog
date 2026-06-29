@@ -12,6 +12,7 @@ import {
     Search,
     ArrowLeft,
     Upload,
+    Download,
     Settings,
     GripVertical,
     Star,
@@ -267,6 +268,19 @@ export default function MusicManagePage() {
         }
     };
 
+    const handleDownload = (track: MusicTrack) => {
+        if (!track.fileUrl) return;
+        const safeTitle = track.title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "music";
+        const link = document.createElement("a");
+        link.href = track.fileUrl;
+        link.download = `${safeTitle}.mp3`;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    };
+
     /* ── Drag-to-reorder ── */
 
     const handleDragStart = (index: number) => {
@@ -361,14 +375,14 @@ export default function MusicManagePage() {
                                 }`}
                         >
                             <span
-                                className={`transition-colors ${active ? "text-purple-600" : "text-gray-400"
+                                className={`transition-colors ${active ? "text-amber-600" : "text-gray-400"
                                     }`}
                             >
                                 {item.icon}
                             </span>
                             <span className="text-sm truncate flex-1 text-left">{item.name}</span>
                             {count > 0 && (
-                                <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${active ? "text-purple-600 bg-purple-100" : "text-gray-400 bg-gray-100/80"}`}>
+                                <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${active ? "text-amber-600 bg-amber-100" : "text-gray-400 bg-gray-100/80"}`}>
                                     {count}
                                 </span>
                             )}
@@ -382,7 +396,7 @@ export default function MusicManagePage() {
     /* ── Render ── */
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50">
+        <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
             {/* 顶部工具栏 */}
             <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
                 <div className="px-8 py-4">
@@ -438,7 +452,7 @@ export default function MusicManagePage() {
                             </Button>
                             <Button
                                 onClick={() => router.push("/music/upload")}
-                                className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600"
+                                className="bg-amber-500 hover:bg-amber-600"
                             >
                                 <Upload className="h-4 w-4 mr-2" />
                                 上传音乐
@@ -488,7 +502,7 @@ export default function MusicManagePage() {
                         <div>
                             {isLoading ? (
                                 <div className="py-16 text-center text-gray-500">
-                                    <div className="w-8 h-8 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
+                                    <div className="w-8 h-8 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin mx-auto mb-3" />
                                     加载中...
                                 </div>
                             ) : filteredTracks.length > 0 ? (
@@ -503,8 +517,8 @@ export default function MusicManagePage() {
                                             onDragLeave={handleDragLeave}
                                             onDrop={() => handleDrop(index)}
                                             onDragEnd={handleDragEnd}
-                                            className={`group grid grid-cols-[40px_40px_1fr_140px_120px_120px_70px_70px_40px] gap-3 px-4 py-3 transition-all border-b border-gray-100 hover:bg-purple-50/30 ${isDragOver
-                                                ? "border-t-2 border-t-purple-400 bg-purple-50/40"
+                                            className={`group grid grid-cols-[40px_40px_1fr_140px_120px_120px_70px_70px_40px] gap-3 px-4 py-3 transition-all border-b border-gray-100 hover:bg-amber-50/30 ${isDragOver
+                                                ? "border-t-2 border-t-amber-400 bg-amber-50/40"
                                                 : ""
                                                 }`}
                                         >
@@ -517,23 +531,23 @@ export default function MusicManagePage() {
                                             <div className="flex items-center justify-center">
                                                 <button
                                                     onClick={() => handlePlay(track.id)}
-                                                    className="w-8 h-8 flex items-center justify-center bg-purple-100 hover:bg-purple-200 rounded-full transition-colors"
+                                                    className="w-8 h-8 flex items-center justify-center bg-amber-100 hover:bg-amber-200 rounded-full transition-colors"
                                                 >
                                                     {playingId === track.id ? (
-                                                        <Pause className="w-4 h-4 text-purple-600" />
+                                                        <Pause className="w-4 h-4 text-amber-600" />
                                                     ) : (
-                                                        <Play className="w-4 h-4 text-purple-600 ml-0.5" />
+                                                        <Play className="w-4 h-4 text-amber-600 ml-0.5" />
                                                     )}
                                                 </button>
                                             </div>
 
                                             {/* 标题和演奏者 */}
                                             <div className="flex items-center gap-3 min-w-0">
-                                                <div className="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
                                                     {(() => {
                                                         const cat = sidebarCategories.find((c) => c.name === track.category);
                                                         const CatIcon = getIconComponent(cat?.icon, Music);
-                                                        return <CatIcon className="w-5 h-5 text-purple-500" />;
+                                                        return <CatIcon className="w-5 h-5 text-amber-600" />;
                                                     })()}
                                                 </div>
                                                 <div className="min-w-0">
@@ -553,7 +567,7 @@ export default function MusicManagePage() {
 
                                             {/* 分类 */}
                                             <div className="flex items-center">
-                                                <span className="text-xs px-2 py-1 bg-purple-50 text-purple-600 rounded-md">
+                                                <span className="text-xs px-2 py-1 bg-amber-50 text-amber-600 rounded-md">
                                                     {track.category}
                                                 </span>
                                             </div>
@@ -591,6 +605,10 @@ export default function MusicManagePage() {
                                                         }}>
                                                             <Scissors className="w-4 h-4 mr-2" />
                                                             分割
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => handleDownload(track)}>
+                                                            <Download className="w-4 h-4 mr-2" />
+                                                            下载
                                                         </DropdownMenuItem>
                                                         <DropdownMenuItem
                                                             onClick={() => handleDelete(track.id)}

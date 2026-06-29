@@ -302,7 +302,7 @@ export class MusicService {
     try {
       // Check for cookies file (needed on servers where YouTube blocks by IP)
       // Copy to writable temp path since yt-dlp needs to write back updated cookies
-      const cookiesSrc = path.join(process.cwd(), 'cookies.txt');
+      const cookiesSrc = this.getYoutubeCookiesPath();
       const hasCookies = await fs.promises
         .access(cookiesSrc)
         .then(() => true)
@@ -456,6 +456,39 @@ export class MusicService {
         /* ignore */
       }
     }
+  }
+
+  private getYoutubeCookiesPath(): string {
+    return (
+      process.env.YOUTUBE_COOKIES_PATH ||
+      path.join(process.cwd(), 'cookies.txt')
+    );
+  }
+
+  async updateYoutubeCookies(cookies: string) {
+    const normalized = cookies.replace(/\r\n/g, '\n').trimEnd() + '\n';
+
+    if (normalized.length < 100) {
+      throw new BadRequestException('cookies.txt 内容太短');
+    }
+
+    const hasCookieHeader = normalized.includes('# Netscape HTTP Cookie File');
+    const hasYoutubeCookie =
+      /(^|\n)([^#\n]*\.)?(youtube\.com|google\.com)\t/.test(normalized);
+    if (!hasCookieHeader || !hasYoutubeCookie) {
+      throw new BadRequestException(
+        '请上传 Netscape 格式的 YouTube cookies.txt',
+      );
+    }
+
+    const cookiesPath = this.getYoutubeCookiesPath();
+    await fs.promises.writeFile(cookiesPath, normalized, { encoding: 'utf8' });
+
+    return {
+      ok: true,
+      bytes: Buffer.byteLength(normalized, 'utf8'),
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   // ═══════════════════════════════════════════════════════════

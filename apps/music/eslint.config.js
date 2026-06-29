@@ -9,4 +9,16 @@ export default [
             "@next/next/no-page-custom-font": "off",
         },
     },
+    {
+        files: ["public/worklets/**/*.js"],
+        languageOptions: {
+            globals: {
+                AudioWorkletProcessor: "readonly",
+                registerProcessor: "readonly",
+                currentTime: "readonly",
+                currentFrame: "readonly",
+                sampleRate: "readonly",
+            },
+        },
+    },
 ];

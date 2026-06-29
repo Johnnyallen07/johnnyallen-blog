@@ -130,7 +130,7 @@ function TimeInput({
     return (
         <div
             ref={containerRef}
-            className={`flex items-center bg-white border border-gray-200 rounded-md px-2 focus-within:ring-1 focus-within:ring-purple-500 focus-within:border-purple-500 transition-shadow transition-colors ${className || ""}`}
+            className={`flex items-center bg-white border border-gray-200 rounded-md px-2 focus-within:ring-1 focus-within:ring-amber-500 focus-within:border-amber-500 transition-shadow transition-colors ${className || ""}`}
             onClick={(e) => e.stopPropagation()}
         >
             <input
@@ -684,7 +684,7 @@ function SplitPageContent() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50">
+        <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
             {/* Header */}
             <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
                 <div className="px-8 py-4 flex items-center gap-4">
@@ -693,7 +693,7 @@ function SplitPageContent() {
                         返回
                     </Button>
                     <div className="flex items-center gap-2">
-                        <Scissors className="h-5 w-5 text-purple-500" />
+                        <Scissors className="h-5 w-5 text-amber-500" />
                         <h1 className="text-xl font-bold text-gray-900">音乐分割</h1>
                     </div>
                 </div>
@@ -726,10 +726,10 @@ function SplitPageContent() {
                                     <button
                                         key={t.id}
                                         onClick={() => setSelectedTrack(t)}
-                                        className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50/50 transition-colors text-left"
+                                        className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-amber-50/50 transition-colors text-left"
                                     >
-                                        <div className="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                            <Music className="w-5 h-5 text-purple-500" />
+                                        <div className="w-10 h-10 bg-gradient-to-br from-amber-100 to-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                            <Music className="w-5 h-5 text-amber-500" />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-medium text-gray-900 truncate">{t.title}</p>
@@ -748,16 +748,16 @@ function SplitPageContent() {
                         {/* Track info */}
                         <div className="bg-white rounded-xl shadow-sm p-6">
                             <div className="flex items-center gap-3 mb-4">
-                                <div className="w-12 h-12 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                                    <Music className="w-6 h-6 text-purple-500" />
+                                <div className="w-12 h-12 bg-gradient-to-br from-amber-100 to-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                    <Music className="w-6 h-6 text-amber-500" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="font-semibold text-gray-900">{selectedTrack.title}</p>
                                     <p className="text-sm text-gray-500">{selectedTrack.musician} · {selectedTrack.performer} · {formatDuration(selectedTrack.duration)}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <button onClick={togglePlay} className="w-10 h-10 flex items-center justify-center bg-purple-100 hover:bg-purple-200 rounded-full transition-colors flex-shrink-0">
-                                        {isPlaying ? <Pause className="w-4 h-4 text-purple-600" /> : <Play className="w-4 h-4 text-purple-600 ml-0.5" />}
+                                    <button onClick={togglePlay} className="w-10 h-10 flex items-center justify-center bg-amber-100 hover:bg-amber-200 rounded-full transition-colors flex-shrink-0">
+                                        {isPlaying ? <Pause className="w-4 h-4 text-amber-600" /> : <Play className="w-4 h-4 text-amber-600 ml-0.5" />}
                                     </button>
                                     {!trackIdFromUrl && (
                                         <Button variant="ghost" size="sm" className="text-xs" onClick={() => { audioRef.current?.pause(); setSelectedTrack(null); setIsPlaying(false); setCurrentTime(0); setSegments([]); setActiveSegmentId(null); setSplitStatus("idle"); setAudioBuffer(null); }}>
@@ -772,7 +772,7 @@ function SplitPageContent() {
                                 {isLoadingAudio ? (
                                     <div className="h-[160px] bg-gray-50 rounded-lg flex items-center justify-center border border-gray-200">
                                         <div className="text-center">
-                                            <Loader2 className="h-5 w-5 animate-spin mx-auto mb-1 text-purple-500" />
+                                            <Loader2 className="h-5 w-5 animate-spin mx-auto mb-1 text-amber-500" />
                                             <p className="text-xs text-gray-500">加载波形...</p>
                                         </div>
                                     </div>
@@ -838,9 +838,9 @@ function SplitPageContent() {
                                     const isActive = seg.id === activeSegmentId;
                                     return (
                                         <div key={seg.id} onClick={() => setActiveSegmentId(seg.id)}
-                                            className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${isActive ? "border-purple-400 bg-purple-50/30" : "border-gray-100 bg-gray-50 hover:border-gray-200"}`}>
+                                            className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${isActive ? "border-amber-400 bg-amber-50/30" : "border-gray-100 bg-gray-50 hover:border-gray-200"}`}>
                                             <div className="flex items-center gap-2 mb-3">
-                                                <span className={`text-xs font-bold w-5 text-center ${isActive ? "text-purple-600" : "text-gray-400"}`}>{index + 1}</span>
+                                                <span className={`text-xs font-bold w-5 text-center ${isActive ? "text-amber-600" : "text-gray-400"}`}>{index + 1}</span>
                                                 <Input value={seg.title} onChange={(e) => updateSegment(seg.id, "title", e.target.value)} placeholder="片段标题..." className="h-9 text-sm flex-1" onClick={(e) => e.stopPropagation()} />
                                                 <button onClick={(e) => { e.stopPropagation(); removeSegment(seg.id); }} className="p-1 hover:bg-gray-200 rounded transition-colors">
                                                     <X className="h-3.5 w-3.5 text-gray-400" />
@@ -878,14 +878,14 @@ function SplitPageContent() {
                         {/* Actions */}
                         <div className="bg-white rounded-xl shadow-sm p-6">
                             {splitStatus === "idle" && segments.length > 0 && (
-                                <Button onClick={handleSplit} className="w-full h-12 font-semibold bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-base">
+                                <Button onClick={handleSplit} className="w-full h-12 font-semibold bg-amber-500 hover:bg-amber-600 text-base">
                                     <Scissors className="h-4 w-4 mr-2" />开始分割 ({segments.length} 个片段)
                                 </Button>
                             )}
 
                             {splitStatus === "splitting" && (
                                 <div className="text-center py-6">
-                                    <Loader2 className="h-6 w-6 text-purple-500 animate-spin mx-auto mb-2" />
+                                    <Loader2 className="h-6 w-6 text-amber-500 animate-spin mx-auto mb-2" />
                                     <p className="text-sm text-gray-600">正在使用 ffmpeg 分割音频...</p>
                                 </div>
                             )}
@@ -933,7 +933,7 @@ function SplitPageContent() {
                                             <p className="text-sm font-medium text-green-700">保存成功！</p>
                                         </div>
                                     ) : (
-                                        <Button onClick={handleSaveAll} disabled={isSaving} className="w-full h-12 font-semibold bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 disabled:opacity-50 text-base">
+                                        <Button onClick={handleSaveAll} disabled={isSaving} className="w-full h-12 font-semibold bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-base">
                                             {isSaving ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />保存中...</>) : `保存全部 ${splitResults.length} 个片段`}
                                         </Button>
                                     )}
@@ -951,8 +951,8 @@ function SplitPageContent() {
 export default function SplitPage() {
     return (
         <Suspense fallback={
-            <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50 flex items-center justify-center">
-                <Loader2 className="h-8 w-8 text-purple-500 animate-spin" />
+            <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60 flex items-center justify-center">
+                <Loader2 className="h-8 w-8 text-amber-500 animate-spin" />
             </div>
         }>
             <SplitPageContent />

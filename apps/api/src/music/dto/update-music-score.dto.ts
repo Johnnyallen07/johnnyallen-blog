@@ -7,7 +7,7 @@ export class UpdateMusicScoreDto {
 
   @IsOptional()
   @IsString()
-  composer?: string;
+  composer?: string | null;
 
   @IsOptional()
   @IsString()

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
     ArrowLeft,
@@ -42,7 +42,7 @@ import { fetchClient } from "@/lib/api";
 interface MusicScore {
     id: string;
     title: string;
-    composer: string;
+    composer: string | null;
     instrument: string;
     fileKey: string;
     fileUrl: string;
@@ -81,10 +81,10 @@ export default function ScoresManagePage() {
     const [uploadFile, setUploadFile] = useState<File | null>(null);
     const [uploadForm, setUploadForm] = useState({
         title: "",
-        composer: "",
         instrument: "小提琴",
     });
     const [isUploading, setIsUploading] = useState(false);
+    const uploadFileInputRef = useRef<HTMLInputElement | null>(null);
 
     /* ── Edit dialog ── */
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -108,7 +108,7 @@ export default function ScoresManagePage() {
                     ? list.filter(
                           (s: MusicScore) =>
                               s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                              s.composer.toLowerCase().includes(searchQuery.toLowerCase())
+                              (s.composer ?? "").toLowerCase().includes(searchQuery.toLowerCase())
                       )
                     : list
             );
@@ -126,7 +126,7 @@ export default function ScoresManagePage() {
     /* ── Upload handler ── */
 
     const handleUpload = async () => {
-        if (!uploadFile || !uploadForm.title || !uploadForm.composer) return;
+        if (!uploadFile || !uploadForm.title) return;
 
         try {
             setIsUploading(true);
@@ -164,7 +164,7 @@ export default function ScoresManagePage() {
                 method: "POST",
                 body: JSON.stringify({
                     title: uploadForm.title,
-                    composer: uploadForm.composer,
+                    composer: null,
                     instrument: uploadForm.instrument,
                     fileKey: key,
                     fileUrl: publicUrl,
@@ -175,7 +175,7 @@ export default function ScoresManagePage() {
 
             setIsUploadDialogOpen(false);
             setUploadFile(null);
-            setUploadForm({ title: "", composer: "", instrument: "小提琴" });
+            setUploadForm({ title: "", instrument: "小提琴" });
             fetchScores();
         } catch (error) {
             console.error("Upload failed:", error);
@@ -199,7 +199,7 @@ export default function ScoresManagePage() {
                 method: "PATCH",
                 body: JSON.stringify({
                     title: editingScore.title,
-                    composer: editingScore.composer,
+                    composer: editingScore.composer?.trim() || null,
                     instrument: editingScore.instrument,
                 }),
             });
@@ -226,7 +226,7 @@ export default function ScoresManagePage() {
     /* ── Render ── */
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50">
+        <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
             {/* 顶部 */}
             <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
                 <div className="px-8 py-4">
@@ -266,7 +266,7 @@ export default function ScoresManagePage() {
                                         onClick={() => setFilterInstrument(inst.value)}
                                         className={`px-3 py-1.5 rounded-md text-sm transition-all ${
                                             filterInstrument === inst.value
-                                                ? "bg-purple-500 text-white shadow-sm"
+                                                ? "bg-amber-500 text-white shadow-sm"
                                                 : "text-gray-600 hover:text-gray-900"
                                         }`}
                                     >
@@ -276,7 +276,7 @@ export default function ScoresManagePage() {
                             </div>
                             <Button
                                 onClick={() => setIsUploadDialogOpen(true)}
-                                className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600"
+                                className="bg-amber-500 hover:bg-amber-600 text-white"
                             >
                                 <Upload className="h-4 w-4 mr-2" />
                                 上传乐谱
@@ -301,14 +301,14 @@ export default function ScoresManagePage() {
 
                     {isLoading ? (
                         <div className="py-16 text-center text-gray-500">
-                            <div className="w-8 h-8 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
+                            <div className="w-8 h-8 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin mx-auto mb-3" />
                             加载中...
                         </div>
                     ) : scores.length > 0 ? (
                         scores.map((score) => (
                             <div
                                 key={score.id}
-                                className="group grid grid-cols-[1fr_160px_100px_80px_80px_40px] gap-3 px-4 py-3 border-b border-gray-100 hover:bg-purple-50/30 transition-all"
+                                className="group grid grid-cols-[1fr_160px_100px_80px_80px_40px] gap-3 px-4 py-3 border-b border-gray-100 hover:bg-amber-50/40 transition-all"
                             >
                                 <div className="flex items-center gap-3 min-w-0">
                                     <div className="w-10 h-10 bg-gradient-to-br from-amber-100 to-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -318,14 +318,16 @@ export default function ScoresManagePage() {
                                         <h3 className="font-medium text-gray-900 text-sm leading-tight truncate">
                                             {score.title}
                                         </h3>
-                                        <p className="text-xs text-gray-400 mt-0.5">
-                                            {score.composer}
-                                        </p>
+                                        {score.composer && (
+                                            <p className="text-xs text-gray-400 mt-0.5">
+                                                {score.composer}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
                                 <div className="flex items-center">
-                                    <span className="text-xs px-2 py-1 bg-purple-50 text-purple-600 rounded-md">
+                                    <span className="text-xs px-2 py-1 bg-amber-50 text-amber-700 rounded-md">
                                         {score.instrument}
                                     </span>
                                 </div>
@@ -386,15 +388,16 @@ export default function ScoresManagePage() {
 
             {/* 上传对话框 */}
             <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="w-[calc(100vw-2rem)] max-w-md overflow-x-hidden">
                     <DialogHeader>
                         <DialogTitle>上传乐谱</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
                         <div>
                             <Label>PDF 文件</Label>
-                            <div className="mt-1.5">
+                            <div className="mt-1.5 min-w-0">
                                 <input
+                                    ref={uploadFileInputRef}
                                     type="file"
                                     accept=".pdf"
                                     onChange={(e) => {
@@ -407,8 +410,21 @@ export default function ScoresManagePage() {
                                             }));
                                         }
                                     }}
-                                    className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-50 file:text-purple-600 file:font-medium hover:file:bg-purple-100 file:cursor-pointer"
+                                    className="sr-only"
                                 />
+                                <div className="flex min-w-0 items-center gap-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => uploadFileInputRef.current?.click()}
+                                        className="shrink-0 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                    >
+                                        Choose File
+                                    </Button>
+                                    <span className="min-w-0 flex-1 break-all text-sm text-gray-500">
+                                        {uploadFile?.name || "未选择文件"}
+                                    </span>
+                                </div>
                             </div>
                             {uploadFile && (
                                 <p className="text-xs text-gray-400 mt-1">
@@ -424,17 +440,6 @@ export default function ScoresManagePage() {
                                     setUploadForm({ ...uploadForm, title: e.target.value })
                                 }
                                 placeholder="例：Salut d'Amour Op 12"
-                                className="mt-1.5"
-                            />
-                        </div>
-                        <div>
-                            <Label>作曲家</Label>
-                            <Input
-                                value={uploadForm.composer}
-                                onChange={(e) =>
-                                    setUploadForm({ ...uploadForm, composer: e.target.value })
-                                }
-                                placeholder="例：Edward Elgar"
                                 className="mt-1.5"
                             />
                         </div>
@@ -466,7 +471,7 @@ export default function ScoresManagePage() {
                         </Button>
                         <Button
                             onClick={handleUpload}
-                            disabled={!uploadFile || !uploadForm.title || !uploadForm.composer || isUploading}
+                            disabled={!uploadFile || !uploadForm.title || isUploading}
                         >
                             {isUploading ? "上传中..." : "上传"}
                         </Button>
@@ -496,9 +501,9 @@ export default function ScoresManagePage() {
                                 />
                             </div>
                             <div>
-                                <Label>作曲家</Label>
+                                <Label>作曲家 <span className="text-gray-400 font-normal">可选</span></Label>
                                 <Input
-                                    value={editingScore.composer}
+                                    value={editingScore.composer ?? ""}
                                     onChange={(e) =>
                                         setEditingScore({
                                             ...editingScore,

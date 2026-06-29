@@ -594,7 +594,7 @@ export default function SplitDialog({
             <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Scissors className="h-5 w-5 text-purple-500" />
+                        <Scissors className="h-5 w-5 text-amber-600" />
                         分割音乐
                     </DialogTitle>
                 </DialogHeader>
@@ -623,10 +623,10 @@ export default function SplitDialog({
                                     <button
                                         key={t.id}
                                         onClick={() => setInternalTrack(t)}
-                                        className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-purple-50/50 transition-colors text-left"
+                                        className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-amber-50/50 transition-colors text-left"
                                     >
-                                        <div className="w-9 h-9 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                            <Music className="w-4 h-4 text-purple-500" />
+                                        <div className="w-9 h-9 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                            <Music className="w-4 h-4 text-amber-600" />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-medium text-gray-900 truncate">{t.title}</p>
@@ -643,17 +643,17 @@ export default function SplitDialog({
                 ) : (
                     <>
                         {/* Track info */}
-                        <div className="flex items-center gap-3 p-3 bg-purple-50/50 rounded-lg">
-                            <div className="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <Music className="w-5 h-5 text-purple-500" />
+                        <div className="flex items-center gap-3 p-3 bg-amber-50/50 rounded-lg">
+                            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <Music className="w-5 h-5 text-amber-600" />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="font-medium text-gray-900 text-sm">{effectiveTrack.title}</p>
                                 <p className="text-xs text-gray-500">{effectiveTrack.musician} · {effectiveTrack.performer} · {formatDuration(effectiveTrack.duration)}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button onClick={togglePlay} className="w-9 h-9 flex items-center justify-center bg-purple-100 hover:bg-purple-200 rounded-full transition-colors flex-shrink-0">
-                                    {isPlaying ? <Pause className="w-4 h-4 text-purple-600" /> : <Play className="w-4 h-4 text-purple-600 ml-0.5" />}
+                                <button onClick={togglePlay} className="w-9 h-9 flex items-center justify-center bg-amber-100 hover:bg-amber-200 rounded-full transition-colors flex-shrink-0">
+                                    {isPlaying ? <Pause className="w-4 h-4 text-amber-600" /> : <Play className="w-4 h-4 text-amber-600 ml-0.5" />}
                                 </button>
                                 {!track && (
                                     <Button variant="ghost" size="sm" className="text-xs" onClick={() => { audioRef.current?.pause(); setInternalTrack(null); setIsPlaying(false); setCurrentTime(0); setSegments([]); setActiveSegmentId(null); setSplitStatus("idle"); setAudioBuffer(null); }}>
@@ -668,7 +668,7 @@ export default function SplitDialog({
                             {isLoadingAudio ? (
                                 <div className="h-[130px] bg-gray-50 rounded-lg flex items-center justify-center border border-gray-200">
                                     <div className="text-center">
-                                        <Loader2 className="h-5 w-5 animate-spin mx-auto mb-1 text-purple-500" />
+                                        <Loader2 className="h-5 w-5 animate-spin mx-auto mb-1 text-amber-600" />
                                         <p className="text-xs text-gray-500">加载波形...</p>
                                     </div>
                                 </div>
@@ -739,9 +739,9 @@ export default function SplitDialog({
                                     const isActive = seg.id === activeSegmentId;
                                     return (
                                         <div key={seg.id} onClick={() => setActiveSegmentId(seg.id)}
-                                            className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isActive ? "border-purple-400 bg-purple-50/30" : "border-gray-100 bg-gray-50 hover:border-gray-200"}`}>
+                                            className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isActive ? "border-amber-400 bg-amber-50/30" : "border-gray-100 bg-gray-50 hover:border-gray-200"}`}>
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className={`text-xs font-bold w-5 text-center ${isActive ? "text-purple-600" : "text-gray-400"}`}>{index + 1}</span>
+                                                <span className={`text-xs font-bold w-5 text-center ${isActive ? "text-amber-600" : "text-gray-400"}`}>{index + 1}</span>
                                                 <Input value={seg.title} onChange={(e) => updateSegment(seg.id, "title", e.target.value)} placeholder="片段标题..." className="h-8 text-sm flex-1" onClick={(e) => e.stopPropagation()} />
                                                 <button onClick={(e) => { e.stopPropagation(); removeSegment(seg.id); }} className="p-1 hover:bg-gray-200 rounded transition-colors">
                                                     <X className="h-3.5 w-3.5 text-gray-400" />
@@ -768,14 +768,14 @@ export default function SplitDialog({
 
                         {/* Actions */}
                         {splitStatus === "idle" && segments.length > 0 && (
-                            <Button onClick={handleSplit} className="w-full h-11 font-semibold bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
+                            <Button onClick={handleSplit} className="w-full h-11 font-semibold bg-amber-500 hover:bg-amber-600">
                                 <Scissors className="h-4 w-4 mr-2" />开始分割 ({segments.length} 个片段)
                             </Button>
                         )}
 
                         {splitStatus === "splitting" && (
                             <div className="text-center py-4">
-                                <Loader2 className="h-6 w-6 text-purple-500 animate-spin mx-auto mb-2" />
+                                <Loader2 className="h-6 w-6 text-amber-600 animate-spin mx-auto mb-2" />
                                 <p className="text-sm text-gray-600">正在使用 ffmpeg 分割音频...</p>
                             </div>
                         )}
@@ -823,7 +823,7 @@ export default function SplitDialog({
                                         <p className="text-sm font-medium text-green-700">保存成功！</p>
                                     </div>
                                 ) : (
-                                    <Button onClick={handleSaveAll} disabled={isSaving} className="w-full h-11 font-semibold bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 disabled:opacity-50">
+                                    <Button onClick={handleSaveAll} disabled={isSaving} className="w-full h-11 font-semibold bg-amber-500 hover:bg-amber-600 disabled:opacity-50">
                                         {isSaving ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />保存中...</>) : `保存全部 ${splitResults.length} 个片段`}
                                     </Button>
                                 )}

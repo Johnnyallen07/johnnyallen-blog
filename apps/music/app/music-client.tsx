@@ -14,7 +14,14 @@ import {
     ChevronLeft, ChevronRight,
     type LucideIcon,
 } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api";
 
+import {
+    calculateBufferedBytes,
+    calculateBufferedPercent,
+    calculateProgressPercent,
+    calculateThroughputKbps,
+} from "../lib/player-metrics";
 
 /* ───────── Icon Map ───────── */
 
@@ -43,6 +50,7 @@ interface Song {
     category: string;
     coverUrl: string;
     fileUrl: string;
+    fileSize: number;
     playCount: number;
 }
 
@@ -63,7 +71,7 @@ const DAILY_RECOMMEND_COUNT = 20;
 
 /* ───────── Helpers ───────── */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_BASE = getApiBaseUrl();
 
 /* ── Sidebar Section (extracted to avoid re-creation on every render tick) ── */
 const SidebarSection = React.memo(function SidebarSection({
@@ -119,6 +127,13 @@ function formatDuration(seconds: number): string {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatNetworkSpeed(kbps: number): string {
+    if (!Number.isFinite(kbps) || kbps <= 0) return "0 KB/s";
+    const kiloBytes = kbps / 8;
+    if (kiloBytes >= 1024) return `${(kiloBytes / 1024).toFixed(1)} MB/s`;
+    return `${Math.round(kiloBytes)} KB/s`;
 }
 
 /** Fisher-Yates shuffle for generating a random play queue */
@@ -186,6 +201,8 @@ export default function MusicPageClient() {
     const [currentSong, setCurrentSong] = useState<Song | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
     const [audioDuration, setAudioDuration] = useState(0);
+    const [bufferedPercent, setBufferedPercent] = useState(0);
+    const [networkSpeedKbps, setNetworkSpeedKbps] = useState(0);
 
     const savedStateRef = useRef<{
         songId?: string;
@@ -324,16 +341,39 @@ export default function MusicPageClient() {
 
     const retryCountRef = useRef(0);
     const maxRetries = 2;
+    const bufferSampleRef = useRef<{ bytes: number; at: number } | null>(null);
 
     // Initialize audio element once
     useEffect(() => {
         const audio = new Audio();
         audio.preload = "auto";
+        audio.setAttribute("playsinline", "");
         audio.volume = volume;
+        audio.dataset.musicPlayer = "true";
+        audio.style.display = "none";
+        document.body.appendChild(audio);
         audioRef.current = audio;
+
+        const updateBufferMetrics = () => {
+            const song = currentSongRef.current;
+            const duration = isFinite(audio.duration) && audio.duration > 0
+                ? audio.duration
+                : song?.duration ?? 0;
+            const nextBufferedPercent = calculateBufferedPercent(audio.buffered, duration);
+            setBufferedPercent(nextBufferedPercent);
+
+            const loadedBytes = calculateBufferedBytes(audio.buffered, duration, song?.fileSize ?? 0);
+            const now = performance.now();
+            const previous = bufferSampleRef.current;
+            if (previous) {
+                setNetworkSpeedKbps(calculateThroughputKbps(loadedBytes, previous.bytes, now - previous.at));
+            }
+            bufferSampleRef.current = { bytes: loadedBytes, at: now };
+        };
 
         const onTimeUpdate = () => {
             setCurrentTime(audio.currentTime);
+            updateBufferMetrics();
 
             // Update MediaSession position state
             if ("mediaSession" in navigator && isFinite(audio.duration) && audio.duration > 0) {
@@ -381,18 +421,24 @@ export default function MusicPageClient() {
             if (isFinite(audio.duration) && audio.duration > 0) {
                 setAudioDuration(audio.duration);
             }
+            updateBufferMetrics();
             setIsLoading(false);
         };
         const onDurationChange = () => {
             if (isFinite(audio.duration) && audio.duration > 0) {
                 setAudioDuration(audio.duration);
             }
+            updateBufferMetrics();
         };
         const onCanPlay = () => {
+            updateBufferMetrics();
             setIsLoading(false);
             retryCountRef.current = 0; // reset retry on successful buffer
         };
         const onLoadStart = () => {
+            bufferSampleRef.current = null;
+            setBufferedPercent(0);
+            setNetworkSpeedKbps(0);
             setIsLoading(true);
         };
         const onWaiting = () => {
@@ -401,11 +447,23 @@ export default function MusicPageClient() {
         };
         const onPlaying = () => {
             // Buffer recovered, hide loading spinner
+            updateBufferMetrics();
             setIsLoading(false);
+        };
+        const onProgress = () => {
+            updateBufferMetrics();
+            if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA || audio.paused) {
+                setIsLoading(false);
+            }
         };
         const onStalled = () => {
             // Network stall, show loading state
             setIsLoading(true);
+            setNetworkSpeedKbps(0);
+        };
+        const onSuspend = () => {
+            updateBufferMetrics();
+            setNetworkSpeedKbps(0);
         };
         const onError = () => {
             // Auto-retry on transient network errors (mobile connection drops)
@@ -415,13 +473,22 @@ export default function MusicPageClient() {
                 const savedTime = audio.currentTime;
                 console.warn(`Audio error, retrying (${retryCountRef.current}/${maxRetries})...`);
                 setTimeout(() => {
+                    bufferSampleRef.current = null;
                     audio.src = song.fileUrl;
-                    audio.currentTime = savedTime;
-                    audio.play().catch(() => { });
+                    audio.load();
+                    const restorePosition = () => {
+                        audio.removeEventListener("loadedmetadata", restorePosition);
+                        if (savedTime > 0 && savedTime < (audio.duration || song.duration)) {
+                            audio.currentTime = savedTime;
+                        }
+                        audio.play().catch(() => { });
+                    };
+                    audio.addEventListener("loadedmetadata", restorePosition, { once: true });
                 }, 1000);
             } else {
                 setIsLoading(false);
                 setIsPlaying(false);
+                setNetworkSpeedKbps(0);
             }
         };
         const onEnded = () => handleTrackEnd();
@@ -445,7 +512,9 @@ export default function MusicPageClient() {
         audio.addEventListener("loadstart", onLoadStart);
         audio.addEventListener("waiting", onWaiting);
         audio.addEventListener("playing", onPlaying);
+        audio.addEventListener("progress", onProgress);
         audio.addEventListener("stalled", onStalled);
+        audio.addEventListener("suspend", onSuspend);
         audio.addEventListener("error", onError);
         audio.addEventListener("ended", onEnded);
         audio.addEventListener("play", onPlay);
@@ -459,18 +528,16 @@ export default function MusicPageClient() {
             audio.removeEventListener("loadstart", onLoadStart);
             audio.removeEventListener("waiting", onWaiting);
             audio.removeEventListener("playing", onPlaying);
+            audio.removeEventListener("progress", onProgress);
             audio.removeEventListener("stalled", onStalled);
+            audio.removeEventListener("suspend", onSuspend);
             audio.removeEventListener("error", onError);
             audio.removeEventListener("ended", onEnded);
             audio.removeEventListener("play", onPlay);
             audio.removeEventListener("pause", onPause);
             audio.pause();
             audio.src = "";
-            // Clean up blob URL if any
-            if (blobUrlRef.current) {
-                URL.revokeObjectURL(blobUrlRef.current);
-                blobUrlRef.current = null;
-            }
+            audio.remove();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -502,6 +569,7 @@ export default function MusicPageClient() {
         series: string | null;
         coverUrl: string | null;
         fileUrl: string;
+        fileSize?: number;
         playCount?: number;
     }
 
@@ -516,6 +584,7 @@ export default function MusicPageClient() {
         category: t.category,
         coverUrl: t.coverUrl || "",
         fileUrl: t.fileUrl,
+        fileSize: t.fileSize || 0,
         playCount: t.playCount || 0,
     }), []);
 
@@ -703,30 +772,18 @@ export default function MusicPageClient() {
 
     /* ════════════ Playback Logic ════════════ */
 
-    const blobUrlRef = useRef<string | null>(null);
-    const loadAbortRef = useRef<AbortController | null>(null);
-
     const playSong = useCallback((song: Song, queue?: Song[]) => {
         const audio = audioRef.current;
         if (!audio) return;
 
-        // Abort any in-progress load
-        if (loadAbortRef.current) {
-            loadAbortRef.current.abort();
-            loadAbortRef.current = null;
-        }
-
-        // Revoke previous blob URL to free memory
-        if (blobUrlRef.current) {
-            URL.revokeObjectURL(blobUrlRef.current);
-            blobUrlRef.current = null;
-        }
-
         retryCountRef.current = 0;
+        bufferSampleRef.current = null;
         halfPlayedRef.current = null;
         setCurrentSong(song);
         setCurrentTime(0);
         setAudioDuration(song.duration || 0);
+        setBufferedPercent(0);
+        setNetworkSpeedKbps(0);
         setIsLoading(true);
 
         // Update MediaSession metadata for lock screen
@@ -749,37 +806,21 @@ export default function MusicPageClient() {
             } catch { /* ignore */ }
         }
 
-        // Always preload full file as blob for reliability
-        // This ensures the entire file is in memory before playback,
-        // preventing streaming issues (especially on mobile Safari)
-        const controller = new AbortController();
-        loadAbortRef.current = controller;
-
-        fetch(song.fileUrl, { signal: controller.signal })
-            .then((res) => {
-                if (!res.ok) throw new Error("fetch failed");
-                return res.blob();
-            })
-            .then((blob) => {
-                if (controller.signal.aborted) return;
-                const blobUrl = URL.createObjectURL(blob);
-                blobUrlRef.current = blobUrl;
-                audio.src = blobUrl;
-                return audio.play();
-            })
-            .then(() => {
-                if (controller.signal.aborted) return;
-                setIsLoading(false);
-            })
+        audio.pause();
+        audio.src = song.fileUrl;
+        audio.load();
+        audio.play()
+            .then(() => setIsLoading(false))
             .catch((err) => {
-                if (err.name === "AbortError") return;
-                // autoplay blocked is not a real error, just clear loading
+                // Autoplay blocked is not a network error; the user can press play.
                 if (err.name === "NotAllowedError") {
                     setIsLoading(false);
+                    setIsPlaying(false);
                     return;
                 }
-                console.error("Audio preload failed:", err);
+                console.error("Audio play failed:", err);
                 setIsLoading(false);
+                setIsPlaying(false);
             });
 
         // Build/reset shuffle queue if entering shuffle mode
@@ -807,6 +848,8 @@ export default function MusicPageClient() {
         setCurrentSong(song);
         setCurrentTime(savedTime);
         setAudioDuration(song.duration || 0);
+        setBufferedPercent(0);
+        setNetworkSpeedKbps(0);
         setIsLoading(true);
 
         // Update MediaSession metadata
@@ -818,50 +861,36 @@ export default function MusicPageClient() {
             });
         }
 
-        // Preload audio as blob, then seek to saved position (paused)
-        const controller = new AbortController();
-        loadAbortRef.current = controller;
+        audio.src = song.fileUrl;
+        audio.load();
 
-        fetch(song.fileUrl, { signal: controller.signal })
-            .then((res) => {
-                if (!res.ok) throw new Error("fetch failed");
-                return res.blob();
-            })
-            .then((blob) => {
-                if (controller.signal.aborted) return;
-                const blobUrl = URL.createObjectURL(blob);
-                blobUrlRef.current = blobUrl;
-                audio.src = blobUrl;
-
-                // After metadata loads, seek to saved time (stay paused)
-                const onReady = () => {
-                    audio.removeEventListener("loadedmetadata", onReady);
-                    if (savedTime > 0 && savedTime < (audio.duration || song.duration)) {
-                        audio.currentTime = savedTime;
-                        setCurrentTime(savedTime);
-                    }
-                    if (isFinite(audio.duration) && audio.duration > 0) {
-                        setAudioDuration(audio.duration);
-                    }
-                    setIsLoading(false);
-                };
-                audio.addEventListener("loadedmetadata", onReady, { once: true });
-            })
-            .catch((err) => {
-                if (err.name === "AbortError") return;
-                setIsLoading(false);
-            });
+        // After metadata loads, seek to saved time (stay paused).
+        const onReady = () => {
+            audio.removeEventListener("loadedmetadata", onReady);
+            if (savedTime > 0 && savedTime < (audio.duration || song.duration)) {
+                audio.currentTime = savedTime;
+                setCurrentTime(savedTime);
+            }
+            if (isFinite(audio.duration) && audio.duration > 0) {
+                setAudioDuration(audio.duration);
+            }
+            setIsLoading(false);
+        };
+        audio.addEventListener("loadedmetadata", onReady, { once: true });
     }, []);
 
     const togglePlayPause = useCallback(() => {
         const audio = audioRef.current;
         if (!audio || !currentSong) return;
-        if (isPlaying) {
+        if (!audio.paused && !audio.ended) {
             audio.pause();
         } else {
-            audio.play().catch(() => { });
+            audio.play().catch(() => {
+                setIsPlaying(false);
+                setIsLoading(false);
+            });
         }
-    }, [currentSong, isPlaying]);
+    }, [currentSong]);
 
     // Next / Previous track helpers
     const getNextSong = useCallback((): Song | null => {
@@ -1065,9 +1094,8 @@ export default function MusicPageClient() {
             if (audio) {
                 audio.currentTime = t;
                 setCurrentTime(t);
-                if (!isPlaying) {
+                if (isPlaying) {
                     audio.play().catch(() => { });
-                    setIsPlaying(true);
                 }
             }
             window.removeEventListener("mousemove", onMouseMove);
@@ -1100,9 +1128,8 @@ export default function MusicPageClient() {
             if (audio) {
                 audio.currentTime = t;
                 setCurrentTime(t);
-                if (!isPlaying) {
+                if (isPlaying) {
                     audio.play().catch(() => { });
-                    setIsPlaying(true);
                 }
             }
             window.removeEventListener("touchmove", onTouchMove);
@@ -1306,7 +1333,13 @@ export default function MusicPageClient() {
 
     /* ════════════ Render ════════════ */
 
-    const progressPercent = audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0;
+    const progressPercent = calculateProgressPercent(currentTime, audioDuration);
+    const visibleProgressPercent = seekPreview !== null
+        ? calculateProgressPercent(seekPreview, audioDuration)
+        : progressPercent;
+    const bufferStatusLabel = isLoading && networkSpeedKbps <= 0
+        ? "缓冲中"
+        : formatNetworkSpeed(networkSpeedKbps);
 
     return (
         <div className="min-h-screen bg-[#f8f6f1] relative overflow-hidden">
@@ -1344,8 +1377,15 @@ export default function MusicPageClient() {
                         {seriesItems.length > 0 && <SidebarSection title="系列" items={seriesItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
                     </div>
 
-                    {/* 乐谱入口 */}
-                    <div className="mt-4 px-3">
+                    {/* 工具入口 */}
+                    <div className="mt-4 space-y-1 px-3">
+                        <a
+                            href="/tuner"
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-emerald-700 hover:bg-white/45 transition-all duration-200"
+                        >
+                            <Mic2 className="h-4 w-4" />
+                            <span>调音器</span>
+                        </a>
                         <a
                             href="/scores"
                             className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-violet-700 hover:bg-white/45 transition-all duration-200"
@@ -1357,7 +1397,7 @@ export default function MusicPageClient() {
                 </aside>
 
                 {/* ══════════ 右侧内容区 ══════════ */}
-                <main className="flex-1 h-full overflow-y-auto py-4 px-4 md:py-6 md:pr-6 md:pl-0">
+                <main className="flex-1 h-full overflow-y-auto py-4 px-4 md:py-6 md:pl-6 md:pr-6">
                     {/* 顶部导航 */}
                     <div className="flex items-center justify-between mb-6 md:mb-8 gap-3">
                         <div className="flex items-center gap-3">
@@ -1549,14 +1589,25 @@ export default function MusicPageClient() {
                         onTouchStart={handleProgressTouchStart}
                     >
                         <div
-                            className="absolute inset-y-0 left-0 bg-violet-700 rounded-r-full z-10 transition-[width] duration-75 ease-linear"
-                            style={{ width: `${seekPreview !== null ? (audioDuration > 0 ? (seekPreview / audioDuration) * 100 : 0) : progressPercent}%` }}
+                            className="absolute inset-y-0 left-0 bg-slate-300/80 rounded-r-full z-10 transition-[width] duration-150 ease-linear"
+                            style={{
+                                width: `${bufferedPercent}%`,
+                                backgroundImage: isLoading
+                                    ? "linear-gradient(90deg, rgba(203,213,225,0.72), rgba(226,232,240,0.96), rgba(203,213,225,0.72))"
+                                    : undefined,
+                                backgroundSize: isLoading ? "200% 100%" : undefined,
+                                animation: isLoading ? "progressShimmer 1.35s linear infinite" : undefined,
+                            }}
+                        />
+                        <div
+                            className="absolute inset-y-0 left-0 bg-violet-700 rounded-r-full z-20 transition-[width] duration-75 ease-linear"
+                            style={{ width: `${visibleProgressPercent}%` }}
                         />
                         {/* Drag thumb */}
                         <div
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 md:w-3.5 md:h-3.5 bg-white rounded-full shadow-md border-2 border-violet-700 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 md:w-3.5 md:h-3.5 bg-white rounded-full shadow-md border-2 border-violet-700 z-30 opacity-0 group-hover:opacity-100 transition-opacity"
                             style={{
-                                left: `${seekPreview !== null ? (audioDuration > 0 ? (seekPreview / audioDuration) * 100 : 0) : progressPercent}%`,
+                                left: `${visibleProgressPercent}%`,
                                 opacity: seekPreview !== null ? 1 : undefined,
                             }}
                         />
@@ -1615,6 +1666,9 @@ export default function MusicPageClient() {
                                 <span className="text-xs text-gray-400 tabular-nums">{formatDuration(currentTime)}</span>
                                 <span className="text-xs text-gray-300">/</span>
                                 <span className="text-xs text-gray-400 tabular-nums">{formatDuration(audioDuration)}</span>
+                                <span className="hidden md:inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-white/55 px-2 py-1 text-[11px] tabular-nums text-gray-500">
+                                    缓存 {Math.round(bufferedPercent)}% · {bufferStatusLabel}
+                                </span>
                                 <div className="hidden md:flex items-center gap-2 ml-4">
                                     <button onClick={toggleMute} className="p-1 hover:bg-gray-100 rounded transition-all">
                                         <VolumeIcon className="h-4 w-4 text-gray-500" />

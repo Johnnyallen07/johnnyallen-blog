@@ -112,7 +112,7 @@ export function SeriesDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-white border-gray-200 max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold bg-gradient-to-r from-cyan-600 to-purple-600 bg-clip-text text-transparent">
+          <DialogTitle className="text-xl font-bold text-gray-900">
             {series ? "编辑专栏" : "创建新专栏"}
           </DialogTitle>
         </DialogHeader>
@@ -132,7 +132,7 @@ export function SeriesDialog({
                     setFormData((prev) => ({ ...prev, emoji }))
                   }
                   className={`text-2xl w-12 h-12 rounded-lg border-2 transition-all ${formData.emoji === emoji
-                    ? "border-cyan-500 bg-cyan-50 scale-110"
+                    ? "border-amber-500 bg-amber-50 scale-110"
                     : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                     }`}
                 >
@@ -152,7 +152,7 @@ export function SeriesDialog({
               onChange={(e) => handleNameChange(e.target.value)}
               placeholder="例如：缺氧游戏攻略"
               required
-              className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+              className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
             />
           </div>
 
@@ -170,7 +170,7 @@ export function SeriesDialog({
                 }
                 placeholder="oxygen-not-included"
                 required
-                className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
               />
             </div>
             <p className="text-xs text-gray-500">
@@ -189,7 +189,7 @@ export function SeriesDialog({
                 setFormData((prev) => ({ ...prev, description: e.target.value }))
               }
               placeholder="简要介绍这个专栏的内容..."
-              className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30 resize-none"
+              className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30 resize-none"
               rows={3}
             />
           </div>
@@ -205,7 +205,7 @@ export function SeriesDialog({
                 setFormData((prev) => ({ ...prev, category: value }))
               }
             >
-              <SelectTrigger className="border-gray-300 focus:border-cyan-500 focus:ring-cyan-500/30">
+              <SelectTrigger className="border-gray-300 focus:border-amber-500 focus:ring-amber-500/30">
                 <SelectValue placeholder="选择分类" />
               </SelectTrigger>
               <SelectContent className="bg-white border-gray-200">
@@ -241,7 +241,7 @@ export function SeriesDialog({
             </Button>
             <Button
               type="submit"
-              className="flex-1 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30"
+              className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm"
             >
               {series ? "保存修改" : "创建专栏"}
             </Button>

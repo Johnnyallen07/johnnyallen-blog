@@ -843,7 +843,7 @@ export function RichTextEditor({
         onImport={handleImport}
         onExport={handleExport}
       />
-      {isUploading && <div className="h-1 bg-cyan-500 animate-pulse"></div>}
+      {isUploading && <div className="h-1 bg-amber-500 animate-pulse"></div>}
       <div onContextMenu={handleContextMenu}>
         <EditorContent editor={editor} />
       </div>

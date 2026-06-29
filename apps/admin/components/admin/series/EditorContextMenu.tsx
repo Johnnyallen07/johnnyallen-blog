@@ -260,7 +260,7 @@ export function EditorContextMenu({
             key={item.label}
             onClick={() => handleAction(item)}
             className={`w-full flex items-center gap-3 px-3 py-1.5 text-sm transition-colors hover:bg-gray-100 ${
-              isActive ? "text-cyan-600 bg-cyan-50" : "text-gray-700"
+              isActive ? "text-amber-600 bg-amber-50" : "text-gray-700"
             }`}
           >
             <IconComponent className="h-4 w-4 flex-shrink-0" />

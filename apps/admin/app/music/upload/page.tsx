@@ -350,7 +350,7 @@ export default function MusicUploadPage() {
     /* ── Render ── */
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50">
+        <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
             {/* Header */}
             <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
                 <div className="max-w-3xl mx-auto px-8 py-4">
@@ -374,7 +374,7 @@ export default function MusicUploadPage() {
                         MP3 文件 (支持多选)
                     </Label>
                     <div
-                        className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-purple-400 transition-colors cursor-pointer"
+                        className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-amber-400 transition-colors cursor-pointer"
                         onClick={() => fileInputRef.current?.click()}
                         onDragOver={(e) => {
                             e.preventDefault();
@@ -386,8 +386,8 @@ export default function MusicUploadPage() {
                             handleFileSelect(e.dataTransfer.files);
                         }}
                     >
-                        <Upload className="h-10 w-10 mx-auto mb-3 text-purple-400" />
-                        <p className="text-purple-600 font-medium">选择文件 或拖放文件</p>
+                        <Upload className="h-10 w-10 mx-auto mb-3 text-amber-400" />
+                        <p className="text-amber-600 font-medium">选择文件 或拖放文件</p>
                         <p className="text-sm text-gray-500 mt-1">单文件 MP3 小于 30MB</p>
                     </div>
                     <input
@@ -416,7 +416,7 @@ export default function MusicUploadPage() {
                                             ) : f.status === "duplicate" ? (
                                                 <AlertCircle className="h-5 w-5 text-amber-500" />
                                             ) : f.status === "uploading" ? (
-                                                <Loader2 className="h-5 w-5 text-purple-500 animate-spin" />
+                                                <Loader2 className="h-5 w-5 text-amber-500 animate-spin" />
                                             ) : (
                                                 <FileAudio className="h-5 w-5 text-gray-400" />
                                             )}
@@ -448,7 +448,7 @@ export default function MusicUploadPage() {
                                         )}
 
                                         {f.status === "uploading" && (
-                                            <span className="text-xs font-medium text-purple-600 tabular-nums whitespace-nowrap">
+                                            <span className="text-xs font-medium text-amber-600 tabular-nums whitespace-nowrap">
                                                 {f.progress}%
                                             </span>
                                         )}
@@ -461,7 +461,7 @@ export default function MusicUploadPage() {
                                                 <div
                                                     className={`h-full rounded-full transition-all duration-300 ease-out ${f.status === "done"
                                                         ? "bg-green-500"
-                                                        : "bg-gradient-to-r from-pink-500 to-purple-500"
+                                                        : "bg-gradient-to-r from-amber-500 to-amber-500"
                                                         }`}
                                                     style={{ width: `${f.progress}%` }}
                                                 />
@@ -564,7 +564,7 @@ export default function MusicUploadPage() {
                         !categoryId ||
                         isUploading
                     }
-                    className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 disabled:opacity-50"
+                    className="w-full h-14 text-lg font-semibold bg-amber-500 hover:bg-amber-600 disabled:opacity-50"
                 >
                     {isUploading ? (
                         <>

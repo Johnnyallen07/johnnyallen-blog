@@ -152,25 +152,17 @@ export default function PostsManagementPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 to-purple-50/30">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 -left-20 w-96 h-96 bg-cyan-400/10 rounded-full blur-3xl animate-pulse" />
-        <div
-          className="absolute bottom-1/4 -right-20 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl animate-pulse"
-          style={{ animationDelay: "1s" }}
-        />
-      </div>
-
-      <div className="relative z-10 max-w-7xl mx-auto px-6 py-12">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
+      <div className="max-w-7xl mx-auto px-6 py-10">
         {/* 头部 */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl shadow-lg shadow-purple-500/30">
-                <FileText className="h-8 w-8 text-white" />
+              <div className="p-3 bg-amber-100 rounded-xl">
+                <FileText className="h-8 w-8 text-amber-600" />
               </div>
               <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-cyan-600 bg-clip-text text-transparent">
+                <h1 className="text-3xl font-semibold text-gray-900">
                   文章管理
                 </h1>
                 <p className="text-gray-600 mt-1">
@@ -191,7 +183,7 @@ export default function PostsManagementPage() {
               </Button>
               <Button
                 onClick={() => router.push("/posts/new")}
-                className="bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30"
+                className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 创建文章
@@ -263,7 +255,7 @@ export default function PostsManagementPage() {
             {!searchQuery && filterCategory === "all" && (
               <Button
                 onClick={() => router.push("/posts/new")}
-                className="bg-gradient-to-r from-cyan-500 to-purple-500 text-white"
+                className="bg-amber-500 text-white"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 创建文章
@@ -275,7 +267,7 @@ export default function PostsManagementPage() {
             {filteredPosts.map((post) => (
               <div
                 key={post.id}
-                className="bg-white border border-gray-200 rounded-xl p-5 hover:border-cyan-300 hover:shadow-md transition-all duration-200 group"
+                className="bg-white border border-gray-200 rounded-xl p-5 hover:border-amber-200 hover:bg-amber-50/30 transition-colors group"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0 mr-4">
@@ -331,7 +323,7 @@ export default function PostsManagementPage() {
                       onClick={() =>
                         router.push(`/posts/${post.id}/edit`)
                       }
-                      className="text-cyan-600 hover:bg-cyan-50"
+                      className="text-amber-600 hover:bg-amber-50"
                       title="编辑"
                     >
                       <Edit className="h-4 w-4" />

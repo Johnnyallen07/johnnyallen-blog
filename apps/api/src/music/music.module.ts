@@ -10,8 +10,10 @@ import { MusicSeriesController } from './music-series.controller';
 import { MusicSeriesService } from './music-series.service';
 import { MusicScoreController } from './music-score.controller';
 import { MusicScoreService } from './music-score.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
+  imports: [AuthModule],
   controllers: [
     MusicController,
     MusicCategoryController,

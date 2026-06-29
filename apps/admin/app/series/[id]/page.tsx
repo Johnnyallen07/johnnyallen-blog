@@ -505,7 +505,7 @@ export default function SeriesEditorPage({ params }: SeriesEditorPageProps) {
             <>
               <span className="text-sm text-gray-500">正在编辑: {title || "Untitled"}</span>
               {isSaving ? (
-                <span className="text-xs text-cyan-600 animate-pulse">正在保存...</span>
+                <span className="text-xs text-amber-600 animate-pulse">正在保存...</span>
               ) : lastSaved ? (
                 <span className="text-xs text-gray-400">
                   · 已保存于 {lastSaved.toLocaleTimeString("zh-CN")}
@@ -655,7 +655,7 @@ export default function SeriesEditorPage({ params }: SeriesEditorPageProps) {
             <Button
               onClick={confirmCreatePost}
               disabled={!canCreatePost || isCreatingPost}
-              className="bg-gradient-to-r from-cyan-500 to-purple-500 hover:from-cyan-600 hover:to-purple-600 text-white"
+              className="bg-amber-500 hover:bg-amber-600 text-white"
             >
               {isCreatingPost ? (
                 "创建中..."

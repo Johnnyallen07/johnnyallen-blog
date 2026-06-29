@@ -5,11 +5,14 @@ import {
   Patch,
   Delete,
   Body,
+  Headers,
   Param,
   Query,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { MusicService } from './music.service';
+import { AuthService } from '../auth/auth.service';
 import { CreateMusicTrackDto } from './dto/create-music-track.dto';
 import { UpdateMusicTrackDto } from './dto/update-music-track.dto';
 import { YoutubeDownloadDto } from './dto/youtube-download.dto';
@@ -17,12 +20,32 @@ import { SplitMusicDto } from './dto/split-music.dto';
 
 @Controller('music')
 export class MusicController {
-  constructor(private readonly musicService: MusicService) {}
+  constructor(
+    private readonly musicService: MusicService,
+    private readonly authService: AuthService,
+  ) {}
+
+  private async requireAdmin(authHeader: string | undefined) {
+    if (!authHeader?.startsWith('Bearer ')) {
+      throw new UnauthorizedException('缺少认证 Token');
+    }
+    await this.authService.getProfile(authHeader.slice(7));
+  }
 
   /** 从 YouTube 下载音频为 MP3 — 启动任务 */
   @Post('youtube-download')
   youtubeDownload(@Body() dto: YoutubeDownloadDto) {
     return this.musicService.startYoutubeDownload(dto.url);
+  }
+
+  /** 更新生产环境 YouTube cookies.txt */
+  @Post('youtube-cookies')
+  async updateYoutubeCookies(
+    @Headers('authorization') authHeader: string | undefined,
+    @Body('cookies') cookies: string,
+  ) {
+    await this.requireAdmin(authHeader);
+    return this.musicService.updateYoutubeCookies(cookies);
   }
 
   /** 轮询下载进度 */

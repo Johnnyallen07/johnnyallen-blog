@@ -53,7 +53,7 @@ export function PropertyPanel({
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
             placeholder="输入文章标题..."
-            className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+            className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
           />
         </div>
 
@@ -66,7 +66,7 @@ export function PropertyPanel({
               value={slug}
               onChange={(e) => onSlugChange(e.target.value)}
               placeholder="article-slug"
-              className={`border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30 ${
+              className={`border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30 ${
                 isSlugDuplicate ? "border-red-400 focus:border-red-500" : ""
               }`}
             />
@@ -99,7 +99,7 @@ export function PropertyPanel({
         </div>
 
         {/* 统计信息 */}
-        <div className="p-4 bg-gradient-to-br from-cyan-50 via-purple-50 to-pink-50 rounded-lg border border-cyan-200/50">
+        <div className="p-4 bg-amber-50 rounded-lg border border-amber-200/70">
           <div className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
             <span>📊</span>
             <span>文章统计</span>
@@ -107,19 +107,19 @@ export function PropertyPanel({
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">阅读量</span>
-              <span className="text-lg font-bold bg-gradient-to-r from-cyan-600 to-purple-600 bg-clip-text text-transparent">
+              <span className="text-lg font-bold text-gray-900">
                 1,234
               </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">点赞数</span>
-              <span className="text-lg font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+              <span className="text-lg font-bold text-gray-900">
                 89
               </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">评论数</span>
-              <span className="text-lg font-bold bg-gradient-to-r from-pink-600 to-orange-600 bg-clip-text text-transparent">
+              <span className="text-lg font-bold text-gray-900">
                 23
               </span>
             </div>
@@ -151,9 +151,8 @@ export function PropertyPanel({
         <Button
           onClick={onPublish}
           disabled={isSaving}
-          className="w-full relative overflow-hidden bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/40 hover:scale-[1.02]"
+          className="w-full relative overflow-hidden bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm transition-all duration-300"
         >
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 -translate-x-full animate-[shimmer_2s_infinite]" />
           <Sparkles className="h-4 w-4 mr-2" />
           <span>发布文章</span>
         </Button>

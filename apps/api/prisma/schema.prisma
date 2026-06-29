@@ -186,7 +186,7 @@ model MusicSeries {
 model MusicScore {
   id          String   @id @default(uuid())
   title       String
-  composer    String
+  composer    String?
   instrument  String
   fileKey     String
   fileUrl     String

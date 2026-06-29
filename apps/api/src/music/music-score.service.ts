@@ -78,6 +78,7 @@ export class MusicScoreService {
     return this.prisma.musicScore.create({
       data: {
         ...dto,
+        composer: dto.composer?.trim() || null,
         order: (maxOrder._max.order ?? -1) + 1,
       },
     });
@@ -127,7 +128,12 @@ export class MusicScoreService {
 
     return this.prisma.musicScore.update({
       where: { id },
-      data: dto,
+      data: {
+        ...dto,
+        ...(dto.composer !== undefined
+          ? { composer: dto.composer?.trim() || null }
+          : {}),
+      },
     });
   }
 

@@ -105,7 +105,7 @@ const ENTITY_CONFIG: Record<
         label: "分类",
         apiPath: "/music-categories",
         icon: <ListMusic className="h-5 w-5" />,
-        color: "purple",
+        color: "amber",
     },
     artists: {
         label: "音乐家",
@@ -117,7 +117,7 @@ const ENTITY_CONFIG: Record<
         label: "系列",
         apiPath: "/music-series",
         icon: <Music className="h-5 w-5" />,
-        color: "pink",
+        color: "amber",
     },
 };
 
@@ -159,7 +159,7 @@ function IconPicker({
                                         setIsOpen(false);
                                     }}
                                     className={`flex flex-col items-center gap-0.5 p-2 rounded-md transition-colors ${active
-                                        ? "bg-purple-100 text-purple-700"
+                                        ? "bg-amber-100 text-amber-700"
                                         : "hover:bg-gray-100 text-gray-600"
                                         }`}
                                     title={opt.label}
@@ -296,14 +296,12 @@ function EntityColumn({ type }: { type: EntityType }) {
     };
 
     const colorMap: Record<string, string> = {
-        purple: "from-purple-500 to-purple-600",
+        amber: "from-amber-500 to-amber-600",
         blue: "from-blue-500 to-blue-600",
-        pink: "from-pink-500 to-pink-600",
     };
     const bgColorMap: Record<string, string> = {
-        purple: "bg-purple-50 border-purple-200",
+        amber: "bg-amber-50 border-amber-200",
         blue: "bg-blue-50 border-blue-200",
-        pink: "bg-pink-50 border-pink-200",
     };
 
     return (
@@ -469,7 +467,7 @@ export default function SidebarManagePage() {
     const router = useRouter();
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-cyan-50">
+        <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
             {/* Header */}
             <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
                 <div className="max-w-7xl mx-auto px-8 py-4">

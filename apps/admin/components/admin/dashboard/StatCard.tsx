@@ -17,21 +17,13 @@ export function StatCard({
   change,
   changeType,
   icon: Icon,
-  gradient,
 }: StatCardProps) {
   return (
-    <div className="relative bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-300 overflow-hidden group">
-      {/* 背景装饰 */}
-      <div
-        className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${gradient} opacity-5 rounded-full blur-2xl group-hover:opacity-10 transition-opacity`}
-      />
-
-      <div className="relative">
+    <div className="relative bg-white border border-gray-200 rounded-xl p-6 transition-all duration-300 overflow-hidden group">
+      <div>
         <div className="flex items-start justify-between mb-4">
-          <div
-            className={`p-3 rounded-lg bg-gradient-to-br ${gradient} shadow-lg`}
-          >
-            <Icon className="h-6 w-6 text-white" />
+          <div className="p-3 rounded-lg bg-amber-100">
+            <Icon className="h-6 w-6 text-amber-600" />
           </div>
           {change && (
             <div
@@ -46,7 +38,7 @@ export function StatCard({
 
         <div>
           <p className="text-sm text-gray-600 mb-1">{title}</p>
-          <p className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+          <p className="text-3xl font-bold text-gray-900">
             {value}
           </p>
         </div>

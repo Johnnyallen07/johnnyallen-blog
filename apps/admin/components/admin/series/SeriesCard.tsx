@@ -22,19 +22,6 @@ interface SeriesCardProps {
   onClick: () => void;
 }
 
-const CATEGORY_COLORS: Record<string, string> = {
-  游戏: "from-cyan-500 to-blue-500",
-  科技: "from-purple-500 to-pink-500",
-  艺术设计: "from-orange-500 to-red-500",
-  测评: "from-green-500 to-teal-500",
-  教程: "from-yellow-500 to-orange-500",
-  新闻: "from-indigo-500 to-purple-500",
-};
-
-function getCategoryColor(cat: string): string {
-  return CATEGORY_COLORS[cat] ?? "from-gray-500 to-gray-600";
-}
-
 export function SeriesCard({
   name,
   url,
@@ -48,21 +35,16 @@ export function SeriesCard({
 }: SeriesCardProps) {
   return (
     <div
-      className="group relative bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-300 cursor-pointer hover:border-cyan-300 overflow-hidden"
+      className="group bg-white border border-gray-200 rounded-xl p-6 transition-colors cursor-pointer hover:border-amber-200 hover:bg-amber-50/30"
       onClick={onClick}
     >
-      {/* 背景装饰 */}
-      <div
-        className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${getCategoryColor(category)} opacity-5 rounded-full blur-2xl group-hover:opacity-10 transition-opacity`}
-      />
-
-      <div className="relative">
+      <div>
         {/* 头部 */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="text-4xl">{emoji}</div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900 group-hover:text-cyan-600 transition-colors">
+              <h3 className="text-lg font-bold text-gray-900 group-hover:text-amber-600 transition-colors">
                 {name}
               </h3>
               <p className="text-sm text-gray-500 flex items-center gap-1">
@@ -114,7 +96,7 @@ export function SeriesCard({
         {/* 分类标签 */}
         <div className="mb-4">
           <span
-            className={`inline-block px-3 py-1 text-xs rounded-full bg-gradient-to-r ${getCategoryColor(category)} text-white font-medium`}
+            className="inline-block px-3 py-1 text-xs rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium"
           >
             {category}
           </span>

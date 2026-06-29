@@ -1,0 +1,1 @@
+ALTER TABLE "MusicScore" ALTER COLUMN "composer" DROP NOT NULL;

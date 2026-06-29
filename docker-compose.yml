@@ -42,7 +42,7 @@ services:
       COS_PUBLIC_DOMAIN: ${COS_PUBLIC_DOMAIN:-}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
     volumes:
-      - ./cookies.txt:/app/cookies.txt:ro
+      - ./cookies.txt:/app/cookies.txt
     ports:
       - '3001:3001'
     depends_on:

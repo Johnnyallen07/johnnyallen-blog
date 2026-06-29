@@ -328,7 +328,7 @@ export default function NewPostPage() {
                   所属分类 <span className="text-red-500">*</span>
                 </Label>
                 <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger className="border-gray-300 focus:border-cyan-500 focus:ring-cyan-500/30">
+                  <SelectTrigger className="border-gray-300 focus:border-amber-500 focus:ring-amber-500/30">
                     <SelectValue placeholder="选择分类" />
                   </SelectTrigger>
                   <SelectContent className="bg-white border-gray-200">
@@ -350,7 +350,7 @@ export default function NewPostPage() {
                   value={title}
                   onChange={(e) => handleTitleChange(e.target.value)}
                   placeholder="输入文章标题..."
-                  className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                  className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
                   autoFocus
                 />
               </div>
@@ -366,7 +366,7 @@ export default function NewPostPage() {
                     value={slug}
                     onChange={(e) => setSlug(e.target.value)}
                     placeholder="article-slug"
-                    className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                    className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
                   />
                 </div>
                 {isSlugDuplicate && (
@@ -387,7 +387,7 @@ export default function NewPostPage() {
               <Button
                 onClick={handleSetupComplete}
                 disabled={!canProceed}
-                className="w-full bg-gradient-to-r from-cyan-500 to-purple-500 hover:from-cyan-600 hover:to-purple-600 text-white font-medium"
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white font-medium"
               >
                 开始写作
                 <ChevronRight className="h-4 w-4 ml-2" />
@@ -424,7 +424,7 @@ export default function NewPostPage() {
             {postId ? "编辑文章" : "创建新文章"}
           </span>
           {isSaving ? (
-            <span className="text-xs text-cyan-600 animate-pulse">
+            <span className="text-xs text-amber-600 animate-pulse">
               正在保存...
             </span>
           ) : lastSaved ? (
@@ -467,7 +467,7 @@ export default function NewPostPage() {
                   所属分类 <span className="text-red-500">*</span>
                 </Label>
                 <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger className="border-gray-300 focus:border-cyan-500 focus:ring-cyan-500/30">
+                  <SelectTrigger className="border-gray-300 focus:border-amber-500 focus:ring-amber-500/30">
                     <SelectValue placeholder="选择分类" />
                   </SelectTrigger>
                   <SelectContent className="bg-white border-gray-200">
@@ -487,7 +487,7 @@ export default function NewPostPage() {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="输入文章标题..."
-                  className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                  className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
                 />
               </div>
 
@@ -502,7 +502,7 @@ export default function NewPostPage() {
                     value={slug}
                     onChange={(e) => setSlug(e.target.value)}
                     placeholder="article-slug"
-                    className="border-gray-300 focus:border-cyan-500 focus-visible:ring-cyan-500/30"
+                    className="border-gray-300 focus:border-amber-500 focus-visible:ring-amber-500/30"
                   />
                 </div>
               </div>
@@ -552,9 +552,8 @@ export default function NewPostPage() {
               <Button
                 onClick={handlePublish}
                 disabled={isLoading || isSaving}
-                className="w-full relative overflow-hidden bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:from-cyan-600 hover:via-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/40 hover:scale-[1.02]"
+                className="w-full relative overflow-hidden bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm transition-all duration-300"
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 -translate-x-full animate-[shimmer_2s_infinite]" />
                 <Sparkles className="h-4 w-4 mr-2" />
                 <span>发布文章</span>
               </Button>

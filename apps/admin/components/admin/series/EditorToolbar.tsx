@@ -251,7 +251,7 @@ export function EditorToolbar({
         variant="ghost"
         size="sm"
         onClick={onImageUpload}
-        className="h-8 w-8 p-0 hover:bg-purple-100 hover:text-purple-600 text-gray-600"
+        className="h-8 w-8 p-0 hover:bg-amber-100 hover:text-amber-600 text-gray-600"
         title="插入图片"
       >
         <Image className="h-4 w-4" />
@@ -261,7 +261,7 @@ export function EditorToolbar({
         variant="ghost"
         size="sm"
         onClick={onVideoUpload}
-        className="h-8 w-8 p-0 hover:bg-purple-100 hover:text-purple-600 text-gray-600"
+        className="h-8 w-8 p-0 hover:bg-amber-100 hover:text-amber-600 text-gray-600"
         title="插入视频 (≤30s, ≤20MB)"
       >
         <Video className="h-4 w-4" />
@@ -271,7 +271,7 @@ export function EditorToolbar({
         variant="ghost"
         size="sm"
         onClick={onAttachmentUpload}
-        className="h-8 w-8 p-0 hover:bg-cyan-100 hover:text-cyan-600 text-gray-600"
+        className="h-8 w-8 p-0 hover:bg-amber-100 hover:text-amber-600 text-gray-600"
         title="插入可下载附件"
       >
         <FileUp className="h-4 w-4" />

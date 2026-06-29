@@ -4,8 +4,9 @@ export class CreateMusicScoreDto {
   @IsString()
   title: string;
 
+  @IsOptional()
   @IsString()
-  composer: string;
+  composer?: string | null;
 
   @IsString()
   instrument: string;
