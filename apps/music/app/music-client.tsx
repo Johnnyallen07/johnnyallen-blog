@@ -17,10 +17,12 @@ import {
 import { getApiBaseUrl } from "@/lib/api";
 
 import {
-    calculateBufferedBytes,
     calculateBufferedPercent,
+    calculateDownloadedPercent,
+    calculateDisplayedBufferPercent,
     calculateProgressPercent,
     calculateThroughputKbps,
+    shouldShowBufferStatus,
 } from "../lib/player-metrics";
 
 /* ───────── Icon Map ───────── */
@@ -342,6 +344,90 @@ export default function MusicPageClient() {
     const retryCountRef = useRef(0);
     const maxRetries = 2;
     const bufferSampleRef = useRef<{ bytes: number; at: number } | null>(null);
+    const mediaBufferedPercentRef = useRef(0);
+    const cacheDownloadedPercentRef = useRef(0);
+    const cacheAbortRef = useRef<AbortController | null>(null);
+
+    const publishBufferedPercent = useCallback(() => {
+        setBufferedPercent(calculateDisplayedBufferPercent(
+            mediaBufferedPercentRef.current,
+            cacheDownloadedPercentRef.current,
+        ));
+    }, []);
+
+    const resetBufferTracking = useCallback(() => {
+        bufferSampleRef.current = null;
+        mediaBufferedPercentRef.current = 0;
+        cacheDownloadedPercentRef.current = 0;
+        setBufferedPercent(0);
+        setNetworkSpeedKbps(0);
+    }, []);
+
+    const abortCacheDownload = useCallback(() => {
+        cacheAbortRef.current?.abort();
+        cacheAbortRef.current = null;
+    }, []);
+
+    const startCacheDownload = useCallback((song: Song) => {
+        abortCacheDownload();
+
+        if (!song.fileUrl || !song.fileSize) return;
+
+        const controller = new AbortController();
+        cacheAbortRef.current = controller;
+
+        void (async () => {
+            let loadedBytes = 0;
+            let previousSample = { bytes: 0, at: performance.now() };
+
+            try {
+                const response = await fetch(song.fileUrl, {
+                    signal: controller.signal,
+                    cache: "force-cache",
+                });
+                if (!response.ok || !response.body) return;
+
+                const contentLength = Number(response.headers.get("content-length"));
+                const totalBytes = Number.isFinite(contentLength) && contentLength > 0
+                    ? contentLength
+                    : song.fileSize;
+                const reader = response.body.getReader();
+
+                while (!controller.signal.aborted) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    loadedBytes += value.byteLength;
+                    const downloadedPercent = calculateDownloadedPercent(loadedBytes, totalBytes);
+                    cacheDownloadedPercentRef.current = downloadedPercent;
+                    publishBufferedPercent();
+
+                    const now = performance.now();
+                    setNetworkSpeedKbps(calculateThroughputKbps(
+                        loadedBytes,
+                        previousSample.bytes,
+                        now - previousSample.at,
+                    ));
+                    previousSample = { bytes: loadedBytes, at: now };
+                }
+
+                if (!controller.signal.aborted) {
+                    cacheDownloadedPercentRef.current = 100;
+                    publishBufferedPercent();
+                    setNetworkSpeedKbps(0);
+                }
+            } catch (err) {
+                if (!controller.signal.aborted) {
+                    setNetworkSpeedKbps(0);
+                    console.warn("Audio cache progress failed:", err);
+                }
+            } finally {
+                if (cacheAbortRef.current === controller) {
+                    cacheAbortRef.current = null;
+                }
+            }
+        })();
+    }, [abortCacheDownload, publishBufferedPercent]);
 
     // Initialize audio element once
     useEffect(() => {
@@ -359,16 +445,8 @@ export default function MusicPageClient() {
             const duration = isFinite(audio.duration) && audio.duration > 0
                 ? audio.duration
                 : song?.duration ?? 0;
-            const nextBufferedPercent = calculateBufferedPercent(audio.buffered, duration);
-            setBufferedPercent(nextBufferedPercent);
-
-            const loadedBytes = calculateBufferedBytes(audio.buffered, duration, song?.fileSize ?? 0);
-            const now = performance.now();
-            const previous = bufferSampleRef.current;
-            if (previous) {
-                setNetworkSpeedKbps(calculateThroughputKbps(loadedBytes, previous.bytes, now - previous.at));
-            }
-            bufferSampleRef.current = { bytes: loadedBytes, at: now };
+            mediaBufferedPercentRef.current = calculateBufferedPercent(audio.buffered, duration);
+            publishBufferedPercent();
         };
 
         const onTimeUpdate = () => {
@@ -436,9 +514,7 @@ export default function MusicPageClient() {
             retryCountRef.current = 0; // reset retry on successful buffer
         };
         const onLoadStart = () => {
-            bufferSampleRef.current = null;
-            setBufferedPercent(0);
-            setNetworkSpeedKbps(0);
+            resetBufferTracking();
             setIsLoading(true);
         };
         const onWaiting = () => {
@@ -520,7 +596,13 @@ export default function MusicPageClient() {
         audio.addEventListener("play", onPlay);
         audio.addEventListener("pause", onPause);
 
+        const bufferPoll = window.setInterval(() => {
+            if (currentSongRef.current) updateBufferMetrics();
+        }, 500);
+
         return () => {
+            window.clearInterval(bufferPoll);
+            abortCacheDownload();
             audio.removeEventListener("timeupdate", onTimeUpdate);
             audio.removeEventListener("loadedmetadata", onLoadedMetadata);
             audio.removeEventListener("durationchange", onDurationChange);
@@ -777,13 +859,11 @@ export default function MusicPageClient() {
         if (!audio) return;
 
         retryCountRef.current = 0;
-        bufferSampleRef.current = null;
+        resetBufferTracking();
         halfPlayedRef.current = null;
         setCurrentSong(song);
         setCurrentTime(0);
         setAudioDuration(song.duration || 0);
-        setBufferedPercent(0);
-        setNetworkSpeedKbps(0);
         setIsLoading(true);
 
         // Update MediaSession metadata for lock screen
@@ -809,6 +889,7 @@ export default function MusicPageClient() {
         audio.pause();
         audio.src = song.fileUrl;
         audio.load();
+        startCacheDownload(song);
         audio.play()
             .then(() => setIsLoading(false))
             .catch((err) => {
@@ -829,7 +910,7 @@ export default function MusicPageClient() {
             setShuffleQueue([song, ...shuffled]);
             setShuffleIndex(0);
         }
-    }, [playMode]);
+    }, [playMode, resetBufferTracking, startCacheDownload]);
 
     /* ── Restore saved song on mount ── */
     useEffect(() => {
@@ -848,8 +929,7 @@ export default function MusicPageClient() {
         setCurrentSong(song);
         setCurrentTime(savedTime);
         setAudioDuration(song.duration || 0);
-        setBufferedPercent(0);
-        setNetworkSpeedKbps(0);
+        resetBufferTracking();
         setIsLoading(true);
 
         // Update MediaSession metadata
@@ -863,6 +943,7 @@ export default function MusicPageClient() {
 
         audio.src = song.fileUrl;
         audio.load();
+        startCacheDownload(song);
 
         // After metadata loads, seek to saved time (stay paused).
         const onReady = () => {
@@ -877,7 +958,7 @@ export default function MusicPageClient() {
             setIsLoading(false);
         };
         audio.addEventListener("loadedmetadata", onReady, { once: true });
-    }, []);
+    }, [resetBufferTracking, startCacheDownload]);
 
     const togglePlayPause = useCallback(() => {
         const audio = audioRef.current;
@@ -1337,6 +1418,7 @@ export default function MusicPageClient() {
     const visibleProgressPercent = seekPreview !== null
         ? calculateProgressPercent(seekPreview, audioDuration)
         : progressPercent;
+    const showBufferStatus = shouldShowBufferStatus(bufferedPercent);
     const bufferStatusLabel = isLoading && networkSpeedKbps <= 0
         ? "缓冲中"
         : formatNetworkSpeed(networkSpeedKbps);
@@ -1666,9 +1748,11 @@ export default function MusicPageClient() {
                                 <span className="text-xs text-gray-400 tabular-nums">{formatDuration(currentTime)}</span>
                                 <span className="text-xs text-gray-300">/</span>
                                 <span className="text-xs text-gray-400 tabular-nums">{formatDuration(audioDuration)}</span>
-                                <span className="hidden md:inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-white/55 px-2 py-1 text-[11px] tabular-nums text-gray-500">
-                                    缓存 {Math.round(bufferedPercent)}% · {bufferStatusLabel}
-                                </span>
+                                {showBufferStatus && (
+                                    <span className="hidden md:inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-white/55 px-2 py-1 text-[11px] tabular-nums text-gray-500">
+                                        缓存 {Math.round(bufferedPercent)}% · {bufferStatusLabel}
+                                    </span>
+                                )}
                                 <div className="hidden md:flex items-center gap-2 ml-4">
                                     <button onClick={toggleMute} className="p-1 hover:bg-gray-100 rounded transition-all">
                                         <VolumeIcon className="h-4 w-4 text-gray-500" />

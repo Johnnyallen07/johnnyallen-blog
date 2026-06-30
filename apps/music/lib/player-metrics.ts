@@ -23,6 +23,24 @@ export function calculateBufferedPercent(buffered: TimeRanges, duration: number)
     return clampPercent((getFarthestBufferedEnd(buffered) / duration) * 100);
 }
 
+export function calculateDownloadedPercent(loadedBytes: number, totalBytes: number): number {
+    if (!Number.isFinite(loadedBytes) || !Number.isFinite(totalBytes) || totalBytes <= 0) {
+        return 0;
+    }
+    return clampPercent((loadedBytes / totalBytes) * 100);
+}
+
+export function calculateDisplayedBufferPercent(
+    mediaBufferedPercent: number,
+    downloadedPercent: number,
+): number {
+    return clampPercent(Math.max(mediaBufferedPercent, downloadedPercent));
+}
+
+export function shouldShowBufferStatus(bufferedPercent: number): boolean {
+    return clampPercent(bufferedPercent) < 99.5;
+}
+
 export function calculateBufferedBytes(
     buffered: TimeRanges,
     duration: number,
