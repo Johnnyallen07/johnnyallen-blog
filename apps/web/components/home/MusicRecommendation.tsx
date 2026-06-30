@@ -149,10 +149,6 @@ export function MusicRecommendation() {
         <h3 className="text-lg font-semibold text-gray-900">音乐推荐</h3>
       </div>
 
-      <p className="text-sm text-gray-600 mb-4">
-        每日精选，分享我喜欢的古典韵律
-      </p>
-
       <div className="space-y-3">
         {recommended.map((track) => {
           const isPlaying = playingId === track.id;

@@ -9,7 +9,12 @@ interface Category {
   slug: string;
 }
 
-export function TagCloud() {
+interface TagCloudProps {
+  selectedTagSlug?: string | null;
+  onSelectTag?: (tag: Category) => void;
+}
+
+export function TagCloud({ selectedTagSlug, onSelectTag }: TagCloudProps) {
   const [tags, setTags] = useState<Category[]>([]);
 
   useEffect(() => {
@@ -17,9 +22,7 @@ export function TagCloud() {
       try {
         const categories: Category[] = await fetchClient("/categories");
         if (Array.isArray(categories) && categories.length > 0) {
-          // Shuffle and pick up to 10
-          const shuffled = [...categories].sort(() => Math.random() - 0.5);
-          setTags(shuffled.slice(0, 10));
+          setTags(categories.slice(0, 12));
         }
       } catch (e) {
         console.error("Failed to load tags", e);
@@ -31,20 +34,30 @@ export function TagCloud() {
   if (tags.length === 0) return null;
 
   return (
-    <div className="bg-white/[0.18] backdrop-blur-sm border border-slate-200/60 rounded-xl p-5 shadow-sm hover:bg-white/30 hover:border-slate-400 transition-all duration-300">
+    <div>
       <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
         <span className="text-slate-500">#</span>
         标签
       </h3>
       <div className="flex flex-wrap gap-2">
-        {tags.map((tag) => (
-          <button
-            key={tag.id}
-            className="px-3 py-1.5 rounded-lg bg-white/35 backdrop-blur-sm border border-slate-200/70 text-gray-700 hover:border-slate-500 hover:text-slate-950 hover:bg-white/55 transition-all text-sm"
-          >
-            #{tag.name}
-          </button>
-        ))}
+        {tags.map((tag) => {
+          const isSelected = selectedTagSlug === tag.slug;
+
+          return (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() => onSelectTag?.(tag)}
+              className={`px-3 py-1.5 rounded-lg backdrop-blur-sm border transition-all text-sm ${
+                isSelected
+                  ? "bg-slate-950 text-white border-slate-950"
+                  : "bg-white/35 border-slate-200/70 text-gray-700 hover:border-slate-500 hover:text-slate-950 hover:bg-white/55"
+              }`}
+            >
+              #{tag.name}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

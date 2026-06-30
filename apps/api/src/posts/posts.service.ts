@@ -71,7 +71,7 @@ export class PostsService {
           },
         },
         orderBy: {
-          createdAt: 'desc',
+          updatedAt: 'desc',
         },
         skip,
         take,
@@ -96,7 +96,7 @@ export class PostsService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        updatedAt: 'desc',
       },
       skip,
       take,
@@ -126,7 +126,7 @@ export class PostsService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        updatedAt: 'desc',
       },
       take: limit,
     });
@@ -157,7 +157,7 @@ export class PostsService {
         media: true,
       },
       orderBy: {
-        createdAt: 'desc',
+        updatedAt: 'desc',
       },
     });
 

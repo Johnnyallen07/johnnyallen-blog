@@ -369,7 +369,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
             {/* Left sidebar — Series tree */}
             {!isImmersive && (
               <aside className="lg:col-span-3 transition-all duration-300">
-                <div className="lg:sticky lg:top-24 space-y-4">
+                <div className="space-y-4">
                   <SeriesSidebar
                     title={seriesInfo.title}
                     slug={seriesInfo.slug}
@@ -399,7 +399,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
             {/* Right sidebar — TOC */}
             {!isImmersive && (
               <aside className="lg:col-span-2 transition-all duration-300">
-                <div className="lg:sticky lg:top-24">
+                <div>
                   <TableOfContents items={tocItems} />
                 </div>
               </aside>
@@ -426,7 +426,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
             {/* Right sidebar — TOC + Similar articles */}
             {!isImmersive && (
               <aside className="lg:col-span-3 transition-all duration-300">
-                <div className="lg:sticky lg:top-24 space-y-6">
+                <div className="space-y-6">
                   <TableOfContents items={tocItems} />
                   {similarArticles.length > 0 && (
                     <SimilarArticles

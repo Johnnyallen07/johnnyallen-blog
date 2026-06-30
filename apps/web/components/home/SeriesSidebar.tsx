@@ -24,7 +24,7 @@ export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
     const mobileRecommendations = getMobileSeriesRecommendations(items, pathname);
 
     return (
-        <div className="lg:sticky lg:top-24">
+        <div>
             <div className="bg-white/60 backdrop-blur-md border border-gray-200/60 rounded-2xl shadow-sm overflow-hidden">
                 {/* Header */}
                 <div className="px-4 py-3 bg-gradient-to-r from-cyan-50/80 to-blue-50/80 border-b border-gray-200/50">
@@ -36,7 +36,7 @@ export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
                 </div>
 
                 {/* Tree */}
-                <div className="hidden lg:block p-2 max-h-[calc(100vh-220px)] overflow-y-auto">
+                <div className="hidden lg:block p-2">
                     {visibleItems.length > 0 ? (
                         visibleItems.map((item) => (
                             <SeriesNode

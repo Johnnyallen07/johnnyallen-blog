@@ -10,7 +10,6 @@ interface NavLink {
 }
 
 const NAV_LINKS: NavLink[] = [
-  { href: "/categories", label: "分类" },
   { href: "/archive", label: "归档" },
   { href: "/about", label: "关于我" },
 ];

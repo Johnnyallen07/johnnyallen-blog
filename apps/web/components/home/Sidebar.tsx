@@ -6,14 +6,15 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Search,
+  X,
   Github,
   Home,
-  FolderOpen,
   Calendar,
   User,
   Linkedin,
 } from "lucide-react";
 import { BILIBILI_URL } from "@/lib/contact";
+import { TagCloud } from "./TagCloud";
 import { WechatContactDialog } from "./WechatContactDialog";
 
 /** 微信 SVG 图标 */
@@ -36,14 +37,34 @@ function BilibiliIcon({ className }: { className?: string }) {
 
 const NAV_ITEMS = [
   { href: "/", label: "首页", icon: Home, hoverColor: "hover:text-slate-950" },
-  { href: "/categories", label: "分类", icon: FolderOpen, hoverColor: "hover:text-slate-950" },
   { href: "/archive", label: "归档", icon: Calendar, hoverColor: "hover:text-slate-950" },
   { href: "/about", label: "关于我", icon: User, hoverColor: "hover:text-slate-950" },
 ];
 
-export function Sidebar() {
+interface SidebarTag {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+interface SidebarProps {
+  searchQuery: string;
+  selectedTag: SidebarTag | null;
+  onSearchChange: (query: string) => void;
+  onSelectTag: (tag: SidebarTag) => void;
+  onClearFilters: () => void;
+}
+
+export function Sidebar({
+  searchQuery,
+  selectedTag,
+  onSearchChange,
+  onSelectTag,
+  onClearFilters,
+}: SidebarProps) {
   const pathname = usePathname();
   const [wechatOpen, setWechatOpen] = useState(false);
+  const hasActiveFilters = searchQuery.trim().length > 0 || selectedTag !== null;
 
   return (
     <div className="relative overflow-hidden bg-white/[0.18] rounded-2xl border border-slate-200/60 shadow-lg shadow-slate-900/5">
@@ -145,18 +166,45 @@ export function Sidebar() {
 
         {/* 站内搜索 */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">
-            站内搜索
-          </h4>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h4 className="text-sm font-semibold text-gray-700">
+              站内搜索
+            </h4>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={onClearFilters}
+                aria-label="清除筛选"
+                className="h-7 w-7 rounded-lg border border-slate-200/70 bg-white/30 text-gray-500 transition-all hover:border-slate-500 hover:bg-white/55 hover:text-slate-950"
+              >
+                <X className="mx-auto h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
+              value={searchQuery}
+              onChange={(event) => onSearchChange(event.target.value)}
               placeholder="搜索文章..."
               className="w-full pl-10 pr-4 py-2.5 bg-transparent backdrop-blur-sm border border-slate-200/70 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 transition-all shadow-sm"
             />
           </div>
+          {selectedTag && (
+            <p className="mt-2 text-xs text-gray-500">
+              #{selectedTag.name}
+            </p>
+          )}
         </div>
+
+        {/* 分隔线 */}
+        <div className="h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent" />
+
+        <TagCloud
+          selectedTagSlug={selectedTag?.slug}
+          onSelectTag={onSelectTag}
+        />
 
         {/* 分隔线 */}
         <div className="h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent" />

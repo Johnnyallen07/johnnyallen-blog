@@ -1,21 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/home/Sidebar";
 import { ArticleCard } from "@/components/home/ArticleCard";
-import { TagCloud } from "@/components/home/TagCloud";
 import { MusicRecommendation } from "@/components/home/MusicRecommendation";
 import { ProjectShowcase } from "@/components/home/ProjectShowcase";
 import { fetchClient } from "@/lib/api";
+import { filterArticles, sortArticlesByUpdatedAt } from "@/lib/articleFilters";
 
 interface Article {
   title: string;
   excerpt: string;
   column: string;
+  categorySlug?: string | null;
   tags: string[];
   date: string;
+  updatedAt: string;
   articleId?: string;
+}
+
+interface SelectedTag {
+  id: string;
+  name: string;
+  slug: string;
 }
 
 const ARTICLES_PER_PAGE = 5;
@@ -34,10 +42,12 @@ export function HomePageClient() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTag, setSelectedTag] = useState<SelectedTag | null>(null);
 
   const fetchArticles = useCallback(async () => {
     try {
-      const data = await fetchClient("/posts?published=true");
+      const data = await fetchClient("/posts?take=1000");
 
       interface PostDTO {
         id: string;
@@ -45,18 +55,15 @@ export function HomePageClient() {
         slug: string;
         content?: string;
         series?: { title: string };
-        category?: { name: string };
+        category?: { name: string; slug?: string };
         tags?: string[];
         createdAt: string;
+        updatedAt: string;
       }
 
       if (Array.isArray(data) && data.length > 0) {
-        const mapped: Article[] = [...(data as PostDTO[])]
-          .sort(
-            (a, b) =>
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          )
-          .map((post) => ({
+        const mapped: Article[] = sortArticlesByUpdatedAt(
+          (data as PostDTO[]).map((post) => ({
             title: post.title || "未命名文章",
             excerpt:
               post.content
@@ -65,10 +72,13 @@ export function HomePageClient() {
                 .trim() + "..." || "",
             column:
               post.series?.title || post.category?.name || "未分类",
+            categorySlug: post.category?.slug || post.category?.name || null,
             tags: post.tags || [],
-            date: formatPublishDate(post.createdAt),
+            date: formatPublishDate(post.updatedAt || post.createdAt),
+            updatedAt: post.updatedAt || post.createdAt,
             articleId: post.slug || post.id,
-          }));
+          })),
+        );
         setArticles(mapped);
         setCurrentPage(1);
       } else {
@@ -86,12 +96,29 @@ export function HomePageClient() {
     fetchArticles();
   }, [fetchArticles]);
 
-  const totalPages = Math.max(1, Math.ceil(articles.length / ARTICLES_PER_PAGE));
-  const visibleArticles = articles.slice(
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedTag]);
+
+  const filteredArticles = useMemo(
+    () =>
+      filterArticles(articles, {
+        searchQuery,
+        selectedCategorySlug: selectedTag?.slug ?? null,
+      }),
+    [articles, searchQuery, selectedTag],
+  );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredArticles.length / ARTICLES_PER_PAGE),
+  );
+  const visibleArticles = filteredArticles.slice(
     (currentPage - 1) * ARTICLES_PER_PAGE,
     currentPage * ARTICLES_PER_PAGE
   );
-  const hasPagination = articles.length > ARTICLES_PER_PAGE;
+  const hasPagination = filteredArticles.length > ARTICLES_PER_PAGE;
+  const hasActiveFilters = searchQuery.trim().length > 0 || selectedTag !== null;
 
   return (
     <div className="min-h-screen bg-[#f7f8f8] relative overflow-hidden">
@@ -323,7 +350,20 @@ export function HomePageClient() {
           {/* 左侧边栏 */}
           <aside className="lg:col-span-1">
             <div className="lg:sticky lg:top-6">
-              <Sidebar />
+              <Sidebar
+                searchQuery={searchQuery}
+                selectedTag={selectedTag}
+                onSearchChange={setSearchQuery}
+                onSelectTag={(tag) =>
+                  setSelectedTag((current) =>
+                    current?.slug === tag.slug ? null : tag,
+                  )
+                }
+                onClearFilters={() => {
+                  setSearchQuery("");
+                  setSelectedTag(null);
+                }}
+              />
             </div>
           </aside>
 
@@ -360,14 +400,16 @@ export function HomePageClient() {
                     </div>
                   ))}
                 </div>
-              ) : articles.length > 0 ? (
+              ) : filteredArticles.length > 0 ? (
                 <div className="space-y-4">
                   {visibleArticles.map((article, index) => (
                     <ArticleCard key={index} {...article} />
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 text-center py-8">暂无文章</p>
+                <p className="text-gray-500 text-center py-8">
+                  {hasActiveFilters ? "没有找到匹配的文章" : "暂无文章"}
+                </p>
               )}
 
               {!isLoading && hasPagination && (
@@ -425,7 +467,6 @@ export function HomePageClient() {
               animationDelay: '0.3s'
             }}>
               <MusicRecommendation />
-              <TagCloud />
               <ProjectShowcase />
             </div>
           </aside>
