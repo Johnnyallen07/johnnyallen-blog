@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Deploy over SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -23,12 +25,23 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
+          ssh -i ~/.ssh/deploy_key ubuntu@"$DEPLOY_HOST" 'sudo mkdir -p /opt/johnny-blog && sudo chown ubuntu:ubuntu /opt/johnny-blog'
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude 'node_modules/' \
+            --exclude '.next/' \
+            --exclude '.turbo/' \
+            --exclude '.env' \
+            --exclude '.env.production' \
+            --exclude 'cookies.txt' \
+            --exclude 'johnny.pem' \
+            ./ ubuntu@"$DEPLOY_HOST":/opt/johnny-blog/
+
           ssh -i ~/.ssh/deploy_key ubuntu@"$DEPLOY_HOST" <<'EOF'
             set -euo pipefail
 
-            cd /home/ubuntu/johnny-blog
-            git fetch origin main
-            git reset --hard origin/main
+            cd /opt/johnny-blog
+            sudo rm -rf cookies.txt
             docker compose up -d --build --remove-orphans
             docker image prune -f
           EOF
