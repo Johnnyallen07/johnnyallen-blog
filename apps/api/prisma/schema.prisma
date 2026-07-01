@@ -207,3 +207,61 @@ enum MediaType {
   AUDIO
   FILE
 }
+
+// ===== i18n =====
+
+enum TranslationStatus {
+  MACHINE // 机器翻译，未经人工校对
+  REVIEWED // 人工校对/编辑过
+}
+
+// 前端 UI 文案（key 与中文源文案以 apps/{web,music}/messages/zh.json 为准，由 i18n-sync 脚本同步进来）
+model UiMessage {
+  id           String                 @id @default(uuid())
+  app          String // 'web' | 'music'
+  namespace    String // 'home' | 'nav' | 'player' ...
+  key          String // namespace 内的点路径，如 'pagination.prev'
+  sourceText   String // 中文原文（zh.json 镜像）
+  description  String? // 给译者/LLM 的补充上下文
+  locations    String[] // 使用位置，如 'app/[locale]/home-client.tsx:374'
+  orphaned     Boolean                @default(false) // key 已从代码中移除
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  translations UiMessageTranslation[]
+
+  @@unique([app, namespace, key])
+  @@index([app, orphaned])
+}
+
+model UiMessageTranslation {
+  id         String            @id @default(uuid())
+  message    UiMessage         @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId  String
+  locale     String // 'en'
+  text       String
+  status     TranslationStatus @default(MACHINE)
+  sourceHash String? // 翻译时 sourceText 的 sha256，用于过期检测
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@unique([messageId, locale])
+  @@index([locale, status])
+}
+
+// 数据库动态内容的翻译，按 (实体类型, 实体ID, 字段, 语言) 覆盖中文源字段
+model ContentTranslation {
+  id         String            @id @default(uuid())
+  entityType String // 'post'|'category'|'series'|'seriesItem'|'musicTrack'|'musicCategory'|'musicArtist'|'musicSeries'|'musicScore'
+  entityId   String
+  field      String // 'title'|'excerpt'|'content'|'name'|'description'|'musician'|'performer'|'composer'
+  locale     String // 'en'
+  value      String
+  status     TranslationStatus @default(MACHINE)
+  sourceHash String // 翻译时中文源值的 sha256，用于过期检测
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@unique([entityType, entityId, field, locale])
+  @@index([entityType, locale])
+  @@index([locale, status])
+}
