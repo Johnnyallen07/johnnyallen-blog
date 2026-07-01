@@ -5,18 +5,29 @@ import Link from "next/link";
 import {
     ArrowLeft,
     BarChart3,
+    BookOpen,
     ChevronDown,
+    ChevronRight,
+    Columns2,
     Gauge,
     KeyboardMusic,
+    Loader2,
     Mic,
     MicOff,
     Minus,
+    PanelRightClose,
     Plus,
+    Rows2,
     SlidersHorizontal,
     Timer,
+    Upload,
     Volume2,
     X,
+    ZoomIn,
+    ZoomOut,
 } from "lucide-react";
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import { getApiBaseUrl } from "@/lib/api";
 
 import {
     buildPianoKeys,
@@ -108,6 +119,18 @@ interface NoteStat {
     flat: number;
     sharp: number;
     sumAbsCents: number;
+}
+
+type ScoreLayout = "vertical" | "horizontal";
+
+interface MusicScore {
+    id: string;
+    title: string;
+    composer: string | null;
+    instrument: string;
+    fileUrl: string;
+    fileSize: number;
+    pageCount: number;
 }
 
 const MODES: { id: TunerMode; label: string; tolerance: string }[] = [
@@ -458,6 +481,350 @@ function NoteButtons({ onPlay }: { onPlay: (key: PianoKey) => void }) {
     );
 }
 
+/**
+ * Split-view sheet-music reader. Renders a PDF (from the library API or a local
+ * file) with two reading modes: a continuous vertical scroll (swipe up/down) and
+ * a horizontal page-by-page strip (swipe left/right). Pages are fitted to the
+ * panel — width in vertical mode, height in horizontal — so almost no margin is
+ * wasted, and a user zoom multiplies that fit.
+ */
+function ScorePanel({
+    layout,
+    onLayoutChange,
+    onClose,
+}: {
+    layout: ScoreLayout;
+    onLayoutChange: (layout: ScoreLayout) => void;
+    onClose: () => void;
+}) {
+    const [scores, setScores] = useState<MusicScore[]>([]);
+    const [picking, setPicking] = useState(true);
+    const [title, setTitle] = useState("乐谱");
+    const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+    const [numPages, setNumPages] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [zoom, setZoom] = useState(1);
+    const [loading, setLoading] = useState(false);
+    const [loadError, setLoadError] = useState("");
+
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const canvasMapRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
+    const localUrlRef = useRef<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const renderingRef = useRef(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`${getApiBaseUrl()}/music-scores`)
+            .then((res) => (res.ok ? res.json() : []))
+            .then((data) => {
+                if (!cancelled) setScores(Array.isArray(data) ? data : []);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const loadFromUrl = useCallback((url: string, label: string) => {
+        setLoading(true);
+        setLoadError("");
+        setPicking(false);
+        setTitle(label);
+        setPdfDoc(null);
+        setNumPages(0);
+        setCurrentPage(1);
+        void import("pdfjs-dist")
+            .then((pdfjsLib) => {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+                return pdfjsLib.getDocument(url).promise;
+            })
+            .then((pdf) => {
+                setPdfDoc(pdf);
+                setNumPages(pdf.numPages);
+                setLoading(false);
+            })
+            .catch((err) => {
+                console.error("Failed to load PDF:", err);
+                setLoadError("无法加载该乐谱。");
+                setLoading(false);
+            });
+    }, []);
+
+    const openLocalFile = (file: File) => {
+        if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+        const url = URL.createObjectURL(file);
+        localUrlRef.current = url;
+        loadFromUrl(url, file.name.replace(/\.pdf$/i, ""));
+    };
+
+    useEffect(() => () => {
+        if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+    }, []);
+
+    // Render every page, fitted to the panel. A single in-flight guard keeps
+    // pdf.js from drawing the same canvas twice at once (it throws otherwise),
+    // and a ResizeObserver re-fits the pages when the split is dragged.
+    useEffect(() => {
+        if (!pdfDoc) return;
+        const container = scrollRef.current;
+        if (!container) return;
+        let cancelled = false;
+
+        const renderAll = async () => {
+            while (renderingRef.current) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                if (cancelled) return;
+            }
+            renderingRef.current = true;
+            try {
+                const dpr = window.devicePixelRatio || 1;
+                for (let pageNum = 1; pageNum <= numPages; pageNum += 1) {
+                    if (cancelled) return;
+                    const canvas = canvasMapRef.current.get(pageNum);
+                    if (!canvas) continue;
+                    const page = await pdfDoc.getPage(pageNum);
+                    const base = page.getViewport({ scale: 1 });
+                    const cssScale =
+                        layout === "vertical"
+                            ? ((container.clientWidth - 6) / base.width) * zoom
+                            : ((container.clientHeight - 6) / base.height) * zoom;
+                    if (!Number.isFinite(cssScale) || cssScale <= 0) continue;
+                    const cssViewport = page.getViewport({ scale: cssScale });
+                    const renderViewport = page.getViewport({ scale: cssScale * dpr });
+                    canvas.width = Math.floor(renderViewport.width);
+                    canvas.height = Math.floor(renderViewport.height);
+                    canvas.style.width = `${Math.floor(cssViewport.width)}px`;
+                    canvas.style.height = `${Math.floor(cssViewport.height)}px`;
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) continue;
+                    await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+                }
+            } finally {
+                renderingRef.current = false;
+            }
+        };
+
+        void renderAll();
+        const observer = new ResizeObserver(() => void renderAll());
+        observer.observe(container);
+        return () => {
+            cancelled = true;
+            observer.disconnect();
+        };
+    }, [pdfDoc, numPages, layout, zoom]);
+
+    // Track which page is centred so the indicator stays in sync while scrolling.
+    // Bounding rects keep the maths in one coordinate space — the canvases'
+    // offsetParent is the document body, so offsetLeft/Top can't be compared
+    // against the scroller directly.
+    const handleScroll = useCallback(() => {
+        const container = scrollRef.current;
+        if (!container || numPages === 0) return;
+        const rect = container.getBoundingClientRect();
+        const target = layout === "vertical" ? rect.top + rect.height / 2 : rect.left + rect.width / 2;
+        let nearest = 1;
+        let best = Infinity;
+        canvasMapRef.current.forEach((canvas, pageNum) => {
+            const cr = canvas.getBoundingClientRect();
+            const mid = layout === "vertical" ? cr.top + cr.height / 2 : cr.left + cr.width / 2;
+            const distance = Math.abs(mid - target);
+            if (distance < best) {
+                best = distance;
+                nearest = pageNum;
+            }
+        });
+        setCurrentPage(nearest);
+    }, [layout, numPages]);
+
+    const zoomIn = () => setZoom((value) => Math.min(2.6, Number((value + 0.1).toFixed(2))));
+    const zoomOut = () => setZoom((value) => Math.max(0.6, Number((value - 0.1).toFixed(2))));
+
+    const pages = Array.from({ length: numPages }, (_, index) => index + 1);
+    const registerCanvas = (pageNum: number) => (el: HTMLCanvasElement | null) => {
+        if (el) canvasMapRef.current.set(pageNum, el);
+        else canvasMapRef.current.delete(pageNum);
+    };
+
+    return (
+        <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-zinc-900 text-white">
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) openLocalFile(file);
+                    event.target.value = "";
+                }}
+            />
+
+            {/* Toolbar */}
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 px-2 py-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <BookOpen className="h-4 w-4 shrink-0 text-amber-400" />
+                    <span className="truncate text-xs font-medium" title={title}>
+                        {title}
+                    </span>
+                    {!picking && (
+                        <button
+                            type="button"
+                            onClick={() => setPicking(true)}
+                            className="ml-1 shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition hover:bg-white/10 hover:text-white"
+                        >
+                            更换
+                        </button>
+                    )}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1">
+                    {pdfDoc && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => onLayoutChange("vertical")}
+                                className={`rounded-md p-1.5 transition ${layout === "vertical" ? "bg-white/15 text-white" : "text-gray-400 hover:bg-white/10 hover:text-white"}`}
+                                title="上下滚动"
+                            >
+                                <Rows2 className="h-4 w-4" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onLayoutChange("horizontal")}
+                                className={`rounded-md p-1.5 transition ${layout === "horizontal" ? "bg-white/15 text-white" : "text-gray-400 hover:bg-white/10 hover:text-white"}`}
+                                title="左右翻页"
+                            >
+                                <Columns2 className="h-4 w-4" />
+                            </button>
+                            <div className="mx-1 h-4 w-px bg-white/10" />
+                            <button
+                                type="button"
+                                onClick={zoomOut}
+                                className="rounded-md p-1.5 text-gray-400 transition hover:bg-white/10 hover:text-white"
+                                title="缩小"
+                            >
+                                <ZoomOut className="h-4 w-4" />
+                            </button>
+                            <span className="min-w-10 text-center text-[11px] tabular-nums text-gray-400">
+                                {Math.round(zoom * 100)}%
+                            </span>
+                            <button
+                                type="button"
+                                onClick={zoomIn}
+                                className="rounded-md p-1.5 text-gray-400 transition hover:bg-white/10 hover:text-white"
+                                title="放大"
+                            >
+                                <ZoomIn className="h-4 w-4" />
+                            </button>
+                            <div className="mx-1 h-4 w-px bg-white/10" />
+                        </>
+                    )}
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-md p-1.5 text-gray-400 transition hover:bg-white/10 hover:text-white"
+                        title="关闭乐谱"
+                    >
+                        <PanelRightClose className="h-4 w-4" />
+                    </button>
+                </div>
+            </div>
+
+            {/* Body */}
+            {picking ? (
+                <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-white/20 bg-white/5 px-3 py-3 text-sm font-medium text-gray-200 transition hover:border-amber-400/60 hover:bg-white/10"
+                    >
+                        <Upload className="h-4 w-4" />
+                        打开本地 PDF
+                    </button>
+                    {scores.length > 0 ? (
+                        <div className="space-y-1.5">
+                            <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                                谱库
+                            </div>
+                            {scores.map((score) => (
+                                <button
+                                    key={score.id}
+                                    type="button"
+                                    onClick={() => loadFromUrl(score.fileUrl, score.title)}
+                                    className="group flex w-full items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2.5 text-left transition hover:border-amber-400/40 hover:bg-white/10"
+                                >
+                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-400">
+                                        <BookOpen className="h-4 w-4" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate text-sm font-medium text-white">{score.title}</div>
+                                        <div className="truncate text-xs text-gray-400">
+                                            {[score.composer, score.instrument].filter(Boolean).join(" · ")}
+                                        </div>
+                                    </div>
+                                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-600 transition group-hover:translate-x-0.5 group-hover:text-amber-400" />
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="px-1 text-xs text-gray-500">谱库暂无乐谱，可打开本地 PDF。</p>
+                    )}
+                </div>
+            ) : loading ? (
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-gray-500">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <p className="text-sm">加载乐谱中…</p>
+                </div>
+            ) : loadError ? (
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-gray-400">
+                    <p className="text-sm">{loadError}</p>
+                    <button
+                        type="button"
+                        onClick={() => setPicking(true)}
+                        className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-gray-200 transition hover:bg-white/10"
+                    >
+                        重新选择
+                    </button>
+                </div>
+            ) : (
+                <>
+                    <div
+                        ref={scrollRef}
+                        onScroll={handleScroll}
+                        className={
+                            layout === "vertical"
+                                ? "min-h-0 w-full min-w-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain bg-zinc-800"
+                                : "min-h-0 w-full min-w-0 flex-1 touch-pan-x snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-contain bg-zinc-800"
+                        }
+                    >
+                        <div
+                            className={
+                                layout === "vertical"
+                                    ? "flex flex-col items-center gap-1 py-1"
+                                    : "flex h-full items-center gap-1"
+                            }
+                        >
+                            {pages.map((pageNum) => (
+                                <canvas
+                                    key={pageNum}
+                                    ref={registerCanvas(pageNum)}
+                                    className={`block bg-white shadow-lg ${layout === "horizontal" ? "shrink-0 snap-center" : ""}`}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                    {numPages > 0 && (
+                        <div className="border-t border-white/10 px-3 py-1 text-center text-[11px] tabular-nums text-gray-400">
+                            {currentPage} / {numPages}
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
+    );
+}
+
 export default function TunerPageClient() {
     const isMobile = useIsMobile();
     const [isListening, setIsListening] = useState(false);
@@ -477,6 +844,16 @@ export default function TunerPageClient() {
     const [statsEnabled, setStatsEnabled] = useState(false);
     const [noteStats, setNoteStats] = useState<NoteStat[]>([]);
     const [statsModalOpen, setStatsModalOpen] = useState(false);
+
+    // Holds the last detected note frozen on screen during silence, so the
+    // "当前目标音" reference tone stays available for an A/B pitch check.
+    const [held, setHeld] = useState(false);
+
+    // Split-view sheet music.
+    const [scoreOpen, setScoreOpen] = useState(false);
+    const [scoreLayout, setScoreLayout] = useState<ScoreLayout>("vertical");
+    const [scorePct, setScorePct] = useState(45);
+    const dividerDraggingRef = useRef(false);
 
     const audioCtxRef = useRef<AudioContext | null>(null);
     const micNodesRef = useRef<MicNodes | null>(null);
@@ -510,6 +887,8 @@ export default function TunerPageClient() {
                 beatsPerBar?: number;
                 metronomeVolume?: number;
                 traceWindowMs?: number;
+                scoreLayout?: ScoreLayout;
+                scorePct?: number;
             };
             if (settings.mode === "standard" || settings.mode === "strict" || settings.mode === "custom") {
                 setMode(settings.mode);
@@ -526,6 +905,12 @@ export default function TunerPageClient() {
             if (typeof settings.traceWindowMs === "number") {
                 setTraceWindowMs(Math.max(MIN_TRACE_WINDOW_MS, Math.min(MAX_TRACE_WINDOW_MS, settings.traceWindowMs)));
             }
+            if (settings.scoreLayout === "vertical" || settings.scoreLayout === "horizontal") {
+                setScoreLayout(settings.scoreLayout);
+            }
+            if (typeof settings.scorePct === "number") {
+                setScorePct(Math.max(25, Math.min(70, settings.scorePct)));
+            }
         } catch {
             localStorage.removeItem("MUSIC_TUNER_SETTINGS");
         }
@@ -540,8 +925,10 @@ export default function TunerPageClient() {
             beatsPerBar,
             metronomeVolume,
             traceWindowMs,
+            scoreLayout,
+            scorePct,
         }));
-    }, [beatsPerBar, bpm, customToleranceHz, metronomeVolume, mode, responseMode, traceWindowMs]);
+    }, [beatsPerBar, bpm, customToleranceHz, metronomeVolume, mode, responseMode, scoreLayout, scorePct, traceWindowMs]);
 
     // Rebuild the tracker whenever the response profile changes.
     useEffect(() => {
@@ -549,6 +936,7 @@ export default function TunerPageClient() {
         samplesRef.current = [];
         recordingRef.current = false;
         setLatest(null);
+        setHeld(false);
     }, [responseMode]);
 
     // The intonation evaluator lives for the page session.
@@ -627,10 +1015,14 @@ export default function TunerPageClient() {
         }
 
         if (result.phase === "idle" || !note) {
-            if (result.phase === "idle") setLatest(null);
+            // Freeze the last note on screen during silence instead of clearing
+            // it, so the "当前目标音" reference tone stays available for an A/B
+            // check. Only flag it as held; the trajectory clock is already paused.
+            if (result.phase === "idle") setHeld(true);
             return;
         }
 
+        setHeld(false);
         const sample: PitchSample = {
             at: now,
             traceMs: traceClockRef.current,
@@ -669,7 +1061,9 @@ export default function TunerPageClient() {
         if (verdict && statsEnabledRef.current) recordVerdict(verdict);
         recordingRef.current = false;
         setIsListening(false);
-        setLatest(null);
+        // Keep the last note frozen so the reference-tone check stays usable
+        // after pausing; "清空轨迹" clears it explicitly.
+        setHeld(true);
     }, [recordVerdict, teardownMic]);
 
     const startListening = useCallback(async () => {
@@ -830,6 +1224,33 @@ export default function TunerPageClient() {
 
     useEffect(() => () => stopMetronome(), [stopMetronome]);
 
+    // Draggable split divider: the right (score) pane width follows the cursor.
+    useEffect(() => {
+        const onMove = (event: PointerEvent) => {
+            if (!dividerDraggingRef.current) return;
+            const pct = (1 - event.clientX / window.innerWidth) * 100;
+            setScorePct(Math.max(25, Math.min(70, pct)));
+        };
+        const onUp = () => {
+            if (!dividerDraggingRef.current) return;
+            dividerDraggingRef.current = false;
+            document.body.style.userSelect = "";
+            document.body.style.cursor = "";
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        return () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+        };
+    }, []);
+
+    const startDividerDrag = () => {
+        dividerDraggingRef.current = true;
+        document.body.style.userSelect = "none";
+        document.body.style.cursor = "col-resize";
+    };
+
     const playReferenceTone = useCallback((key: PianoKey) => {
         const context = ensureAudioContext();
         if (!context) return;
@@ -885,6 +1306,7 @@ export default function TunerPageClient() {
         recordingRef.current = false;
         trackerRef.current?.reset();
         setLatest(null);
+        setHeld(false);
     };
 
     const toggleStats = () => {
@@ -909,7 +1331,12 @@ export default function TunerPageClient() {
     );
     const totalNotes = noteStats.reduce((sum, stat) => sum + stat.total, 0);
     const totalOut = noteStats.reduce((sum, stat) => sum + stat.outOfTune, 0);
+    const totalFlat = noteStats.reduce((sum, stat) => sum + stat.flat, 0);
+    const totalSharp = noteStats.reduce((sum, stat) => sum + stat.sharp, 0);
+    const totalAbsCents = noteStats.reduce((sum, stat) => sum + stat.sumAbsCents, 0);
     const accuracy = totalNotes > 0 ? Math.round(((totalNotes - totalOut) / totalNotes) * 100) : null;
+    const avgDeviation = totalNotes > 0 ? totalAbsCents / totalNotes : null;
+    const worstNote = sortedStats.find((stat) => stat.outOfTune > 0) ?? null;
 
     const statsToggle = (
         <button
@@ -921,54 +1348,119 @@ export default function TunerPageClient() {
         </button>
     );
 
-    const statsBody = (
-        <>
-            <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-md bg-slate-50 p-2">
-                    <div className="text-[11px] text-slate-400">计数音</div>
-                    <div className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">{totalNotes}</div>
-                </div>
-                <div className="rounded-md bg-slate-50 p-2">
-                    <div className="text-[11px] text-slate-400">不准</div>
-                    <div className="mt-0.5 text-lg font-bold tabular-nums text-red-600">{totalOut}</div>
-                </div>
-                <div className="rounded-md bg-slate-50 p-2">
-                    <div className="text-[11px] text-slate-400">准确率</div>
-                    <div className="mt-0.5 text-lg font-bold tabular-nums text-emerald-700">{accuracy === null ? "--" : `${accuracy}%`}</div>
-                </div>
+    const statsSummaryGrid = (
+        <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-md bg-slate-50 p-2">
+                <div className="text-[11px] text-slate-400">计数音</div>
+                <div className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">{totalNotes}</div>
             </div>
+            <div className="rounded-md bg-slate-50 p-2">
+                <div className="text-[11px] text-slate-400">不准</div>
+                <div className="mt-0.5 text-lg font-bold tabular-nums text-red-600">{totalOut}</div>
+            </div>
+            <div className="rounded-md bg-slate-50 p-2">
+                <div className="text-[11px] text-slate-400">准确率</div>
+                <div className="mt-0.5 text-lg font-bold tabular-nums text-emerald-700">{accuracy === null ? "--" : `${accuracy}%`}</div>
+            </div>
+        </div>
+    );
+
+    // Compact card for the side panel: headline numbers plus a peek at the
+    // worst note, with a button that expands the full breakdown in a modal.
+    const statsSummary = (
+        <>
+            {statsSummaryGrid}
+            {totalNotes > 0 ? (
+                <>
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                        <span>平均偏差 <span className="font-semibold tabular-nums text-slate-700">±{avgDeviation!.toFixed(1)}¢</span></span>
+                        {worstNote ? (
+                            <span>最常偏 <span className="font-semibold text-red-600">{worstNote.label}</span> <span className="tabular-nums text-slate-400">×{worstNote.outOfTune}</span></span>
+                        ) : (
+                            <span className="text-emerald-700">全部命中 🎯</span>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setStatsModalOpen(true)}
+                        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                    >
+                        <BarChart3 className="h-3.5 w-3.5" />
+                        展开详细统计
+                    </button>
+                </>
+            ) : (
+                <p className="mt-3 text-[11px] leading-snug text-slate-400">
+                    {statsEnabled
+                        ? "统计中…只记录持续 ≥250ms 的稳定音，按中位偏差判断是否超出绿色范围（避免起音、滑音与揉弦误判）。"
+                        : "开启后统计录音期间每个音的音准。"}
+                </p>
+            )}
+        </>
+    );
+
+    // Full breakdown shown inside the modal (shared by desktop and mobile).
+    const statsDetail = (
+        <>
+            {statsSummaryGrid}
+
+            {totalNotes > 0 && (
+                <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-md bg-slate-50 p-2">
+                        <div className="text-[11px] text-slate-400">平均偏差</div>
+                        <div className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">±{avgDeviation!.toFixed(1)}¢</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                        <div className="text-[11px] text-slate-400">偏低</div>
+                        <div className="mt-0.5 text-sm font-bold tabular-nums text-sky-700">{totalFlat}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                        <div className="text-[11px] text-slate-400">偏高</div>
+                        <div className="mt-0.5 text-sm font-bold tabular-nums text-amber-600">{totalSharp}</div>
+                    </div>
+                </div>
+            )}
 
             {sortedStats.length > 0 ? (
-                <div className="mt-3 max-h-[320px] overflow-y-auto">
+                <div className="mt-3 max-h-[52vh] overflow-y-auto md:max-h-[360px]">
                     <table className="w-full text-sm">
                         <thead className="sticky top-0 bg-white/95 text-[11px] uppercase text-slate-400">
                             <tr className="text-left">
                                 <th className="py-1 font-semibold">音</th>
                                 <th className="py-1 text-center font-semibold">次数</th>
                                 <th className="py-1 text-center font-semibold">不准</th>
+                                <th className="py-1 text-center font-semibold">准确率</th>
                                 <th className="py-1 text-right font-semibold">平均偏差</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedStats.map((stat) => (
-                                <tr key={stat.midi} className="border-t border-slate-100">
-                                    <td className="py-1.5 font-semibold text-slate-900">{stat.label}</td>
-                                    <td className="py-1.5 text-center tabular-nums text-slate-500">{stat.total}</td>
-                                    <td className="py-1.5 text-center tabular-nums">
-                                        <span className={stat.outOfTune > 0 ? "font-semibold text-red-600" : "text-slate-300"}>
-                                            {stat.outOfTune}
-                                        </span>
-                                        {stat.outOfTune > 0 && (
-                                            <span className="ml-1 text-[10px] text-slate-400">
-                                                {stat.flat > 0 ? `↓${stat.flat}` : ""}{stat.sharp > 0 ? ` ↑${stat.sharp}` : ""}
+                            {sortedStats.map((stat) => {
+                                const noteAccuracy = Math.round(((stat.total - stat.outOfTune) / stat.total) * 100);
+                                return (
+                                    <tr key={stat.midi} className="border-t border-slate-100">
+                                        <td className="py-1.5 font-semibold text-slate-900">{stat.label}</td>
+                                        <td className="py-1.5 text-center tabular-nums text-slate-500">{stat.total}</td>
+                                        <td className="py-1.5 text-center tabular-nums">
+                                            <span className={stat.outOfTune > 0 ? "font-semibold text-red-600" : "text-slate-300"}>
+                                                {stat.outOfTune}
                                             </span>
-                                        )}
-                                    </td>
-                                    <td className="py-1.5 text-right tabular-nums text-slate-500">
-                                        ±{(stat.sumAbsCents / stat.total).toFixed(1)}¢
-                                    </td>
-                                </tr>
-                            ))}
+                                            {stat.outOfTune > 0 && (
+                                                <span className="ml-1 text-[10px] text-slate-400">
+                                                    {stat.flat > 0 ? `↓${stat.flat}` : ""}{stat.sharp > 0 ? ` ↑${stat.sharp}` : ""}
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="py-1.5 text-center tabular-nums">
+                                            <span className={noteAccuracy >= 80 ? "text-emerald-700" : noteAccuracy >= 50 ? "text-amber-600" : "text-red-600"}>
+                                                {noteAccuracy}%
+                                            </span>
+                                        </td>
+                                        <td className="py-1.5 text-right tabular-nums text-slate-500">
+                                            ±{(stat.sumAbsCents / stat.total).toFixed(1)}¢
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -1011,9 +1503,12 @@ export default function TunerPageClient() {
         </button>
     );
 
+    const splitActive = scoreOpen && !isMobile;
+
     return (
-        <div className="min-h-screen bg-[#f8f6f1] text-slate-950">
-            <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 md:px-6 md:py-7">
+        <div className={splitActive ? "flex h-screen overflow-hidden bg-[#f8f6f1] text-slate-950" : "min-h-screen bg-[#f8f6f1] text-slate-950"}>
+            <div className={splitActive ? "h-screen min-w-0 flex-1 overflow-y-auto" : "contents"}>
+            <main className={splitActive ? "flex min-h-screen w-full flex-col px-4 py-5 md:px-6 md:py-7" : "mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 md:px-6 md:py-7"}>
                 <div className="mb-5 flex items-center justify-between gap-3">
                     <Link
                         href="/"
@@ -1022,14 +1517,24 @@ export default function TunerPageClient() {
                         <ArrowLeft className="h-4 w-4" />
                         音乐库
                     </Link>
-                    <button
-                        type="button"
-                        onClick={toggleListening}
-                        className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98] ${isListening ? "bg-zinc-800 hover:bg-zinc-950" : "bg-emerald-700 hover:bg-emerald-800"}`}
-                    >
-                        {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                        {isListening ? "暂停" : "开始"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setScoreOpen((open) => !open)}
+                            className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm transition active:scale-[0.98] ${scoreOpen ? "border-amber-500 bg-amber-500 text-white hover:bg-amber-600" : "border-slate-200 bg-white/70 text-slate-700 hover:bg-white"}`}
+                        >
+                            <BookOpen className="h-4 w-4" />
+                            乐谱
+                        </button>
+                        <button
+                            type="button"
+                            onClick={toggleListening}
+                            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98] ${isListening ? "bg-zinc-800 hover:bg-zinc-950" : "bg-emerald-700 hover:bg-emerald-800"}`}
+                        >
+                            {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                            {isListening ? "暂停" : "开始"}
+                        </button>
+                    </div>
                 </div>
 
                 <section className="mb-5 grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-end">
@@ -1042,11 +1547,16 @@ export default function TunerPageClient() {
                     </div>
 
                     <div className="text-center">
-                        <div className="text-[92px] font-black leading-none tracking-normal text-slate-950 md:text-[128px]">
+                        <div className={`text-[92px] font-black leading-none tracking-normal transition-colors md:text-[128px] ${held ? "text-slate-400" : "text-slate-950"}`}>
                             {displayNote?.name ?? "--"}
                             {displayNote && <span className="ml-1 align-baseline text-4xl md:text-5xl">{displayNote.octave}</span>}
                         </div>
-                        <div className={`mx-auto mt-2 h-2 w-28 rounded-full ${withinTolerance ? "bg-emerald-500" : latest ? "bg-red-500" : "bg-slate-300"}`} />
+                        <div className={`mx-auto mt-2 h-2 w-28 rounded-full ${held ? "bg-slate-300" : withinTolerance ? "bg-emerald-500" : latest ? "bg-red-500" : "bg-slate-300"}`} />
+                        {held && latest && (
+                            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                                保持上一个音
+                            </div>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 md:min-w-80">
@@ -1126,7 +1636,7 @@ export default function TunerPageClient() {
                                 action={statsToggle}
                                 collapsible={false}
                             >
-                                {statsBody}
+                                {statsSummary}
                             </Panel>
                         )}
                     </div>
@@ -1309,20 +1819,44 @@ export default function TunerPageClient() {
                     </aside>
                 </section>
             </main>
+            </div>
 
-            {isMobile && statsModalOpen && (
+            {splitActive && (
                 <div
-                    className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40"
+                    onPointerDown={startDividerDrag}
+                    className="relative w-1.5 shrink-0 cursor-col-resize bg-slate-200 transition hover:bg-emerald-400"
+                    title="拖动调整宽度"
+                >
+                    <div className="absolute left-1/2 top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-400/60" />
+                </div>
+            )}
+
+            {scoreOpen && (
+                <aside
+                    className={splitActive ? "h-screen min-w-0 shrink-0 overflow-hidden" : "fixed inset-0 z-50"}
+                    style={splitActive ? { flexBasis: `${scorePct}%` } : undefined}
+                >
+                    <ScorePanel
+                        layout={scoreLayout}
+                        onLayoutChange={setScoreLayout}
+                        onClose={() => setScoreOpen(false)}
+                    />
+                </aside>
+            )}
+
+            {statsModalOpen && (
+                <div
+                    className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40 md:items-center md:justify-center md:p-6"
                     onClick={() => setStatsModalOpen(false)}
                 >
                     <div
-                        className="max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl"
+                        className="max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl md:w-full md:max-w-lg md:rounded-2xl"
                         onClick={(event) => event.stopPropagation()}
                     >
                         <div className="mb-3 flex items-center justify-between">
                             <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
                                 <BarChart3 className="h-4 w-4 text-emerald-700" />
-                                音准统计
+                                音准统计 · 详细
                             </div>
                             <div className="flex items-center gap-2">
                                 {statsToggle}
@@ -1336,7 +1870,7 @@ export default function TunerPageClient() {
                                 </button>
                             </div>
                         </div>
-                        {statsBody}
+                        {statsDetail}
                     </div>
                 </div>
             )}
