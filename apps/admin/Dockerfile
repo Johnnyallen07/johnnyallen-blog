@@ -26,6 +26,7 @@ WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+RUN mkdir -p apps/admin/public
 
 # NEXT_PUBLIC_* 变量在 Next.js 构建时内联到客户端代码中，必须在 build 阶段提供
 ARG NEXT_PUBLIC_API_URL=https://api.johnnyallen.blog
