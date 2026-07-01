@@ -303,12 +303,19 @@ export class MusicService {
       // Check for cookies file (needed on servers where YouTube blocks by IP)
       // Copy to writable temp path since yt-dlp needs to write back updated cookies
       const cookiesSrc = this.getYoutubeCookiesPath();
-      const hasCookies = await fs.promises
-        .access(cookiesSrc)
-        .then(() => true)
-        .catch(() => false);
+      const cookiesStat = await fs.promises
+        .stat(cookiesSrc)
+        .catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
+      if (cookiesStat?.isDirectory()) {
+        throw new Error(
+          `cookies.txt 当前是目录，请删除服务器上的 ${cookiesSrc} 目录后重试`,
+        );
+      }
       let cookiesArgs: string[] = [];
-      if (hasCookies) {
+      if (cookiesStat?.isFile()) {
         const cookiesTmp = path.join(tmpDir, 'cookies.txt');
         await fs.promises.copyFile(cookiesSrc, cookiesTmp);
         cookiesArgs = ['--cookies', cookiesTmp];
@@ -466,6 +473,10 @@ export class MusicService {
   }
 
   async updateYoutubeCookies(cookies: string) {
+    if (typeof cookies !== 'string') {
+      throw new BadRequestException('请上传 cookies.txt 内容');
+    }
+
     const normalized = cookies.replace(/\r\n/g, '\n').trimEnd() + '\n';
 
     if (normalized.length < 100) {
@@ -482,7 +493,49 @@ export class MusicService {
     }
 
     const cookiesPath = this.getYoutubeCookiesPath();
-    await fs.promises.writeFile(cookiesPath, normalized, { encoding: 'utf8' });
+    const cookiesDir = path.dirname(cookiesPath);
+    await fs.promises.mkdir(cookiesDir, { recursive: true });
+
+    const existing = await fs.promises
+      .stat(cookiesPath)
+      .catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+    if (existing?.isDirectory()) {
+      throw new BadRequestException(
+        `cookies.txt 当前是目录，请删除服务器上的 ${cookiesPath} 目录后重试`,
+      );
+    }
+
+    const tempPath = path.join(
+      cookiesDir,
+      `.cookies.${process.pid}.${Date.now()}.tmp`,
+    );
+    try {
+      await fs.promises.writeFile(tempPath, normalized, {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      await fs.promises.rename(tempPath, cookiesPath);
+    } catch (error) {
+      await fs.promises.unlink(tempPath).catch(() => {});
+      const code =
+        error instanceof Error
+          ? (error as NodeJS.ErrnoException).code
+          : undefined;
+      if (code === 'EISDIR') {
+        throw new BadRequestException(
+          `cookies.txt 当前是目录，请删除服务器上的 ${cookiesPath} 目录后重试`,
+        );
+      }
+      if (code === 'EACCES' || code === 'EPERM') {
+        throw new BadRequestException(
+          `没有权限写入 ${cookiesPath}，请检查 Docker volume 权限`,
+        );
+      }
+      throw error;
+    }
 
     return {
       ok: true,

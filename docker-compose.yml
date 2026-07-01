@@ -41,8 +41,9 @@ services:
       COS_SECRET_KEY: ${COS_SECRET_KEY}
       COS_PUBLIC_DOMAIN: ${COS_PUBLIC_DOMAIN:-}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      YOUTUBE_COOKIES_PATH: /app/data/youtube/cookies.txt
     volumes:
-      - ./cookies.txt:/app/cookies.txt
+      - youtube_cookies:/app/data/youtube
     ports:
       - '3001:3001'
     depends_on:
@@ -137,3 +138,4 @@ services:
 
 volumes:
   db_data:
+  youtube_cookies:

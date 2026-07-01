@@ -44,6 +44,8 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
 RUN chown -R 1001:1001 /app/node_modules/.prisma /app/node_modules/@prisma
 # 确保 /tmp 可写（ffmpeg 音乐分割需要临时文件）
 RUN mkdir -p /tmp && chmod 1777 /tmp
+# YouTube cookies 由后台页面写入，需要给非 root 运行用户持久可写目录
+RUN mkdir -p /app/data/youtube && chown -R 1001:1001 /app/data
 USER nestjs
 
 EXPOSE 3001
