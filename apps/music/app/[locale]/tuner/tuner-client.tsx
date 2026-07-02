@@ -50,7 +50,7 @@ import {
     type ResponseMode,
     type SustainedNoteEvaluator,
     type TunerMode,
-} from "../../lib/tuner";
+} from "@/lib/tuner";
 import {
     advanceSchedule,
     blankWindowFor,
@@ -60,7 +60,7 @@ import {
     MIN_BPM,
     type MetronomeClick,
     type ScheduleCursor,
-} from "../../lib/metronome";
+} from "@/lib/metronome";
 
 type AudioContextCtor = typeof AudioContext;
 type ScriptProcessorAudioContext = AudioContext & {

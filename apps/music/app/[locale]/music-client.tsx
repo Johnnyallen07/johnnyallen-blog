@@ -23,7 +23,7 @@ import {
     calculateProgressPercent,
     calculateThroughputKbps,
     shouldShowBufferStatus,
-} from "../lib/player-metrics";
+} from "@/lib/player-metrics";
 
 /* ───────── Icon Map ───────── */
 
