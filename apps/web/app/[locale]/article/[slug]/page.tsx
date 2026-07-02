@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
-import { getApiBaseUrl } from "@/lib/api";
+import { getTranslations, setRequestLocale } from "next-intl/server";
+import { getApiBaseUrl, withLocale } from "@/lib/api";
+import { alternatesFor } from "@/lib/seo";
 import { ArticlePageClient } from "./article-client";
 
 interface ArticlePageProps {
@@ -10,12 +11,17 @@ interface ArticlePageProps {
 export async function generateMetadata({
   params,
 }: ArticlePageProps): Promise<Metadata> {
-  const { slug } = await params;
+  const { locale, slug } = await params;
+  const t = await getTranslations({ locale, namespace: "metadata" });
+  const alternates = alternatesFor(locale, `/article/${slug}`);
 
   try {
-    const res = await fetch(`${getApiBaseUrl()}/posts/slug/${slug}`, {
-      next: { revalidate: 60 },
-    });
+    const res = await fetch(
+      `${getApiBaseUrl()}${withLocale(`/posts/slug/${slug}`, locale)}`,
+      {
+        next: { revalidate: 60 },
+      },
+    );
 
     if (res.ok) {
       const post = await res.json();
@@ -25,7 +31,7 @@ export async function generateMetadata({
           post.content
             ?.replace(/<[^>]*>/g, "")
             .substring(0, 160)
-            .trim() || "JohnnyBlog 文章",
+            .trim() || t("articleDefaultDescription"),
         openGraph: {
           title: post.title,
           description:
@@ -35,6 +41,7 @@ export async function generateMetadata({
               .trim() || "",
           type: "article",
         },
+        alternates,
       };
     }
   } catch {
@@ -42,8 +49,9 @@ export async function generateMetadata({
   }
 
   return {
-    title: `文章 - JohnnyBlog`,
-    description: "阅读 JohnnyBlog 上的精彩文章",
+    title: t("articleFallbackTitle"),
+    description: t("articleFallbackDescription"),
+    alternates,
   };
 }
 

@@ -1,20 +1,17 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Home } from "lucide-react";
+import { Link, usePathname } from "@/i18n/navigation";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 
-interface NavLink {
-  href: string;
-  label: string;
-}
-
-const NAV_LINKS: NavLink[] = [
-  { href: "/archive", label: "归档" },
-  { href: "/about", label: "关于我" },
-];
+const NAV_LINKS = [
+  { href: "/archive", labelKey: "archive" },
+  { href: "/about", labelKey: "about" },
+] as const;
 
 export function Navbar() {
+  const t = useTranslations("nav");
   const pathname = usePathname();
 
   return (
@@ -26,7 +23,7 @@ export function Navbar() {
             className="flex items-center gap-2 text-gray-600 hover:text-cyan-600 transition-colors group"
           >
             <Home className="h-5 w-5 group-hover:scale-110 transition-transform" />
-            <span className="font-medium">返回首页</span>
+            <span className="font-medium">{t("backHome")}</span>
           </Link>
 
           <div className="flex items-center gap-6">
@@ -42,10 +39,11 @@ export function Navbar() {
                       : "text-gray-600 hover:text-gray-900 transition-colors"
                   }
                 >
-                  {link.label}
+                  {t(link.labelKey)}
                 </Link>
               );
             })}
+            <LanguageSwitcher />
           </div>
         </div>
       </div>

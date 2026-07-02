@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { FileText, Folder, ChevronRight, ChevronDown } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 
 interface FileNode {
   id: string;
@@ -69,6 +70,7 @@ function FileTreeNode({ node, level = 0 }: { node: FileNode; level?: number }) {
 }
 
 export function ColumnFileTree({ columnName, files }: ColumnFileTreeProps) {
+  const t = useTranslations("article");
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
       <div className="mb-4 pb-3 border-b border-gray-200">
@@ -76,7 +78,7 @@ export function ColumnFileTree({ columnName, files }: ColumnFileTreeProps) {
           <Folder className="h-5 w-5 text-cyan-600" />
           {columnName}
         </h3>
-        <p className="text-xs text-gray-500 mt-1">专栏目录</p>
+        <p className="text-xs text-gray-500 mt-1">{t("seriesToc")}</p>
       </div>
 
       <div className="space-y-0.5">

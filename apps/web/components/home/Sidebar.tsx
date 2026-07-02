@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
+import { Link, usePathname } from "@/i18n/navigation";
 import {
   Search,
   X,
@@ -36,10 +36,10 @@ function BilibiliIcon({ className }: { className?: string }) {
 }
 
 const NAV_ITEMS = [
-  { href: "/", label: "首页", icon: Home, hoverColor: "hover:text-slate-950" },
-  { href: "/archive", label: "归档", icon: Calendar, hoverColor: "hover:text-slate-950" },
-  { href: "/about", label: "关于我", icon: User, hoverColor: "hover:text-slate-950" },
-];
+  { href: "/", labelKey: "navHome", icon: Home, hoverColor: "hover:text-slate-950" },
+  { href: "/archive", labelKey: "navArchive", icon: Calendar, hoverColor: "hover:text-slate-950" },
+  { href: "/about", labelKey: "navAbout", icon: User, hoverColor: "hover:text-slate-950" },
+] as const;
 
 interface SidebarTag {
   id: string;
@@ -62,6 +62,7 @@ export function Sidebar({
   onSelectTag,
   onClearFilters,
 }: SidebarProps) {
+  const t = useTranslations("sidebar");
   const pathname = usePathname();
   const [wechatOpen, setWechatOpen] = useState(false);
   const hasActiveFilters = searchQuery.trim().length > 0 || selectedTag !== null;
@@ -100,7 +101,7 @@ export function Sidebar({
           <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md mb-3 bg-slate-100 flex items-center justify-center">
             <Image
               src="/images/avatar.png"
-              alt="Johnny 头像"
+              alt={t("avatarAlt")}
               width={80}
               height={80}
               className="w-full h-full object-cover"
@@ -110,7 +111,7 @@ export function Sidebar({
             Johnny
           </h3>
           <p className="text-sm text-gray-600 leading-relaxed text-center mt-2 mb-4">
-            写工业代码永远夹带f**k的抽象ENTJ，游戏完美主义者，数学ADHD患者，对计算机PTSD，向往音乐极致的业余小提琴手。
+            {t("bio")}
           </p>
 
           {/* 社交媒体 */}
@@ -141,7 +142,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => setWechatOpen(true)}
-              aria-label="打开微信二维码"
+              aria-label={t("openWechatQr")}
               className="w-10 h-10 rounded-lg bg-transparent backdrop-blur-sm hover:bg-white/30 border border-slate-200/70 flex items-center justify-center transition-all group shadow-sm hover:shadow-md"
               style={{ animation: 'float 6s ease-in-out infinite 3s' }}
             >
@@ -168,13 +169,13 @@ export function Sidebar({
         <div>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h4 className="text-sm font-semibold text-gray-700">
-              站内搜索
+              {t("searchTitle")}
             </h4>
             {hasActiveFilters && (
               <button
                 type="button"
                 onClick={onClearFilters}
-                aria-label="清除筛选"
+                aria-label={t("clearFilters")}
                 className="h-7 w-7 rounded-lg border border-slate-200/70 bg-white/30 text-gray-500 transition-all hover:border-slate-500 hover:bg-white/55 hover:text-slate-950"
               >
                 <X className="mx-auto h-3.5 w-3.5" />
@@ -187,7 +188,7 @@ export function Sidebar({
               type="text"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="搜索文章..."
+              placeholder={t("searchPlaceholder")}
               className="w-full pl-10 pr-4 py-2.5 bg-transparent backdrop-blur-sm border border-slate-200/70 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 transition-all shadow-sm"
             />
           </div>
@@ -224,7 +225,7 @@ export function Sidebar({
                   }`}
               >
                 <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
+                <span>{t(item.labelKey)}</span>
               </Link>
             );
           })}

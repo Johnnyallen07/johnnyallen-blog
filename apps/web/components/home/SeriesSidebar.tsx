@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen } from "lucide-react";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
+import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import {
     filterPublished,
@@ -19,6 +19,7 @@ interface SeriesSidebarProps {
 }
 
 export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
+    const t = useTranslations("sidebar");
     const pathname = usePathname();
     const visibleItems = filterPublished(items);
     const mobileRecommendations = getMobileSeriesRecommendations(items, pathname);
@@ -32,7 +33,7 @@ export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
                         <span>{emoji}</span>
                         <span>{title}</span>
                     </h3>
-                    <p className="text-xs text-gray-500 mt-0.5">专栏目录</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{t("seriesToc")}</p>
                 </div>
 
                 {/* Tree */}
@@ -48,7 +49,7 @@ export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
                         ))
                     ) : (
                         <div className="text-center py-6 text-sm text-gray-400">
-                            暂无已发布内容
+                            {t("seriesEmpty")}
                         </div>
                     )}
                 </div>
@@ -80,7 +81,7 @@ export function SeriesSidebar({ title, emoji, items }: SeriesSidebarProps) {
                         </div>
                     ) : (
                         <div className="text-center py-6 text-sm text-gray-400">
-                            暂无已发布内容
+                            {t("seriesEmpty")}
                         </div>
                     )}
                 </div>
@@ -98,6 +99,7 @@ function SeriesNode({
     level: number;
     activePath: string;
 }) {
+    const t = useTranslations("sidebar");
     const containsActive = (n: SeriesSidebarItem): boolean => {
         if (n.post && `/article/${n.post.slug}` === activePath) return true;
         return n.children?.some(containsActive) || false;
@@ -152,7 +154,7 @@ function SeriesNode({
                         : <Folder className="h-3.5 w-3.5 text-amber-400" />
                     }
                 </span>
-                <span className="font-medium truncate flex-1">{node.title || "未命名文件夹"}</span>
+                <span className="font-medium truncate flex-1">{node.title || t("untitledFolder")}</span>
                 {childCount > 0 && (
                     <span className="text-xs text-gray-400 flex-shrink-0">{childCount}</span>
                 )}

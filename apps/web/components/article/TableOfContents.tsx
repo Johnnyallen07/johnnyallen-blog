@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { List } from "lucide-react";
 
 interface TocItem {
@@ -14,6 +15,7 @@ interface TableOfContentsProps {
 }
 
 export function TableOfContents({ items }: TableOfContentsProps) {
+  const t = useTranslations("article");
   const [activeId, setActiveId] = useState<string>("");
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export function TableOfContents({ items }: TableOfContentsProps) {
       <div className="mb-4 pb-3 border-b border-gray-200/50">
         <h3 className="font-semibold text-gray-900 flex items-center gap-2">
           <List className="h-5 w-5 text-emerald-600" />
-          目录
+          {t("toc")}
         </h3>
       </div>
 

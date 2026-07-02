@@ -1,1 +1,116 @@
-{}
+{
+  "metadata": {
+    "siteTitle": "Johnny Blog",
+    "siteDescription": "Johnny 的个人博客。",
+    "homeTitle": "JohnnyBlog",
+    "homeDescription": "Johnny 的个人博客，分享游戏攻略、音乐心得和技术笔记。探索缺氧游戏、小提琴、钢琴、React、TypeScript 等话题。",
+    "homeOgDescription": "Johnny 的个人博客，分享游戏攻略、音乐心得和技术笔记。",
+    "aboutTitle": "关于我 - JohnnyBlog",
+    "aboutDescription": "帝国理工本科大三数学；前 Google prompt engineer；教微积分桃李满天下的老师；超级喜欢玩「缺氧」的 Steam 玩家。",
+    "archiveTitle": "文章归档 - JohnnyBlog",
+    "archiveDescription": "按时间浏览 JohnnyBlog 的所有文章，涵盖游戏、音乐、技术等话题。",
+    "archiveOgDescription": "按时间浏览 JohnnyBlog 的所有文章",
+    "articleDefaultDescription": "JohnnyBlog 文章",
+    "articleFallbackTitle": "文章 - JohnnyBlog",
+    "articleFallbackDescription": "阅读 JohnnyBlog 上的精彩文章"
+  },
+  "nav": {
+    "backHome": "返回首页",
+    "archive": "归档",
+    "about": "关于我"
+  },
+  "home": {
+    "recentPosts": "最近发布",
+    "untitledPost": "未命名文章",
+    "uncategorized": "未分类",
+    "noMatchingPosts": "没有找到匹配的文章",
+    "noPosts": "暂无文章",
+    "prevPage": "上一页",
+    "nextPage": "下一页"
+  },
+  "sidebar": {
+    "avatarAlt": "Johnny 头像",
+    "bio": "写工业代码永远夹带f**k的抽象ENTJ，游戏完美主义者，数学ADHD患者，对计算机PTSD，向往音乐极致的业余小提琴手。",
+    "openWechatQr": "打开微信二维码",
+    "searchTitle": "站内搜索",
+    "clearFilters": "清除筛选",
+    "searchPlaceholder": "搜索文章...",
+    "navHome": "首页",
+    "navArchive": "归档",
+    "navAbout": "关于我",
+    "tagsTitle": "标签",
+    "seriesToc": "专栏目录",
+    "seriesEmpty": "暂无已发布内容",
+    "untitledFolder": "未命名文件夹"
+  },
+  "archive": {
+    "title": "文章归档",
+    "subtitle": "按时间浏览所有文章",
+    "noPosts": "暂无已发布文章",
+    "uncategorized": "未分类",
+    "untitledPost": "未命名文章"
+  },
+  "about": {
+    "avatarAlt": "Johnny 头像",
+    "title": "关于我",
+    "bio": "帝国理工本科大三数学；在 Google 当了三个月的 prompt engineer，被 manager 一对一开会骂我在 commit 测试系统里面写 f**k；皮包国际教育机构老板；教微积分桃李满天下的老师但是不想教书；超级喜欢玩「缺氧」的 Steam 玩家。",
+    "aiNote": "博客全是 AI 写的，除了这段文字。",
+    "contactTitle": "联系我",
+    "contactSubtitle": "欢迎交流！",
+    "wechat": "微信"
+  },
+  "contact": {
+    "wechatTitle": "添加微信好友",
+    "wechatSubtitle": "扫一扫下方二维码，或复制微信号添加我。",
+    "copyWechatId": "复制微信号",
+    "wechatQrAlt": "微信好友二维码"
+  },
+  "article": {
+    "similarTitle": "相似文章",
+    "similarCategory": "{category} 分类",
+    "scoreLinkDefault": "查看关联乐谱",
+    "scoreOpenPdf": "打开乐谱 PDF",
+    "scoreView": "查看",
+    "actionFailed": "操作失败",
+    "viewsCount": "{count} 阅读",
+    "likesCount": "{count} 点赞",
+    "likeButton": "点赞 ({count})",
+    "justNow": "刚刚",
+    "minutesAgo": "{count}分钟前",
+    "hoursAgo": "{count}小时前",
+    "daysAgo": "{count}天前",
+    "loading": "加载中...",
+    "notFound": "文章不存在或加载失败",
+    "backHome": "返回首页",
+    "home": "首页",
+    "immersiveTitle": "沉浸阅读",
+    "immersiveExitTitle": "退出沉浸阅读",
+    "immersiveExitShort": "退出沉浸",
+    "toc": "目录",
+    "uncategorized": "未分类",
+    "recommendedReading": "推荐阅读",
+    "seriesToc": "专栏目录"
+  },
+  "footer": {
+    "line1": "本博客网站由抠搜的 Antigravity 和被 Cursor 坑了 40 刀的 Agent 赞助开发，",
+    "line2": "本博客素材均由 AI 生成，如有侵权请告 Gemini Banana Pro",
+    "copyright": "© 2026 JohnnyBlog，由无聊和抽象创作"
+  },
+  "music": {
+    "recommendTitle": "音乐推荐",
+    "exploreMore": "探索更多音乐"
+  },
+  "projects": {
+    "title": "项目",
+    "count": "{count} 个项目",
+    "visit": "访问",
+    "fivestars": {
+      "name": "五满星教育平台",
+      "description": "为国际学生提供优质的线上平台服务"
+    },
+    "stockGenerator": {
+      "name": "Stock Price Generator",
+      "description": "游戏马拉松（泡沫主题）的数据生成器"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/home/Sidebar";
 import { ArticleCard } from "@/components/home/ArticleCard";
@@ -28,10 +29,10 @@ interface SelectedTag {
 
 const ARTICLES_PER_PAGE = 5;
 
-function formatPublishDate(dateStr: string): string {
+function formatPublishDate(dateStr: string, locale: string): string {
   const date = new Date(dateStr);
 
-  return date.toLocaleDateString("zh-CN", {
+  return date.toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -39,6 +40,8 @@ function formatPublishDate(dateStr: string): string {
 }
 
 export function HomePageClient() {
+  const t = useTranslations("home");
+  const locale = useLocale();
   const [articles, setArticles] = useState<Article[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -47,7 +50,7 @@ export function HomePageClient() {
 
   const fetchArticles = useCallback(async () => {
     try {
-      const data = await fetchClient("/posts?take=1000");
+      const data = await fetchClient("/posts?take=1000", {}, locale);
 
       interface PostDTO {
         id: string;
@@ -64,17 +67,17 @@ export function HomePageClient() {
       if (Array.isArray(data) && data.length > 0) {
         const mapped: Article[] = sortArticlesByUpdatedAt(
           (data as PostDTO[]).map((post) => ({
-            title: post.title || "未命名文章",
+            title: post.title || t("untitledPost"),
             excerpt:
               post.content
                 ?.replace(/<[^>]*>/g, "")
                 .substring(0, 120)
                 .trim() + "..." || "",
             column:
-              post.series?.title || post.category?.name || "未分类",
+              post.series?.title || post.category?.name || t("uncategorized"),
             categorySlug: post.category?.slug || post.category?.name || null,
             tags: post.tags || [],
-            date: formatPublishDate(post.updatedAt || post.createdAt),
+            date: formatPublishDate(post.updatedAt || post.createdAt, locale),
             updatedAt: post.updatedAt || post.createdAt,
             articleId: post.slug || post.id,
           })),
@@ -90,7 +93,7 @@ export function HomePageClient() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [locale, t]);
 
   useEffect(() => {
     fetchArticles();
@@ -371,7 +374,7 @@ export function HomePageClient() {
           <main className="lg:col-span-2 space-y-6">
             <div>
               <div className="flex items-center gap-3 mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">最近发布</h2>
+                <h2 className="text-2xl font-bold text-gray-900">{t("recentPosts")}</h2>
                 <div className="h-px flex-1 bg-gradient-to-r from-slate-400/50 via-slate-300/30 to-transparent" />
               </div>
 
@@ -408,7 +411,7 @@ export function HomePageClient() {
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-8">
-                  {hasActiveFilters ? "没有找到匹配的文章" : "暂无文章"}
+                  {hasActiveFilters ? t("noMatchingPosts") : t("noPosts")}
                 </p>
               )}
 
@@ -421,7 +424,7 @@ export function HomePageClient() {
                     disabled={currentPage === 1}
                     onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   >
-                    上一页
+                    {t("prevPage")}
                   </Button>
 
                   <div className="flex flex-wrap items-center justify-center gap-1">
@@ -453,7 +456,7 @@ export function HomePageClient() {
                       setCurrentPage((page) => Math.min(totalPages, page + 1))
                     }
                   >
-                    下一页
+                    {t("nextPage")}
                   </Button>
                 </div>
               )}

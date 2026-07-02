@@ -1,7 +1,8 @@
 "use client";
 
 import { FileText, Eye, Clock } from "lucide-react";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 
 interface SimilarArticle {
   id: string;
@@ -18,14 +19,17 @@ interface SimilarArticlesProps {
 }
 
 export function SimilarArticles({ category, articles }: SimilarArticlesProps) {
+  const t = useTranslations("article");
   return (
     <div className="bg-transparent backdrop-blur-sm border border-white/20 rounded-2xl p-5 shadow-sm">
       <div className="mb-4 pb-3 border-b border-gray-200/50">
         <h3 className="font-semibold text-gray-900 flex items-center gap-2">
           <FileText className="h-5 w-5 text-purple-600" />
-          相似文章
+          {t("similarTitle")}
         </h3>
-        <p className="text-xs text-gray-500 mt-1">{category} 分类</p>
+        <p className="text-xs text-gray-500 mt-1">
+          {t("similarCategory", { category })}
+        </p>
       </div>
 
       <div className="space-y-3">

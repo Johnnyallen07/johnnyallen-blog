@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { ArrowLeft, Maximize2, Minimize2, List } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { ArticleContent } from "@/components/article/ArticleContent";
 import { TableOfContents } from "@/components/article/TableOfContents";
@@ -115,19 +116,25 @@ function extractTocAndInjectIds(html: string): {
   return { items, html: processed };
 }
 
-function getRelativeTime(dateStr: string): string {
+type Translator = (key: string, values?: Record<string, number>) => string;
+
+function getRelativeTime(
+  dateStr: string,
+  locale: string,
+  t: Translator,
+): string {
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffMinutes = Math.floor(diffMs / 60000);
 
-  if (diffMinutes < 1) return "刚刚";
-  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
+  if (diffMinutes < 1) return t("justNow");
+  if (diffMinutes < 60) return t("minutesAgo", { count: diffMinutes });
   const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}小时前`;
+  if (diffHours < 24) return t("hoursAgo", { count: diffHours });
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}天前`;
-  return date.toLocaleDateString("zh-CN");
+  if (diffDays < 30) return t("daysAgo", { count: diffDays });
+  return date.toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US");
 }
 
 function mapToSeriesItems(nodes: SeriesItemDTO[]): MappedSeriesItem[] {
@@ -143,6 +150,8 @@ function mapToSeriesItems(nodes: SeriesItemDTO[]): MappedSeriesItem[] {
 // --- Main Component ---
 
 export function ArticlePageClient({ slug }: ArticlePageClientProps) {
+  const t = useTranslations("article");
+  const locale = useLocale();
   const [post, setPost] = useState<PostData | null>(null);
   const [seriesItems, setSeriesItems] = useState<MappedSeriesItem[]>([]);
   const [seriesInfo, setSeriesInfo] = useState<{
@@ -183,13 +192,17 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
 
   const fetchArticle = useCallback(async () => {
     try {
-      const data: PostData = await fetchClient(`/posts/slug/${slug}`, {
-        cache: "no-store",
-        headers: {
-          "Pragma": "no-cache",
-          "Cache-Control": "no-cache"
-        }
-      });
+      const data: PostData = await fetchClient(
+        `/posts/slug/${slug}`,
+        {
+          cache: "no-store",
+          headers: {
+            "Pragma": "no-cache",
+            "Cache-Control": "no-cache"
+          }
+        },
+        locale,
+      );
       setPost(data);
 
       if (!viewCountedRef.current) {
@@ -228,7 +241,9 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
           ? `&categoryId=${data.category.id}`
           : "";
         const similar = await fetchClient(
-          `/posts?take=5${categoryParam}`
+          `/posts?take=5${categoryParam}`,
+          {},
+          locale,
         );
 
         interface SimilarPostDTO {
@@ -254,7 +269,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
                     .substring(0, 80)
                     .trim() + "..." || "",
                 views: p.views || 0,
-                date: getRelativeTime(p.updatedAt),
+                date: getRelativeTime(p.updatedAt, locale, t),
                 slug: p.slug,
               }))
           );
@@ -267,7 +282,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [slug]);
+  }, [slug, locale, t]);
 
   useEffect(() => {
     fetchArticle();
@@ -288,7 +303,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 via-purple-50/20 to-pink-50/30 flex items-center justify-center">
         <div className="animate-pulse flex flex-col items-center">
           <div className="h-8 w-8 bg-cyan-500 rounded-full mb-4"></div>
-          <div className="text-gray-400 text-sm">加载中...</div>
+          <div className="text-gray-400 text-sm">{t("loading")}</div>
         </div>
       </div>
     );
@@ -298,11 +313,11 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-cyan-50/30 via-purple-50/20 to-pink-50/30">
         <div className="max-w-[1600px] mx-auto px-4 py-16 text-center">
-          <p className="text-gray-500 mb-6">文章不存在或加载失败</p>
+          <p className="text-gray-500 mb-6">{t("notFound")}</p>
           <Link href="/">
             <Button variant="outline" className="border-gray-300 hover:bg-gray-50">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              返回首页
+              {t("backHome")}
             </Button>
           </Link>
         </div>
@@ -323,7 +338,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
         className="fixed top-5 left-5 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/70 backdrop-blur-md border border-white/30 shadow-sm text-sm text-gray-600 hover:text-gray-900 hover:bg-white/90 transition-all"
       >
         <ArrowLeft className="h-4 w-4" />
-        <span>首页</span>
+        <span>{t("home")}</span>
       </Link>
 
       {/* Floating immersive mode toggle */}
@@ -333,14 +348,14 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
           if (isImmersive) setShowFloatingToc(false);
         }}
         className="fixed top-5 right-5 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/70 backdrop-blur-md border border-white/30 shadow-sm text-sm text-gray-600 hover:text-gray-900 hover:bg-white/90 transition-all group"
-        title={isImmersive ? "退出沉浸阅读" : "沉浸阅读"}
+        title={isImmersive ? t("immersiveExitTitle") : t("immersiveTitle")}
       >
         {isImmersive ? (
           <Minimize2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
         ) : (
           <Maximize2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
         )}
-        <span className="hidden sm:inline">{isImmersive ? "退出沉浸" : "沉浸阅读"}</span>
+        <span className="hidden sm:inline">{isImmersive ? t("immersiveExitShort") : t("immersiveTitle")}</span>
       </button>
 
       {/* Floating TOC button & popover (immersive mode only) */}
@@ -351,7 +366,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
             className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/70 backdrop-blur-md border border-white/30 shadow-sm text-sm text-gray-600 hover:text-gray-900 hover:bg-white/90 transition-all"
           >
             <List className="h-4 w-4" />
-            <span className="hidden sm:inline">目录</span>
+            <span className="hidden sm:inline">{t("toc")}</span>
           </button>
           {showFloatingToc && (
             <div className="absolute top-12 right-0 w-72 max-h-[70vh] overflow-y-auto rounded-2xl shadow-xl border border-white/30 bg-white/90 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
@@ -386,11 +401,11 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
                 postId={post.id}
                 title={post.title}
                 author="Johnny"
-                date={post.createdAt ? getRelativeTime(post.createdAt) : ""}
+                date={post.createdAt ? getRelativeTime(post.createdAt, locale, t) : ""}
                 views={post.views || 0}
                 likes={post.likes || 0}
                 tags={post.tags || []}
-                category={post.category?.name || "未分类"}
+                category={post.category?.name || t("uncategorized")}
                 column={seriesInfo.title}
                 content={articleContent}
               />
@@ -414,11 +429,11 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
                 postId={post.id}
                 title={post.title}
                 author="Johnny"
-                date={post.createdAt ? getRelativeTime(post.createdAt) : ""}
+                date={post.createdAt ? getRelativeTime(post.createdAt, locale, t) : ""}
                 views={post.views || 0}
                 likes={post.likes || 0}
                 tags={post.tags || []}
-                category={post.category?.name || "未分类"}
+                category={post.category?.name || t("uncategorized")}
                 content={articleContent}
               />
             </main>
@@ -430,7 +445,7 @@ export function ArticlePageClient({ slug }: ArticlePageClientProps) {
                   <TableOfContents items={tocItems} />
                   {similarArticles.length > 0 && (
                     <SimilarArticles
-                      category={post.category?.name || "推荐阅读"}
+                      category={post.category?.name || t("recommendedReading")}
                       articles={similarArticles}
                     />
                   )}

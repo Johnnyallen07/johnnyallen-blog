@@ -1,11 +1,12 @@
 "use client";
 
 import Image from "next/image";
+import { useTranslations } from "next-intl";
 import { ExternalLink, Code2 } from "lucide-react";
 
 interface Project {
-    name: string;
-    description: string;
+    nameKey: string;
+    descriptionKey: string;
     link: string;
     image?: string;
     icon?: string;
@@ -14,16 +15,15 @@ interface Project {
 
 const PROJECTS: Project[] = [
     {
-        name: "五满星教育平台",
-        description: "为国际学生提供优质的线上平台服务",
+        nameKey: "fivestars.name",
+        descriptionKey: "fivestars.description",
         link: "https://fivestarsedu.com",
         image: "/images/fivestar-logo.jpg",
         gradient: "from-slate-700 to-slate-400",
     },
     {
-        name: "Stock Price Generator",
-        description:
-            "游戏马拉松（泡沫主题）的数据生成器",
+        nameKey: "stockGenerator.name",
+        descriptionKey: "stockGenerator.description",
         link: "https://stanly-c2.itch.io/city-of-broken-dreamers",
         image: "",
         icon: "🎮",
@@ -32,6 +32,7 @@ const PROJECTS: Project[] = [
 ];
 
 export function ProjectShowcase() {
+    const t = useTranslations("projects");
     return (
         <div className="bg-white/[0.18] backdrop-blur-sm border border-slate-200/60 rounded-2xl shadow-lg shadow-slate-900/5 overflow-hidden group">
             {/* 标题栏 */}
@@ -39,10 +40,10 @@ export function ProjectShowcase() {
                 <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                         <Code2 className="h-5 w-5 text-slate-600" />
-                        项目
+                        {t("title")}
                     </h3>
                     <span className="text-xs text-gray-500 bg-white/50 px-2 py-1 rounded-full">
-                        {PROJECTS.length} 个项目
+                        {t("count", { count: PROJECTS.length })}
                     </span>
                 </div>
             </div>
@@ -80,7 +81,7 @@ export function ProjectShowcase() {
                                             <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 bg-white group-hover/card:scale-110 transition-all duration-300">
                                                 <Image
                                                     src={project.image}
-                                                    alt={project.name}
+                                                    alt={t(project.nameKey)}
                                                     width={48}
                                                     height={48}
                                                     className="w-full h-full object-cover"
@@ -93,10 +94,10 @@ export function ProjectShowcase() {
                                         )}
                                         <div className="flex-1 min-w-0">
                                             <h4 className="font-bold text-gray-900 text-sm mb-1 truncate group-hover/card:text-slate-950 transition-all">
-                                                {project.name}
+                                                {t(project.nameKey)}
                                             </h4>
                                             <p className="text-xs text-gray-600 leading-relaxed line-clamp-2">
-                                                {project.description}
+                                                {t(project.descriptionKey)}
                                             </p>
                                         </div>
                                     </div>
@@ -105,7 +106,7 @@ export function ProjectShowcase() {
                                     <div className="flex items-center justify-end text-xs text-gray-500">
                                         <div className="flex items-center gap-1 group-hover/card:text-slate-950 transition-colors">
                                             <ExternalLink className="h-3.5 w-3.5" />
-                                            <span>访问</span>
+                                            <span>{t("visit")}</span>
                                         </div>
                                     </div>
                                 </div>

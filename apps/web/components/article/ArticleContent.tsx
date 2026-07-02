@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type MouseEvent } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Calendar, Eye, ThumbsUp, Tag, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchClient, getApiBaseUrl } from "@/lib/api";
@@ -30,21 +31,31 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
-function renderScoreReferences(html: string): string {
+interface ScoreReferenceLabels {
+  defaultTitle: string;
+  openPdf: string;
+  view: string;
+}
+
+function renderScoreReferences(
+  html: string,
+  labels: ScoreReferenceLabels,
+  localePrefix: string,
+): string {
   return html.replace(
     /(?:<p>)?\[\[score:([a-zA-Z0-9_-]+)(?:\|([^\]]+))?\]\](?:<\/p>)?/g,
     (_match, scoreId: string, label?: string) => {
-      const title = escapeHtml(label?.trim() || "查看关联乐谱");
-      const href = `${MUSIC_URL}/scores?score=${encodeURIComponent(scoreId)}`;
+      const title = escapeHtml(label?.trim() || labels.defaultTitle);
+      const href = `${MUSIC_URL}${localePrefix}/scores?score=${encodeURIComponent(scoreId)}`;
 
       return `
         <a href="${href}" target="_blank" rel="noopener noreferrer" class="not-prose my-5 flex items-center gap-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-slate-800 no-underline shadow-sm transition hover:border-amber-300 hover:bg-amber-50">
           <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-amber-600 shadow-sm">♬</span>
           <span class="min-w-0 flex-1">
             <span class="block text-sm font-semibold">${title}</span>
-            <span class="block text-xs text-slate-500">打开乐谱 PDF</span>
+            <span class="block text-xs text-slate-500">${escapeHtml(labels.openPdf)}</span>
           </span>
-          <span class="text-xs text-amber-700">查看</span>
+          <span class="text-xs text-amber-700">${escapeHtml(labels.view)}</span>
         </a>
       `;
     }
@@ -63,10 +74,24 @@ export function ArticleContent({
   category,
   column,
 }: ArticleContentProps) {
+  const t = useTranslations("article");
+  const locale = useLocale();
   const [likesCount, setLikesCount] = useState(initialLikes);
   const [hasLiked, setHasLiked] = useState(false);
 
-  const renderedContent = useMemo(() => renderScoreReferences(content), [content]);
+  const renderedContent = useMemo(
+    () =>
+      renderScoreReferences(
+        content,
+        {
+          defaultTitle: t("scoreLinkDefault"),
+          openPdf: t("scoreOpenPdf"),
+          view: t("scoreView"),
+        },
+        locale === "zh" ? "" : `/${locale}`,
+      ),
+    [content, t, locale],
+  );
 
   const handleLike = async () => {
     if (!postId) return;
@@ -80,7 +105,7 @@ export function ArticleContent({
       setHasLiked(!hasLiked);
     } catch (error) {
       console.error(error);
-      toast.error("操作失败");
+      toast.error(t("actionFailed"));
     }
   };
 
@@ -139,12 +164,12 @@ export function ArticleContent({
             <div className="w-px h-4 bg-gray-300" />
             <div className="flex items-center gap-1.5">
               <Eye className="h-4 w-4" />
-              <span>{views} 阅读</span>
+              <span>{t("viewsCount", { count: views })}</span>
             </div>
             <div className="w-px h-4 bg-gray-300" />
             <div className="flex items-center gap-1.5">
               <ThumbsUp className="h-4 w-4" />
-              <span>{likesCount} 点赞</span>
+              <span>{t("likesCount", { count: likesCount })}</span>
             </div>
           </div>
 
@@ -193,7 +218,7 @@ export function ArticleContent({
               <ThumbsUp
                 className={`h-4 w-4 mr-2 ${hasLiked ? "fill-cyan-600" : ""}`}
               />
-              点赞 ({likesCount})
+              {t("likeButton", { count: likesCount })}
             </Button>
           </div>
         </footer>

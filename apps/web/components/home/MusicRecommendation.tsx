@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Music, Play, Pause, ExternalLink } from "lucide-react";
 import { fetchClient } from "@/lib/api";
 
@@ -36,6 +37,8 @@ interface SidebarCategory {
 const MUSIC_URL = process.env.NEXT_PUBLIC_MUSIC_URL || "/music";
 
 export function MusicRecommendation() {
+  const t = useTranslations("music");
+  const locale = useLocale();
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [recommended, setRecommended] = useState<MusicTrack[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -46,8 +49,8 @@ export function MusicRecommendation() {
   const fetchData = useCallback(async () => {
     try {
       const [musicRes, categories] = await Promise.all([
-        fetchClient("/music?pageSize=100"),
-        fetchClient("/music-categories"),
+        fetchClient("/music?pageSize=100", {}, locale),
+        fetchClient("/music-categories", {}, locale),
       ]);
 
       const allTracks = musicRes?.data ?? musicRes;
@@ -95,7 +98,7 @@ export function MusicRecommendation() {
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     fetchData();
@@ -146,7 +149,7 @@ export function MusicRecommendation() {
     <div className="bg-white/[0.18] backdrop-blur-sm border border-slate-200/60 rounded-xl p-6 shadow-sm hover:bg-white/30 hover:border-slate-400 transition-all duration-300">
       <div className="flex items-center gap-2 mb-4">
         <Music className="h-5 w-5 text-slate-600" />
-        <h3 className="text-lg font-semibold text-gray-900">音乐推荐</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{t("recommendTitle")}</h3>
       </div>
 
       <div className="space-y-3">
@@ -204,14 +207,14 @@ export function MusicRecommendation() {
         })}
       </div>
 
-      {/* Link to music page */}
+      {/* Link to music page（跨应用链接手动带 locale 前缀） */}
       <a
-        href={MUSIC_URL}
+        href={`${MUSIC_URL}${locale === "zh" ? "" : `/${locale}`}`}
         target="_blank"
         rel="noopener noreferrer"
         className="mt-4 flex items-center justify-center gap-2 text-sm text-slate-700 hover:text-slate-950 bg-white/35 hover:bg-white/55 rounded-lg py-2.5 transition-all group"
       >
-        <span>探索更多音乐</span>
+        <span>{t("exploreMore")}</span>
         <ExternalLink className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
       </a>
     </div>

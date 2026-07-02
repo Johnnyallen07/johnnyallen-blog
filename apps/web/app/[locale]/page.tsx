@@ -1,18 +1,26 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
+import { alternatesFor } from "@/lib/seo";
 import { HomePageClient } from "./home-client";
 
-export const metadata: Metadata = {
-  title: "JohnnyBlog",
-  description:
-    "Johnny 的个人博客，分享游戏攻略、音乐心得和技术笔记。探索缺氧游戏、小提琴、钢琴、React、TypeScript 等话题。",
-  openGraph: {
-    title: "JohnnyBlog",
-    description:
-      "Johnny 的个人博客，分享游戏攻略、音乐心得和技术笔记。",
-    type: "website",
-  },
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "metadata" });
+  return {
+    title: t("homeTitle"),
+    description: t("homeDescription"),
+    openGraph: {
+      title: t("homeTitle"),
+      description: t("homeOgDescription"),
+      type: "website",
+    },
+    alternates: alternatesFor(locale, "/"),
+  };
+}
 
 export default async function HomePage({
   params,

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import { Calendar, FileText } from "lucide-react";
+import { Link } from "@/i18n/navigation";
 import { Navbar } from "@/components/home/Navbar";
 import { fetchClient } from "@/lib/api";
 
@@ -24,10 +25,15 @@ interface ArchiveYear {
   months: ArchiveMonth[];
 }
 
-const MONTH_NAMES = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
-
-function groupPostsByYearMonth(posts: { title: string; slug: string; updatedAt: string; series?: { title: string }; category?: { name: string } }[]): ArchiveYear[] {
+function groupPostsByYearMonth(
+  posts: { title: string; slug: string; updatedAt: string; series?: { title: string }; category?: { name: string } }[],
+  options: { locale: string; uncategorized: string; untitledPost: string },
+): ArchiveYear[] {
   const byYear = new Map<string, Map<string, ArchiveArticle[]>>();
+  const monthFormatter = new Intl.DateTimeFormat(
+    options.locale === "zh" ? "zh-CN" : "en-US",
+    { month: "short" },
+  );
 
   for (const post of posts) {
     const d = new Date(post.updatedAt);
@@ -35,13 +41,13 @@ function groupPostsByYearMonth(posts: { title: string; slug: string; updatedAt: 
     const monthIndex = d.getMonth();
     const monthKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
     const dateStr = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const column = post.series?.title || post.category?.name || "未分类";
+    const column = post.series?.title || post.category?.name || options.uncategorized;
 
     if (!byYear.has(year)) byYear.set(year, new Map());
     const byMonth = byYear.get(year)!;
     if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
     byMonth.get(monthKey)!.push({
-      title: post.title || "未命名文章",
+      title: post.title || options.untitledPost,
       date: dateStr,
       column,
       slug: post.slug || "",
@@ -63,7 +69,7 @@ function groupPostsByYearMonth(posts: { title: string; slug: string; updatedAt: 
     const months: ArchiveMonth[] = monthKeys.map((monthKey) => {
       const [, m] = monthKey.split("-");
       return {
-        month: MONTH_NAMES[Number(m) - 1] ?? monthKey,
+        month: monthFormatter.format(new Date(2000, Number(m) - 1, 1)),
         monthKey,
         articles: byMonth.get(monthKey)!,
       };
@@ -74,14 +80,25 @@ function groupPostsByYearMonth(posts: { title: string; slug: string; updatedAt: 
 }
 
 export function ArchivePageClient() {
+  const t = useTranslations("archive");
+  const locale = useLocale();
   const [archives, setArchives] = useState<ArchiveYear[]>([]);
   const [isLoading, setLoading] = useState(true);
 
   const loadArchives = useCallback(async () => {
     try {
-      const data = await fetchClient("/posts?published=true");
+      const data = await fetchClient("/posts?published=true", {}, locale);
       if (Array.isArray(data) && data.length > 0) {
-        setArchives(groupPostsByYearMonth(data as { title: string; slug: string; updatedAt: string; series?: { title: string }; category?: { name: string } }[]));
+        setArchives(
+          groupPostsByYearMonth(
+            data as { title: string; slug: string; updatedAt: string; series?: { title: string }; category?: { name: string } }[],
+            {
+              locale,
+              uncategorized: t("uncategorized"),
+              untitledPost: t("untitledPost"),
+            },
+          ),
+        );
       } else {
         setArchives([]);
       }
@@ -90,7 +107,7 @@ export function ArchivePageClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [locale, t]);
 
   useEffect(() => {
     loadArchives();
@@ -187,9 +204,9 @@ export function ArchivePageClient() {
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-3 flex items-center gap-3">
             <Calendar className="h-10 w-10 text-cyan-600" />
-            文章归档
+            {t("title")}
           </h1>
-          <p className="text-gray-600">按时间浏览所有文章</p>
+          <p className="text-gray-600">{t("subtitle")}</p>
         </div>
 
         {/* 归档列表 */}
@@ -208,7 +225,7 @@ export function ArchivePageClient() {
               </div>
             </div>
           ) : archives.length === 0 ? (
-            <p className="text-gray-500 text-center py-12">暂无已发布文章</p>
+            <p className="text-gray-500 text-center py-12">{t("noPosts")}</p>
           ) : (
             archives.map((yearData) => (
               <div key={yearData.year}>

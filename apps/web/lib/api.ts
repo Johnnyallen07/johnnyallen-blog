@@ -22,8 +22,19 @@ export function getApiBaseUrl(): string {
     return publicApiUrl || "http://localhost:3001";
 }
 
-export async function fetchClient(endpoint: string, options: RequestInit = {}) {
-    const url = `${getApiBaseUrl()}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+/** 给 endpoint 追加 locale 查询参数（zh 为默认语言，不追加） */
+export function withLocale(endpoint: string, locale?: string): string {
+    if (!locale || locale === "zh") return endpoint;
+    return `${endpoint}${endpoint.includes("?") ? "&" : "?"}locale=${locale}`;
+}
+
+export async function fetchClient(
+    endpoint: string,
+    options: RequestInit = {},
+    locale?: string,
+) {
+    const localizedEndpoint = withLocale(endpoint, locale);
+    const url = `${getApiBaseUrl()}${localizedEndpoint.startsWith("/") ? localizedEndpoint : `/${localizedEndpoint}`}`;
 
     const headers = {
         "Content-Type": "application/json",

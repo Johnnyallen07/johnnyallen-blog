@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Image from "next/image";
+// 本页 Link 只用于外链（https/mailto），无需 locale 感知
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import {
   Github,
   Linkedin,
@@ -42,6 +44,7 @@ function WechatIcon({ className }: { className?: string }) {
 }
 
 export function AboutPageClient() {
+  const t = useTranslations("about");
   const [wechatOpen, setWechatOpen] = useState(false);
 
   return (
@@ -122,7 +125,7 @@ export function AboutPageClient() {
           <div className="w-32 h-32 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white shadow-lg bg-gradient-to-br from-cyan-100 to-purple-100 flex items-center justify-center">
             <Image
               src="/images/avatar.png"
-              alt="Johnny 头像"
+              alt={t("avatarAlt")}
               width={128}
               height={128}
               className="w-full h-full object-cover"
@@ -134,22 +137,22 @@ export function AboutPageClient() {
 
         {/* 关于我 */}
         <div className="bg-transparent backdrop-blur-sm border border-white/40 rounded-xl p-8 mb-8 shadow-sm hover:bg-white/20 hover:border-cyan-300 transition-all duration-300">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">关于我</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">{t("title")}</h2>
           <div className="prose prose-gray max-w-none">
             <p className="text-gray-700 leading-relaxed mb-4">
-              帝国理工本科大三数学；在 Google 当了三个月的 prompt engineer，被 manager 一对一开会骂我在 commit 测试系统里面写 f**k；皮包国际教育机构老板；教微积分桃李满天下的老师但是不想教书；超级喜欢玩「缺氧」的 Steam 玩家。
+              {t("bio")}
             </p>
             <p className="text-gray-700 leading-relaxed">
-              博客全是 AI 写的，除了这段文字。
+              {t("aiNote")}
             </p>
           </div>
         </div>
 
         {/* 联系方式 */}
         <div className="bg-transparent backdrop-blur-sm border border-white/40 rounded-xl p-8 shadow-sm hover:bg-white/20 hover:border-cyan-300 transition-all duration-300">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">联系我</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">{t("contactTitle")}</h2>
           <p className="text-gray-700 mb-6">
-            欢迎交流！
+            {t("contactSubtitle")}
           </p>
           <div className="flex flex-wrap gap-3">
             <Button
@@ -198,7 +201,7 @@ export function AboutPageClient() {
               onClick={() => setWechatOpen(true)}
             >
               <WechatIcon className="h-4 w-4 mr-2" />
-              微信
+              {t("wechat")}
             </Button>
           </div>
         </div>

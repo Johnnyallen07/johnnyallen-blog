@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { fetchClient } from "@/lib/api";
 
 interface Category {
@@ -15,12 +16,18 @@ interface TagCloudProps {
 }
 
 export function TagCloud({ selectedTagSlug, onSelectTag }: TagCloudProps) {
+  const t = useTranslations("sidebar");
+  const locale = useLocale();
   const [tags, setTags] = useState<Category[]>([]);
 
   useEffect(() => {
     const loadTags = async () => {
       try {
-        const categories: Category[] = await fetchClient("/categories");
+        const categories: Category[] = await fetchClient(
+          "/categories",
+          {},
+          locale,
+        );
         if (Array.isArray(categories) && categories.length > 0) {
           setTags(categories.slice(0, 12));
         }
@@ -29,7 +36,7 @@ export function TagCloud({ selectedTagSlug, onSelectTag }: TagCloudProps) {
       }
     };
     loadTags();
-  }, []);
+  }, [locale]);
 
   if (tags.length === 0) return null;
 
@@ -37,7 +44,7 @@ export function TagCloud({ selectedTagSlug, onSelectTag }: TagCloudProps) {
     <div>
       <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
         <span className="text-slate-500">#</span>
-        标签
+        {t("tagsTitle")}
       </h3>
       <div className="flex flex-wrap gap-2">
         {tags.map((tag) => {

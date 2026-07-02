@@ -1,20 +1,28 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Providers } from "@/components/providers";
 import { SiteFooter } from "@/components/home/SiteFooter";
 import { routing } from "@/i18n/routing";
 import "../globals.css";
 
-export const metadata: Metadata = {
-  metadataBase: new URL("https://johnnyallen.blog"),
-  title: "Johnny Blog",
-  description: "Johnny 的个人博客。",
-  icons: {
-    icon: "/images/logo.png",
-  },
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "metadata" });
+  return {
+    metadataBase: new URL("https://johnnyallen.blog"),
+    title: t("siteTitle"),
+    description: t("siteDescription"),
+    icons: {
+      icon: "/images/logo.png",
+    },
+  };
+}
 
 export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));

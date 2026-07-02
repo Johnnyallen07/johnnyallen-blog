@@ -1,15 +1,25 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
+import { alternatesFor } from "@/lib/seo";
 import { ArchivePageClient } from "./archive-client";
 
-export const metadata: Metadata = {
-  title: "文章归档 - JohnnyBlog",
-  description: "按时间浏览 JohnnyBlog 的所有文章，涵盖游戏、音乐、技术等话题。",
-  openGraph: {
-    title: "文章归档 - JohnnyBlog",
-    description: "按时间浏览 JohnnyBlog 的所有文章",
-  },
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "metadata" });
+  return {
+    title: t("archiveTitle"),
+    description: t("archiveDescription"),
+    openGraph: {
+      title: t("archiveTitle"),
+      description: t("archiveOgDescription"),
+    },
+    alternates: alternatesFor(locale, "/archive"),
+  };
+}
 
 export default async function ArchivePage({
   params,

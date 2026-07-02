@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { useTranslations } from "next-intl";
 import { Check, Copy } from "lucide-react";
 import {
   Dialog,
@@ -21,6 +22,7 @@ export function WechatContactDialog({
   open,
   onOpenChange,
 }: WechatContactDialogProps) {
+  const t = useTranslations("contact");
   const [copied, setCopied] = useState(false);
 
   const copyWechatId = async () => {
@@ -37,11 +39,11 @@ export function WechatContactDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden border-0 shadow-xl">
         <DialogHeader className="px-6 pt-6 pb-2">
-          <DialogTitle className="text-center text-2xl">添加微信好友</DialogTitle>
+          <DialogTitle className="text-center text-2xl">{t("wechatTitle")}</DialogTitle>
         </DialogHeader>
         <div className="px-6 pb-6 flex flex-col items-center">
           <p className="text-sm text-gray-600 text-center mb-4">
-            扫一扫下方二维码，或复制微信号添加我。
+            {t("wechatSubtitle")}
           </p>
 
           <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 mb-4 flex items-center justify-between gap-3">
@@ -56,7 +58,7 @@ export function WechatContactDialog({
               variant="outline"
               size="icon"
               onClick={copyWechatId}
-              aria-label="复制微信号"
+              aria-label={t("copyWechatId")}
             >
               {copied ? (
                 <Check className="h-4 w-4 text-cyan-600" />
@@ -69,7 +71,7 @@ export function WechatContactDialog({
           <div className="relative w-full max-w-[320px] rounded-lg overflow-hidden bg-white border border-gray-100">
             <Image
               src={WECHAT_QR_IMAGE}
-              alt="微信好友二维码"
+              alt={t("wechatQrAlt")}
               width={888}
               height={1197}
               className="w-full h-auto object-contain"
