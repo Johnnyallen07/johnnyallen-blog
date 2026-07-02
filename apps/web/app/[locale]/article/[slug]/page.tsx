@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { setRequestLocale } from "next-intl/server";
 import { getApiBaseUrl } from "@/lib/api";
 import { ArticlePageClient } from "./article-client";
 
 interface ArticlePageProps {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ locale: string; slug: string }>;
 }
 
 export async function generateMetadata({
@@ -47,6 +48,7 @@ export async function generateMetadata({
 }
 
 export default async function ArticlePage({ params }: ArticlePageProps) {
-  const { slug } = await params;
+  const { locale, slug } = await params;
+  setRequestLocale(locale);
   return <ArticlePageClient slug={slug} />;
 }
