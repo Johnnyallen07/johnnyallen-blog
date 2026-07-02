@@ -9,6 +9,16 @@ import type { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { I18nService } from '../i18n/i18n.service';
+
+/** 可递归本地化的分类节点最小结构 */
+interface CategoryNode {
+  id: string;
+  name: string;
+  description: string | null;
+  parent?: CategoryNode | null;
+  children?: CategoryNode[];
+}
 
 @Injectable()
 export class CategoriesService {
@@ -17,7 +27,56 @@ export class CategoriesService {
   constructor(
     private prisma: PrismaService,
     @Inject(CACHE_MANAGER) private cache: Cache,
+    private i18n: I18nService,
   ) {}
+
+  /** 递归收集分类节点 id（含 parent/children） */
+  private collectCategoryIds(nodes: CategoryNode[], ids: Set<string>) {
+    for (const node of nodes) {
+      ids.add(node.id);
+      if (node.parent) ids.add(node.parent.id);
+      if (node.children?.length) {
+        this.collectCategoryIds(node.children, ids);
+      }
+    }
+  }
+
+  /** 递归应用分类翻译覆盖（就地修改刚查出的对象） */
+  private applyCategoryOverrides(
+    nodes: CategoryNode[],
+    overrides: Map<string, Record<string, string>>,
+  ) {
+    for (const node of nodes) {
+      const o = overrides.get(node.id);
+      if (o) {
+        if (o.name) node.name = o.name;
+        if (o.description && node.description !== null) {
+          node.description = o.description;
+        }
+      }
+      if (node.parent) this.applyCategoryOverrides([node.parent], overrides);
+      if (node.children?.length) {
+        this.applyCategoryOverrides(node.children, overrides);
+      }
+    }
+  }
+
+  /** 本地化一组分类节点（zh 快路径原样返回） */
+  private async localizeCategories<T extends CategoryNode>(
+    nodes: T[],
+    locale?: string,
+  ): Promise<T[]> {
+    if (!locale || locale === 'zh' || nodes.length === 0) return nodes;
+    const ids = new Set<string>();
+    this.collectCategoryIds(nodes, ids);
+    const overrides = await this.i18n.getOverrides(
+      'category',
+      [...ids],
+      locale,
+    );
+    if (overrides.size > 0) this.applyCategoryOverrides(nodes, overrides);
+    return nodes;
+  }
 
   private async cacheSet(key: string, value: unknown, ttl: number) {
     this.cachedKeys.add(key);
@@ -31,12 +90,12 @@ export class CategoriesService {
     this.cachedKeys.clear();
   }
 
-  async findAll() {
-    const cacheKey = 'categories:all';
+  async findAll(locale?: string) {
+    const cacheKey = `categories:all:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const result = await this.prisma.category.findMany({
+    const rows = await this.prisma.category.findMany({
       include: {
         parent: true,
         children: true,
@@ -49,6 +108,7 @@ export class CategoriesService {
       },
     });
 
+    const result = await this.localizeCategories(rows, locale);
     await this.cacheSet(cacheKey, result, 300 * 1000); // 5min
     return result;
   }
@@ -70,8 +130,8 @@ export class CategoriesService {
     return category;
   }
 
-  async findBySlug(slug: string) {
-    const cacheKey = `categories:slug:${slug}`;
+  async findBySlug(slug: string, locale?: string) {
+    const cacheKey = `categories:slug:${slug}:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
@@ -100,6 +160,19 @@ export class CategoriesService {
 
     if (!category) {
       throw new NotFoundException(`Category with slug "${slug}" not found`);
+    }
+
+    await this.localizeCategories([category], locale);
+    if (locale && locale !== 'zh' && category.posts.length > 0) {
+      const postOverrides = await this.i18n.getOverrides(
+        'post',
+        category.posts.map((p) => p.id),
+        locale,
+      );
+      for (const p of category.posts) {
+        const o = postOverrides.get(p.id);
+        if (o?.title) p.title = o.title;
+      }
     }
 
     await this.cacheSet(cacheKey, category, 120 * 1000); // 2min
@@ -196,8 +269,8 @@ export class CategoriesService {
       console.log('Seeded default categories');
     }
   }
-  async getTree() {
-    const cacheKey = 'categories:tree';
+  async getTree(locale?: string) {
+    const cacheKey = `categories:tree:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
@@ -221,12 +294,13 @@ export class CategoriesService {
       },
     });
 
+    await this.localizeCategories(categories, locale);
     await this.cacheSet(cacheKey, categories, 300 * 1000); // 5min
     return categories;
   }
 
-  async findContent(slug: string) {
-    const cacheKey = `categories:content:${slug}`;
+  async findContent(slug: string, locale?: string) {
+    const cacheKey = `categories:content:${slug}:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
@@ -254,6 +328,12 @@ export class CategoriesService {
       throw new NotFoundException(`Category with slug "${slug}" not found`);
     }
 
+    await this.localizeCategories([category], locale);
+    const [series, posts] = await Promise.all([
+      this.i18n.localize('series', category.series, locale),
+      this.i18n.localize('post', category.posts, locale),
+    ]);
+
     const result = {
       category: {
         id: category.id,
@@ -261,8 +341,8 @@ export class CategoriesService {
         slug: category.slug,
         description: category.description,
       },
-      series: category.series,
-      posts: category.posts,
+      series,
+      posts,
     };
 
     await this.cacheSet(cacheKey, result, 60 * 1000); // 60s

@@ -16,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateMusicTrackDto } from './dto/create-music-track.dto';
 import { UpdateMusicTrackDto } from './dto/update-music-track.dto';
 import { SplitSegmentDto } from './dto/split-music.dto';
+import { I18nService } from '../i18n/i18n.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,7 +25,10 @@ export class MusicService {
   private cos: COS;
   private readonly logger = new Logger(MusicService.name);
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private i18n: I18nService,
+  ) {
     this.cos = new COS({
       SecretId: process.env.COS_SECRET_ID || '',
       SecretKey: process.env.COS_SECRET_KEY || '',
@@ -750,6 +754,7 @@ export class MusicService {
       category?: string;
       artist?: string;
       series?: string;
+      locale?: string;
     } = {},
   ) {
     const page = Math.max(1, options.page ?? 1);
@@ -778,7 +783,7 @@ export class MusicService {
       where.series = options.series;
     }
 
-    const [data, total] = await this.prisma.$transaction([
+    const [rows, total] = await this.prisma.$transaction([
       this.prisma.musicTrack.findMany({
         where,
         orderBy: { order: 'asc' },
@@ -787,6 +792,9 @@ export class MusicService {
       }),
       this.prisma.musicTrack.count({ where }),
     ]);
+
+    // 注意：category/series 是筛选键（保持中文规范值），只翻译展示字段
+    const data = await this.i18n.localize('musicTrack', rows, options.locale);
 
     return {
       data,
@@ -798,10 +806,10 @@ export class MusicService {
   }
 
   /** 获取单个曲目 */
-  async findOne(id: string) {
+  async findOne(id: string, locale?: string) {
     const track = await this.prisma.musicTrack.findUnique({ where: { id } });
     if (!track) throw new NotFoundException('Music track not found');
-    return track;
+    return this.i18n.localizeOne('musicTrack', track, locale);
   }
 
   /** 更新曲目元信息 */

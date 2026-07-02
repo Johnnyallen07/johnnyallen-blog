@@ -33,7 +33,7 @@ describe('MusicService YouTube cookies', () => {
   it('creates the cookies directory before writing cookies.txt', async () => {
     const cookiesPath = path.join(tempDir, 'data', 'youtube', 'cookies.txt');
     process.env.YOUTUBE_COOKIES_PATH = cookiesPath;
-    const service = new MusicService({} as never);
+    const service = new MusicService({} as never, {} as never);
 
     const result = await service.updateYoutubeCookies(VALID_COOKIES);
 
@@ -48,7 +48,7 @@ describe('MusicService YouTube cookies', () => {
     const cookiesPath = path.join(tempDir, 'cookies.txt');
     await fs.promises.mkdir(cookiesPath);
     process.env.YOUTUBE_COOKIES_PATH = cookiesPath;
-    const service = new MusicService({} as never);
+    const service = new MusicService({} as never, {} as never);
 
     await expect(service.updateYoutubeCookies(VALID_COOKIES)).rejects.toThrow(
       BadRequestException,

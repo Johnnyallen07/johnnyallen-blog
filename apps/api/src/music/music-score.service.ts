@@ -4,13 +4,17 @@ import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMusicScoreDto } from './dto/create-music-score.dto';
 import { UpdateMusicScoreDto } from './dto/update-music-score.dto';
+import { I18nService } from '../i18n/i18n.service';
 
 @Injectable()
 export class MusicScoreService {
   private cos: COS;
   private readonly logger = new Logger(MusicScoreService.name);
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private i18n: I18nService,
+  ) {
     this.cos = new COS({
       SecretId: process.env.COS_SECRET_ID || '',
       SecretKey: process.env.COS_SECRET_KEY || '',
@@ -85,7 +89,7 @@ export class MusicScoreService {
   }
 
   /** 获取乐谱列表（可按乐器筛选） */
-  async findAll(instrument?: string) {
+  async findAll(instrument?: string, locale?: string) {
     const where: Record<string, unknown> = {};
     if (instrument && instrument !== 'all') {
       where.instrument = instrument;
@@ -96,14 +100,14 @@ export class MusicScoreService {
       orderBy: { order: 'asc' },
     });
 
-    return data;
+    return this.i18n.localize('musicScore', data, locale);
   }
 
   /** 获取单个乐谱 */
-  async findOne(id: string) {
+  async findOne(id: string, locale?: string) {
     const score = await this.prisma.musicScore.findUnique({ where: { id } });
     if (!score) throw new NotFoundException('Music score not found');
-    return score;
+    return this.i18n.localizeOne('musicScore', score, locale);
   }
 
   /** 更新乐谱 */

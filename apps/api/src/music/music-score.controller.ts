@@ -24,14 +24,17 @@ export class MusicScoreController {
 
   /** 获取乐谱列表（可按乐器筛选） */
   @Get()
-  async findAll(@Query('instrument') instrument?: string) {
-    return this.musicScoreService.findAll(instrument);
+  async findAll(
+    @Query('instrument') instrument?: string,
+    @Query('locale') locale?: string,
+  ) {
+    return this.musicScoreService.findAll(instrument, locale);
   }
 
   /** 获取单个乐谱 */
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.musicScoreService.findOne(id);
+  async findOne(@Param('id') id: string, @Query('locale') locale?: string) {
+    return this.musicScoreService.findOne(id, locale);
   }
 
   /** 创建乐谱 */

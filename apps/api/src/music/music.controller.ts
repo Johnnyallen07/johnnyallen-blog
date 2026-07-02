@@ -117,7 +117,7 @@ export class MusicController {
     return this.musicService.getMusicians();
   }
 
-  /** 获取曲目（分页 + 筛选） */
+  /** 获取曲目（分页 + 筛选）；category/artist/series 筛选值始终用中文规范值 */
   @Get()
   async findAll(
     @Query('page') page?: string,
@@ -126,6 +126,7 @@ export class MusicController {
     @Query('category') category?: string,
     @Query('artist') artist?: string,
     @Query('series') series?: string,
+    @Query('locale') locale?: string,
   ) {
     return this.musicService.findAll({
       page: page ? parseInt(page, 10) : undefined,
@@ -134,6 +135,7 @@ export class MusicController {
       category,
       artist,
       series,
+      locale,
     });
   }
 
@@ -157,8 +159,8 @@ export class MusicController {
 
   /** 获取单个曲目 */
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.musicService.findOne(id);
+  async findOne(@Param('id') id: string, @Query('locale') locale?: string) {
+    return this.musicService.findOne(id, locale);
   }
 
   /** 创建单条曲目 */

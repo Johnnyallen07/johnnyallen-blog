@@ -19,11 +19,21 @@ describe('PostsService ordering', () => {
     const mediaService = {
       syncPostMedia: jest.fn(),
     };
+    const i18n = {
+      localize: jest.fn((_type: string, rows: unknown[]) =>
+        Promise.resolve(rows),
+      ),
+      localizeOne: jest.fn((_type: string, row: unknown) =>
+        Promise.resolve(row),
+      ),
+      getOverrides: jest.fn().mockResolvedValue(new Map()),
+    };
 
     const service = new PostsService(
       prisma as never,
       cache as never,
       mediaService as never,
+      i18n as never,
     );
 
     return { service, prisma };

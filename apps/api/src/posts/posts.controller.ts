@@ -27,6 +27,7 @@ export class PostsController {
     featured?: boolean,
     @Query('standalone', new ParseBoolPipe({ optional: true }))
     standalone?: boolean,
+    @Query('locale') locale?: string,
   ) {
     return this.postsService.findAll({
       skip,
@@ -34,19 +35,21 @@ export class PostsController {
       categoryId,
       featured,
       standalone,
+      locale,
     });
   }
 
   @Get('latest')
   findLatest(
     @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('locale') locale?: string,
   ) {
-    return this.postsService.findLatest(limit);
+    return this.postsService.findLatest(limit, locale);
   }
 
   @Get('featured')
-  findFeatured() {
-    return this.postsService.findFeatured();
+  findFeatured(@Query('locale') locale?: string) {
+    return this.postsService.findFeatured(locale);
   }
 
   @Get('check-slug/:slug')
@@ -58,8 +61,8 @@ export class PostsController {
   }
 
   @Get('slug/:slug')
-  findBySlug(@Param('slug') slug: string) {
-    return this.postsService.findBySlug(slug);
+  findBySlug(@Param('slug') slug: string, @Query('locale') locale?: string) {
+    return this.postsService.findBySlug(slug, locale);
   }
 
   @Get(':id')

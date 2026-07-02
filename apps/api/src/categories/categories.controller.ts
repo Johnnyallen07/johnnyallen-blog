@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -18,23 +19,23 @@ export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Get('tree')
-  getTree() {
-    return this.categoriesService.getTree();
+  getTree(@Query('locale') locale?: string) {
+    return this.categoriesService.getTree(locale);
   }
 
   @Get()
-  findAll() {
-    return this.categoriesService.findAll();
+  findAll(@Query('locale') locale?: string) {
+    return this.categoriesService.findAll(locale);
   }
 
   @Get('slug/:slug')
-  findBySlug(@Param('slug') slug: string) {
-    return this.categoriesService.findBySlug(slug);
+  findBySlug(@Param('slug') slug: string, @Query('locale') locale?: string) {
+    return this.categoriesService.findBySlug(slug, locale);
   }
 
   @Get(':slug/content')
-  findContent(@Param('slug') slug: string) {
-    return this.categoriesService.findContent(slug);
+  findContent(@Param('slug') slug: string, @Query('locale') locale?: string) {
+    return this.categoriesService.findContent(slug, locale);
   }
 
   @Get(':id')

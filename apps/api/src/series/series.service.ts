@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSeriesDto } from './dto/create-series.dto';
 import { UpdateSeriesDto } from './dto/update-series.dto';
 import { UpdateSeriesStructureDto } from './dto/update-series-structure.dto';
+import { I18nService } from '../i18n/i18n.service';
 
 export interface SeriesTreeItem {
   id: string;
@@ -30,6 +31,7 @@ export class SeriesService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CACHE_MANAGER) private cache: Cache,
+    private readonly i18n: I18nService,
   ) {}
 
   private async cacheSet(key: string, value: unknown, ttl: number) {
@@ -73,12 +75,12 @@ export class SeriesService {
     return result;
   }
 
-  async findAll() {
-    const cacheKey = 'series:all';
+  async findAll(locale?: string) {
+    const cacheKey = `series:all:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const result = await this.prisma.series.findMany({
+    const rows = await this.prisma.series.findMany({
       include: {
         category: true,
         _count: {
@@ -87,6 +89,20 @@ export class SeriesService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    let result = rows;
+    if (locale && locale !== 'zh') {
+      result = await this.i18n.localize('series', rows, locale);
+      const categoryOverrides = await this.i18n.getOverrides(
+        'category',
+        [...new Set(result.map((s) => s.category.id))],
+        locale,
+      );
+      result = result.map((s) => {
+        const o = categoryOverrides.get(s.category.id);
+        return o ? { ...s, category: { ...s.category, ...o } } : s;
+      });
+    }
 
     await this.cacheSet(cacheKey, result, 120 * 1000); // 2min
     return result;

@@ -5,6 +5,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { MediaService } from '../media/media.service';
+import { I18nService } from '../i18n/i18n.service';
+
+/** findBySlug 返回的专栏树节点（递归本地化用的最小结构） */
+interface SeriesTreeNode {
+  id: string;
+  title?: string | null;
+  post?: { id: string; title: string } | null;
+  children?: SeriesTreeNode[];
+}
 
 @Injectable()
 export class PostsService {
@@ -15,7 +24,74 @@ export class PostsService {
     private prisma: PrismaService,
     @Inject(CACHE_MANAGER) private cache: Cache,
     private mediaService: MediaService,
+    private i18n: I18nService,
   ) {}
+
+  /**
+   * 本地化文章列表行（文章字段 + 内嵌 category 的 name/description）。
+   * zh 快路径原样返回。
+   */
+  private async localizePostRows<
+    T extends { id: string; category?: { id: string } | null },
+  >(rows: T[], locale?: string): Promise<T[]> {
+    if (!locale || locale === 'zh' || rows.length === 0) return rows;
+
+    const localized = await this.i18n.localize('post', rows, locale);
+    const categoryIds = [
+      ...new Set(
+        localized
+          .map((r) => r.category?.id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const categoryOverrides = await this.i18n.getOverrides(
+      'category',
+      categoryIds,
+      locale,
+    );
+    if (categoryOverrides.size === 0) return localized;
+
+    return localized.map((r) => {
+      const overrides = r.category && categoryOverrides.get(r.category.id);
+      return overrides
+        ? { ...r, category: { ...r.category, ...overrides } }
+        : r;
+    });
+  }
+
+  /** 递归收集专栏树里的 seriesItem / post id */
+  private collectTreeIds(
+    nodes: SeriesTreeNode[],
+    itemIds: Set<string>,
+    postIds: Set<string>,
+  ) {
+    for (const node of nodes) {
+      itemIds.add(node.id);
+      if (node.post) postIds.add(node.post.id);
+      if (node.children?.length) {
+        this.collectTreeIds(node.children, itemIds, postIds);
+      }
+    }
+  }
+
+  /** 递归应用专栏树节点的翻译覆盖（就地修改刚查出的对象） */
+  private applyTreeOverrides(
+    nodes: SeriesTreeNode[],
+    itemOverrides: Map<string, Record<string, string>>,
+    postOverrides: Map<string, Record<string, string>>,
+  ) {
+    for (const node of nodes) {
+      const io = itemOverrides.get(node.id);
+      if (io?.title && node.title) node.title = io.title;
+      if (node.post) {
+        const po = postOverrides.get(node.post.id);
+        if (po?.title) node.post.title = po.title;
+      }
+      if (node.children?.length) {
+        this.applyTreeOverrides(node.children, itemOverrides, postOverrides);
+      }
+    }
+  }
 
   private async cacheSet(key: string, value: unknown, ttl: number) {
     this.cachedKeys.add(key);
@@ -36,6 +112,7 @@ export class PostsService {
     featured?: boolean;
     published?: boolean;
     standalone?: boolean;
+    locale?: string;
   }) {
     const {
       skip = 0,
@@ -43,6 +120,7 @@ export class PostsService {
       categoryId,
       featured,
       standalone,
+      locale,
     } = options || {};
 
     // standalone=true 是管理后台调用，不过滤 published（显示草稿 + 已发布）
@@ -78,11 +156,11 @@ export class PostsService {
       });
     }
 
-    const cacheKey = `posts:list:${skip}:${take}:${categoryId || ''}:${featured ?? ''}:${published ?? ''}`;
+    const cacheKey = `posts:list:${skip}:${take}:${categoryId || ''}:${featured ?? ''}:${published ?? ''}:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const result = await this.prisma.post.findMany({
+    const rows = await this.prisma.post.findMany({
       where: {
         ...(categoryId && { categoryId }),
         ...(featured !== undefined && { featured }),
@@ -102,16 +180,17 @@ export class PostsService {
       take,
     });
 
+    const result = await this.localizePostRows(rows, locale);
     await this.cacheSet(cacheKey, result, 30 * 1000); // 30s TTL
     return result;
   }
 
-  async findLatest(limit = 8) {
-    const cacheKey = `posts:latest:${limit}`;
+  async findLatest(limit = 8, locale?: string) {
+    const cacheKey = `posts:latest:${limit}:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const result = await this.prisma.post.findMany({
+    const rows = await this.prisma.post.findMany({
       where: {
         published: true,
       },
@@ -131,16 +210,17 @@ export class PostsService {
       take: limit,
     });
 
+    const result = await this.localizePostRows(rows, locale);
     await this.cacheSet(cacheKey, result, 60 * 1000); // 60s
     return result;
   }
 
-  async findFeatured() {
-    const cacheKey = 'posts:featured';
+  async findFeatured(locale?: string) {
+    const cacheKey = `posts:featured:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const featuredPosts = await this.prisma.post.findMany({
+    const rows = await this.prisma.post.findMany({
       where: {
         published: true,
         featured: true,
@@ -161,6 +241,9 @@ export class PostsService {
       },
     });
 
+    // 先本地化再按分类名分组，保证 en 下按译名分组
+    const featuredPosts = await this.localizePostRows(rows, locale);
+
     // Group by category
     const grouped = featuredPosts.reduce(
       (acc, post) => {
@@ -178,8 +261,8 @@ export class PostsService {
     return grouped;
   }
 
-  async findBySlug(slug: string) {
-    const cacheKey = `post:slug:${slug}`;
+  async findBySlug(slug: string, locale?: string) {
+    const cacheKey = `post:slug:${slug}:${locale ?? 'zh'}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
@@ -250,7 +333,81 @@ export class PostsService {
       throw new NotFoundException(`Post with slug "${slug}" not found`);
     }
 
-    await this.cacheSet(cacheKey, post, 60 * 1000); // 60s
+    const localized = await this.localizePostDetail(post, locale);
+    await this.cacheSet(cacheKey, localized, 60 * 1000); // 60s
+    return localized;
+  }
+
+  /**
+   * 本地化 findBySlug 的完整结构：文章本体 + category + 所属专栏
+   * + 专栏树里的每个节点标题（seriesItem.title / 嵌套 post.title）。
+   * 对刚查出的对象就地修改（尚未进缓存，安全）。
+   */
+  private async localizePostDetail<
+    T extends {
+      id: string;
+      title: string;
+      excerpt: string | null;
+      content: string | null;
+      category: { id: string; name: string; description: string | null };
+      seriesItems: Array<{
+        series: {
+          id: string;
+          title: string;
+          description: string | null;
+          items: SeriesTreeNode[];
+        };
+      }>;
+    },
+  >(post: T, locale?: string): Promise<T> {
+    if (!locale || locale === 'zh') return post;
+
+    // 收集全部需要翻译的 id
+    const itemIds = new Set<string>();
+    const postIds = new Set<string>([post.id]);
+    const seriesIds = new Set<string>();
+    for (const si of post.seriesItems) {
+      seriesIds.add(si.series.id);
+      this.collectTreeIds(si.series.items, itemIds, postIds);
+    }
+
+    const [postOverrides, categoryOverrides, seriesOverrides, itemOverrides] =
+      await Promise.all([
+        this.i18n.getOverrides('post', [...postIds], locale),
+        this.i18n.getOverrides('category', [post.category.id], locale),
+        this.i18n.getOverrides('series', [...seriesIds], locale),
+        this.i18n.getOverrides('seriesItem', [...itemIds], locale),
+      ]);
+
+    // 文章本体
+    const own = postOverrides.get(post.id);
+    if (own) {
+      if (own.title) post.title = own.title;
+      if (own.excerpt && post.excerpt !== null) post.excerpt = own.excerpt;
+      if (own.content && post.content !== null) post.content = own.content;
+    }
+
+    // 分类
+    const co = categoryOverrides.get(post.category.id);
+    if (co) {
+      if (co.name) post.category.name = co.name;
+      if (co.description && post.category.description !== null) {
+        post.category.description = co.description;
+      }
+    }
+
+    // 专栏与专栏树
+    for (const si of post.seriesItems) {
+      const so = seriesOverrides.get(si.series.id);
+      if (so) {
+        if (so.title) si.series.title = so.title;
+        if (so.description && si.series.description !== null) {
+          si.series.description = so.description;
+        }
+      }
+      this.applyTreeOverrides(si.series.items, itemOverrides, postOverrides);
+    }
+
     return post;
   }
 

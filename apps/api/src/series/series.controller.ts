@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  Query,
   Delete,
 } from '@nestjs/common';
 import { SeriesService } from './series.service';
@@ -23,8 +24,8 @@ export class SeriesController {
   }
 
   @Get()
-  findAll() {
-    return this.seriesService.findAll();
+  findAll(@Query('locale') locale?: string) {
+    return this.seriesService.findAll(locale);
   }
 
   @Get(':id')

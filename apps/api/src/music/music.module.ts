@@ -11,9 +11,10 @@ import { MusicSeriesService } from './music-series.service';
 import { MusicScoreController } from './music-score.controller';
 import { MusicScoreService } from './music-score.service';
 import { AuthModule } from '../auth/auth.module';
+import { I18nModule } from '../i18n/i18n.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, I18nModule],
   controllers: [
     MusicController,
     MusicCategoryController,

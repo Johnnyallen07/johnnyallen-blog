@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
 } from '@nestjs/common';
 import { MusicArtistService } from './music-artist.service';
 import { CreateSidebarEntityDto } from './dto/create-sidebar-entity.dto';
@@ -16,8 +17,8 @@ export class MusicArtistController {
   constructor(private readonly service: MusicArtistService) {}
 
   @Get()
-  findAll() {
-    return this.service.findAll();
+  findAll(@Query('locale') locale?: string) {
+    return this.service.findAll(locale);
   }
 
   @Post()

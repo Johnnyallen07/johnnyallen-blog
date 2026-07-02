@@ -2,15 +2,24 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSidebarEntityDto } from './dto/create-sidebar-entity.dto';
 import { UpdateSidebarEntityDto } from './dto/update-sidebar-entity.dto';
+import { I18nService } from '../i18n/i18n.service';
 
 @Injectable()
 export class MusicArtistService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private i18n: I18nService,
+  ) {}
 
-  async findAll() {
-    return this.prisma.musicArtist.findMany({
+  /** 非 zh 时额外返回 sourceName（中文原名），供前端与曲目筛选键匹配 */
+  async findAll(locale?: string) {
+    const rows = await this.prisma.musicArtist.findMany({
       orderBy: { order: 'asc' },
     });
+    if (!locale || locale === 'zh') return rows;
+
+    const localized = await this.i18n.localize('musicArtist', rows, locale);
+    return localized.map((r, i) => ({ ...r, sourceName: rows[i].name }));
   }
 
   async create(dto: CreateSidebarEntityDto) {
