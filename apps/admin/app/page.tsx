@@ -10,6 +10,7 @@ import {
   Edit,
   Music,
   Upload,
+  Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/admin/dashboard/CategoryManager";
@@ -122,6 +123,24 @@ export default function AdminDashboard() {
                     音乐管理
                   </h3>
                   <p className="text-sm text-gray-600">管理音乐库</p>
+                </div>
+              </div>
+            </button>
+
+            {/* 翻译管理 */}
+            <button
+              onClick={() => router.push("/translations")}
+              className="group bg-white border border-gray-200 hover:border-amber-200 rounded-xl p-6 shadow-sm hover:shadow-md hover:bg-amber-50/30 transition-colors"
+            >
+              <div className="flex flex-col items-center text-center gap-3">
+                <div className="w-14 h-14 bg-amber-100 rounded-xl flex items-center justify-center">
+                  <Languages className="h-7 w-7 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">
+                    翻译管理
+                  </h3>
+                  <p className="text-sm text-gray-600">中英文翻译与 AI 机翻</p>
                 </div>
               </div>
             </button>
