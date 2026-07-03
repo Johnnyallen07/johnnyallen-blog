@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import {
     ArrowLeft,
     Download,
@@ -17,7 +18,7 @@ import {
     ZoomOut,
 } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, withLocale } from "@/lib/api";
 
 /* ───────── Types ───────── */
 
@@ -35,11 +36,22 @@ interface MusicScore {
 
 const API_BASE = getApiBaseUrl();
 
+// value 是数据库里的乐器规范值（中文，兼作筛选键），label 走翻译
 const INSTRUMENTS = [
-    { value: "all", label: "全部" },
-    { value: "小提琴", label: "🎻 小提琴" },
-    { value: "钢琴", label: "🎹 钢琴" },
-];
+    { value: "all", labelKey: "filterAll", emoji: "" },
+    { value: "小提琴", labelKey: "violin", emoji: "🎻 " },
+    { value: "钢琴", labelKey: "piano", emoji: "🎹 " },
+] as const;
+
+/** 已知乐器名的展示翻译；未知值原样展示 */
+function instrumentLabel(
+    value: string,
+    t: (key: string) => string,
+): string {
+    if (value === "小提琴") return t("violin");
+    if (value === "钢琴") return t("piano");
+    return value;
+}
 
 /* ───────── Score List Item ───────── */
 
@@ -50,6 +62,7 @@ function ScoreListItem({
     score: MusicScore;
     onClick: () => void;
 }) {
+    const t = useTranslations("scores");
     return (
         <button
             onClick={onClick}
@@ -65,19 +78,19 @@ function ScoreListItem({
                         {score.title}
                     </h3>
                     <span className="hidden shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-0.5 text-[11px] text-slate-500 sm:inline-flex">
-                        {score.pageCount} 页
+                        {t("pageCount", { count: score.pageCount })}
                     </span>
                 </div>
                 <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-500">
                     {score.composer && <span className="truncate">{score.composer}</span>}
                     {score.composer && <span className="text-slate-300">/</span>}
-                    <span className="truncate">{score.instrument}</span>
+                    <span className="truncate">{instrumentLabel(score.instrument, t)}</span>
                 </div>
             </div>
 
             <div className="flex items-center gap-2">
                 <span className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 sm:inline-flex">
-                    {score.instrument}
+                    {instrumentLabel(score.instrument, t)}
                 </span>
                 <ChevronRight className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-amber-500" />
             </div>
@@ -94,6 +107,7 @@ function ScoreViewer({
     score: MusicScore;
     onClose: () => void;
 }) {
+    const t = useTranslations("scores");
     const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(0);
@@ -285,7 +299,7 @@ function ScoreViewer({
                                 ? "text-white bg-white/15"
                                 : "text-gray-500 hover:text-white hover:bg-white/10"
                         }`}
-                        title="单页模式"
+                        title={t("singlePageMode")}
                     >
                         <Rows2 className="w-4 h-4" />
                     </button>
@@ -296,7 +310,7 @@ function ScoreViewer({
                                 ? "text-white bg-white/15"
                                 : "text-gray-500 hover:text-white hover:bg-white/10"
                         }`}
-                        title="双页模式"
+                        title={t("doublePageMode")}
                     >
                         <Columns2 className="w-4 h-4" />
                     </button>
@@ -306,21 +320,21 @@ function ScoreViewer({
                     <button
                         onClick={zoomOut}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-                        title="缩小"
+                        title={t("zoomOut")}
                     >
                         <ZoomOut className="w-4 h-4" />
                     </button>
                     <button
                         onClick={resetZoom}
                         className="min-w-12 rounded-lg px-2 py-1.5 text-xs tabular-nums text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
-                        title="重置缩放"
+                        title={t("resetZoom")}
                     >
                         {Math.round(zoom * 100)}%
                     </button>
                     <button
                         onClick={zoomIn}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-                        title="放大"
+                        title={t("zoomIn")}
                     >
                         <ZoomIn className="w-4 h-4" />
                     </button>
@@ -330,14 +344,14 @@ function ScoreViewer({
                     <button
                         onClick={handleDownload}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-                        title="下载 PDF"
+                        title={t("downloadPdf")}
                     >
                         <Download className="w-4 h-4" />
                     </button>
                     <button
                         onClick={toggleFullscreen}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-                        title={isFullscreen ? "退出全屏" : "全屏"}
+                        title={isFullscreen ? t("exitFullscreen") : t("fullscreen")}
                     >
                         {isFullscreen ? (
                             <Minimize className="w-4 h-4" />
@@ -353,7 +367,7 @@ function ScoreViewer({
                 {isLoading ? (
                     <div className="flex h-full flex-col items-center justify-center text-gray-500">
                         <div className="w-8 h-8 border-2 border-gray-600 border-t-gray-300 rounded-full animate-spin mb-3" />
-                        <p className="text-sm">加载乐谱中...</p>
+                        <p className="text-sm">{t("loadingScore")}</p>
                     </div>
                 ) : (
                     <>
@@ -423,6 +437,8 @@ function ScoreViewer({
 /* ───────── Main Page ───────── */
 
 export default function ScorePageClient() {
+    const t = useTranslations("scores");
+    const locale = useLocale();
     const [scores, setScores] = useState<MusicScore[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filterInstrument, setFilterInstrument] = useState("all");
@@ -434,7 +450,7 @@ export default function ScorePageClient() {
         try {
             setIsLoading(true);
             const params = filterInstrument !== "all" ? `?instrument=${encodeURIComponent(filterInstrument)}` : "";
-            const res = await fetch(`${API_BASE}/music-scores${params}`);
+            const res = await fetch(withLocale(`${API_BASE}/music-scores${params}`, locale));
             if (!res.ok) return;
             const data = await res.json();
             setScores(Array.isArray(data) ? data : []);
@@ -443,7 +459,7 @@ export default function ScorePageClient() {
         } finally {
             setIsLoading(false);
         }
-    }, [filterInstrument]);
+    }, [filterInstrument, locale]);
 
     useEffect(() => {
         fetchScores();
@@ -509,8 +525,8 @@ export default function ScorePageClient() {
                             <div className="flex items-center gap-2">
                                 <BookOpen className="w-5 h-5 text-amber-600" />
                                 <div>
-                                    <h1 className="text-lg font-semibold text-slate-950">乐谱</h1>
-                                    <p className="text-xs text-slate-500">打开或引用你的 PDF 谱库</p>
+                                    <h1 className="text-lg font-semibold text-slate-950">{t("title")}</h1>
+                                    <p className="text-xs text-slate-500">{t("subtitle")}</p>
                                 </div>
                             </div>
                         </div>
@@ -521,7 +537,7 @@ export default function ScorePageClient() {
                                 <input
                                     value={searchQuery}
                                     onChange={(event) => setSearchQuery(event.target.value)}
-                                    placeholder="搜索乐谱、作曲家..."
+                                    placeholder={t("searchPlaceholder")}
                                     className="w-full rounded-xl border border-slate-200/80 bg-white/70 py-2.5 pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
                                 />
                             </div>
@@ -537,7 +553,7 @@ export default function ScorePageClient() {
                                                 : "text-slate-600 hover:text-slate-950"
                                         }`}
                                     >
-                                        {inst.label}
+                                        {inst.emoji}{t(inst.labelKey)}
                                     </button>
                                 ))}
                             </div>
@@ -551,14 +567,14 @@ export default function ScorePageClient() {
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center py-24 text-slate-400">
                         <div className="w-8 h-8 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin mb-3" />
-                        <p className="text-sm">加载中...</p>
+                        <p className="text-sm">{t("loading")}</p>
                     </div>
                 ) : filteredScores.length > 0 ? (
                     <div className="space-y-3">
                         <div className="hidden grid-cols-[auto_1fr_auto] gap-4 px-4 text-xs font-medium uppercase tracking-wider text-slate-400 md:grid">
                             <span className="w-11" />
-                            <span>标题 / 作曲家</span>
-                            <span className="pr-7 text-right">乐器</span>
+                            <span>{t("colTitleComposer")}</span>
+                            <span className="pr-7 text-right">{t("colInstrument")}</span>
                         </div>
                         {filteredScores.map((score) => (
                             <ScoreListItem
@@ -571,7 +587,7 @@ export default function ScorePageClient() {
                 ) : (
                     <div className="flex flex-col items-center justify-center py-24 text-slate-400">
                         <BookOpen className="w-12 h-12 mb-3 text-slate-300" />
-                        <p className="text-sm">{searchQuery ? "没有找到匹配的乐谱" : "暂无乐谱"}</p>
+                        <p className="text-sm">{searchQuery ? t("noMatchingScores") : t("noScores")}</p>
                     </div>
                 )}
             </div>

@@ -1,1 +1,54 @@
-{}
+{
+  "metadata": {
+    "siteTitle": "Johnny Music",
+    "siteDescription": "Johnny 的古典音乐空间 — 钢琴、小提琴与室内乐的精选收藏。"
+  },
+  "player": {
+    "dailyRecommend": "每日推荐",
+    "allMusic": "所有音乐",
+    "musicFallbackTitle": "音乐",
+    "sectionLibrary": "库",
+    "sectionArtists": "音乐家",
+    "sectionSeries": "系列",
+    "tuner": "调音器",
+    "scores": "乐谱",
+    "backHome": "返回首页",
+    "searchPlaceholder": "搜索音乐...",
+    "colIndex": "序号",
+    "colTitle": "标题",
+    "colPerformerMusician": "演奏 / 音乐家",
+    "colPlays": "播放",
+    "colDuration": "时长",
+    "noMatchingMusic": "没有找到匹配的音乐",
+    "noMusic": "暂无音乐",
+    "playCount": "{count} 次播放",
+    "playModeSequential": "顺序播放",
+    "playModeRepeatOne": "单曲循环",
+    "playModeShuffle": "随机播放",
+    "buffering": "缓冲中",
+    "bufferStatus": "缓存 {percent}%"
+  },
+  "scores": {
+    "title": "乐谱",
+    "subtitle": "打开或引用你的 PDF 谱库",
+    "filterAll": "全部",
+    "violin": "小提琴",
+    "piano": "钢琴",
+    "pageCount": "{count} 页",
+    "searchPlaceholder": "搜索乐谱、作曲家...",
+    "colTitleComposer": "标题 / 作曲家",
+    "colInstrument": "乐器",
+    "loading": "加载中...",
+    "loadingScore": "加载乐谱中...",
+    "noMatchingScores": "没有找到匹配的乐谱",
+    "noScores": "暂无乐谱",
+    "singlePageMode": "单页模式",
+    "doublePageMode": "双页模式",
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "resetZoom": "重置缩放",
+    "downloadPdf": "下载 PDF",
+    "fullscreen": "全屏",
+    "exitFullscreen": "退出全屏"
+  }
+}

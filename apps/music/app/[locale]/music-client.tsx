@@ -14,7 +14,10 @@ import {
     ChevronLeft, ChevronRight,
     type LucideIcon,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/api";
+import { useLocale, useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { getApiBaseUrl, withLocale } from "@/lib/api";
 
 import {
     calculateBufferedPercent,
@@ -62,6 +65,8 @@ interface SidebarEntity {
     slug: string;
     description: string | null;
     icon: string | null;
+    /** 非 zh 时后端返回的中文原名（筛选/计数的规范键） */
+    sourceName?: string;
 }
 
 type PlayMode = "sequential" | "repeat-one" | "shuffle";
@@ -196,6 +201,8 @@ function getDailyRecommendation(songs: Song[], categories: SidebarEntity[]): Son
 /* ───────── Component ───────── */
 
 export default function MusicPageClient() {
+    const t = useTranslations("player");
+    const locale = useLocale();
     /* ── State: Audio ── */
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -702,9 +709,10 @@ export default function MusicPageClient() {
                     ? daysSinceEpoch % sidebarCategories.length
                     : 0;
                 const targetCat = sidebarCategories[catIndex];
-                const catParam = targetCat ? `&category=${encodeURIComponent(targetCat.name)}` : "";
+                // 筛选键始终用中文规范值（sourceName）
+                const catParam = targetCat ? `&category=${encodeURIComponent(targetCat.sourceName ?? targetCat.name)}` : "";
                 const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-                const res = await fetch(`${API_BASE}/music?pageSize=100${catParam}${searchParam}`);
+                const res = await fetch(withLocale(`${API_BASE}/music?pageSize=100${catParam}${searchParam}`, locale));
                 if (!res.ok) return;
                 const json = await res.json();
                 const tracks: ApiTrack[] = json.data ?? [];
@@ -734,7 +742,7 @@ export default function MusicPageClient() {
                 params.set("series", playlist.slice(7));
             }
 
-            const res = await fetch(`${API_BASE}/music?${params.toString()}`);
+            const res = await fetch(withLocale(`${API_BASE}/music?${params.toString()}`, locale));
             if (!res.ok) return;
             const json = await res.json();
             const tracks: ApiTrack[] = json.data ?? [];
@@ -743,20 +751,20 @@ export default function MusicPageClient() {
         } catch {
             // API 不可达时保留空
         }
-    }, [mapTrack, sidebarCategories]);
+    }, [mapTrack, sidebarCategories, locale]);
 
     const fetchSidebar = useCallback(async () => {
         try {
             const [cats, arts, srs] = await Promise.all([
-                fetch(`${API_BASE}/music-categories`).then((r) => r.ok ? r.json() : []),
-                fetch(`${API_BASE}/music-artists`).then((r) => r.ok ? r.json() : []),
-                fetch(`${API_BASE}/music-series`).then((r) => r.ok ? r.json() : []),
+                fetch(withLocale(`${API_BASE}/music-categories`, locale)).then((r) => r.ok ? r.json() : []),
+                fetch(withLocale(`${API_BASE}/music-artists`, locale)).then((r) => r.ok ? r.json() : []),
+                fetch(withLocale(`${API_BASE}/music-series`, locale)).then((r) => r.ok ? r.json() : []),
             ]);
             setSidebarCategories(Array.isArray(cats) ? cats : []);
             setSidebarArtists(Array.isArray(arts) ? arts : []);
             setSidebarSeries(Array.isArray(srs) ? srs : []);
         } catch { /* keep empty */ }
-    }, []);
+    }, [locale]);
 
     const fetchCounts = useCallback(async () => {
         try {
@@ -804,26 +812,27 @@ export default function MusicPageClient() {
 
     /* ── Sidebar items ── */
 
+    // id 用中文规范值（sourceName，与曲目筛选/计数键一致），name 用当前语言展示值
     const libraryItems = useMemo(() => [
-        { id: "daily", name: "每日推荐", iconName: "Star", icon: <Star className="h-4 w-4" />, filterType: "special" as const },
+        { id: "daily", name: t("dailyRecommend"), iconName: "Star", icon: <Star className="h-4 w-4" />, filterType: "special" as const },
         ...sidebarCategories.map((c) => {
             const Icon = getIconComponent(c.icon, Music);
             return {
-                id: `cat:${c.name}`,
+                id: `cat:${c.sourceName ?? c.name}`,
                 name: c.name,
                 iconName: c.icon || "Music",
                 icon: <Icon className="h-4 w-4" />,
                 filterType: "category" as const,
             };
         }),
-        { id: "all", name: "所有音乐", iconName: "ListMusic", icon: <ListMusic className="h-4 w-4" />, filterType: "special" as const },
-    ], [sidebarCategories]);
+        { id: "all", name: t("allMusic"), iconName: "ListMusic", icon: <ListMusic className="h-4 w-4" />, filterType: "special" as const },
+    ], [sidebarCategories, t]);
 
     const artistItems = useMemo(() =>
         sidebarArtists.map((a) => {
             const Icon = getIconComponent(a.icon, User);
             return {
-                id: `artist:${a.name}`,
+                id: `artist:${a.sourceName ?? a.name}`,
                 name: a.name,
                 iconName: a.icon || "User",
                 icon: <Icon className="h-4 w-4" />,
@@ -836,7 +845,7 @@ export default function MusicPageClient() {
         sidebarSeries.map((s) => {
             const Icon = getIconComponent(s.icon, Headphones);
             return {
-                id: `series:${s.name}`,
+                id: `series:${s.sourceName ?? s.name}`,
                 name: s.name,
                 iconName: s.icon || "Headphones",
                 icon: <Icon className="h-4 w-4" />,
@@ -849,8 +858,8 @@ export default function MusicPageClient() {
         const allItems = [...libraryItems, ...artistItems, ...seriesItems];
         const item = allItems.find((i) => i.id === selectedPlaylist);
         if (item) return { title: item.name, iconName: item.iconName };
-        return { title: "音乐", iconName: "Music2" };
-    }, [selectedPlaylist, libraryItems, artistItems, seriesItems]);
+        return { title: t("musicFallbackTitle"), iconName: "Music2" };
+    }, [selectedPlaylist, libraryItems, artistItems, seriesItems, t]);
 
     /* ════════════ Playback Logic ════════════ */
 
@@ -1247,7 +1256,7 @@ export default function MusicPageClient() {
         return Repeat;
     }, [playMode]);
 
-    const playModeLabel = playMode === "sequential" ? "顺序播放" : playMode === "repeat-one" ? "单曲循环" : "随机播放";
+    const playModeLabel = playMode === "sequential" ? t("playModeSequential") : playMode === "repeat-one" ? t("playModeRepeatOne") : t("playModeShuffle");
     const playModeActive = playMode !== "sequential";
 
     /* ── Volume icon ── */
@@ -1420,7 +1429,7 @@ export default function MusicPageClient() {
         : progressPercent;
     const showBufferStatus = shouldShowBufferStatus(bufferedPercent);
     const bufferStatusLabel = isLoading && networkSpeedKbps <= 0
-        ? "缓冲中"
+        ? t("buffering")
         : formatNetworkSpeed(networkSpeedKbps);
 
     return (
@@ -1454,27 +1463,27 @@ export default function MusicPageClient() {
                     </button>
 
                     <div onClick={() => setSidebarOpen(false)}>
-                        <SidebarSection title="库" items={libraryItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />
-                        {artistItems.length > 0 && <SidebarSection title="音乐家" items={artistItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
-                        {seriesItems.length > 0 && <SidebarSection title="系列" items={seriesItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
+                        <SidebarSection title={t("sectionLibrary")} items={libraryItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />
+                        {artistItems.length > 0 && <SidebarSection title={t("sectionArtists")} items={artistItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
+                        {seriesItems.length > 0 && <SidebarSection title={t("sectionSeries")} items={seriesItems} selectedPlaylist={selectedPlaylist} songCountMap={songCountMap} onSelect={setSelectedPlaylist} />}
                     </div>
 
                     {/* 工具入口 */}
                     <div className="mt-4 space-y-1 px-3">
-                        <a
+                        <Link
                             href="/tuner"
                             className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-emerald-700 hover:bg-white/45 transition-all duration-200"
                         >
                             <Mic2 className="h-4 w-4" />
-                            <span>调音器</span>
-                        </a>
-                        <a
+                            <span>{t("tuner")}</span>
+                        </Link>
+                        <Link
                             href="/scores"
                             className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-violet-700 hover:bg-white/45 transition-all duration-200"
                         >
                             <span className="text-base">🎼</span>
-                            <span>乐谱</span>
-                        </a>
+                            <span>{t("scores")}</span>
+                        </Link>
                     </div>
                 </aside>
 
@@ -1491,12 +1500,13 @@ export default function MusicPageClient() {
                                 <ListMusic className="h-5 w-5" />
                             </button>
                             <a
-                                href="https://johnnyallen.blog"
+                                href={`https://johnnyallen.blog${locale === "zh" ? "" : `/${locale}`}`}
                                 className="hidden md:flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors group"
                             >
                                 <Home className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
-                                <span className="text-sm">返回首页</span>
+                                <span className="text-sm">{t("backHome")}</span>
                             </a>
+                            <LanguageSwitcher />
                         </div>
 
                         {/* 搜索框 */}
@@ -1504,7 +1514,7 @@ export default function MusicPageClient() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                             <input
                                 type="text"
-                                placeholder="搜索音乐..."
+                                placeholder={t("searchPlaceholder")}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2.5 bg-white/45 backdrop-blur-sm border border-slate-200/70 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100/80 focus:bg-white/70 transition-all shadow-sm"
@@ -1526,18 +1536,18 @@ export default function MusicPageClient() {
 
                     {/* 表头 - 桌面端 */}
                     <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-slate-200/70 mb-2">
-                        <div className="col-span-1 text-center">序号</div>
-                        <div className="col-span-5">标题</div>
-                        <div className="col-span-3">演奏 / 音乐家</div>
-                        <div className="col-span-1 text-right">播放</div>
-                        <div className="col-span-2 text-right">时长</div>
+                        <div className="col-span-1 text-center">{t("colIndex")}</div>
+                        <div className="col-span-5">{t("colTitle")}</div>
+                        <div className="col-span-3">{t("colPerformerMusician")}</div>
+                        <div className="col-span-1 text-right">{t("colPlays")}</div>
+                        <div className="col-span-2 text-right">{t("colDuration")}</div>
                     </div>
 
                     {/* 歌曲列表 */}
                     {pageSongs.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                             <Music2 className="h-12 w-12 mb-4 opacity-40" />
-                            <p className="text-sm">{searchQuery ? "没有找到匹配的音乐" : "暂无音乐"}</p>
+                            <p className="text-sm">{searchQuery ? t("noMatchingMusic") : t("noMusic")}</p>
                         </div>
                     ) : (
                         <>
@@ -1591,7 +1601,7 @@ export default function MusicPageClient() {
                                                         {song.musician}
                                                     </p>
                                                     <p className="md:hidden mt-0.5 text-[11px] text-gray-400 tabular-nums truncate">
-                                                        {song.playCount || 0} 次播放
+                                                        {t("playCount", { count: song.playCount || 0 })}
                                                     </p>
                                                 </div>
                                             </div>
@@ -1608,7 +1618,7 @@ export default function MusicPageClient() {
                                             <div className="hidden md:flex col-span-1 items-center justify-end min-w-0">
                                                 <span
                                                     className="inline-flex items-center gap-1 text-xs text-gray-400 tabular-nums"
-                                                    title={`${song.playCount || 0} 次播放`}
+                                                    title={t("playCount", { count: song.playCount || 0 })}
                                                 >
                                                     <Headphones className="h-3.5 w-3.5" />
                                                     {song.playCount || 0}
@@ -1750,7 +1760,7 @@ export default function MusicPageClient() {
                                 <span className="text-xs text-gray-400 tabular-nums">{formatDuration(audioDuration)}</span>
                                 {showBufferStatus && (
                                     <span className="hidden md:inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-white/55 px-2 py-1 text-[11px] tabular-nums text-gray-500">
-                                        缓存 {Math.round(bufferedPercent)}% · {bufferStatusLabel}
+                                        {t("bufferStatus", { percent: Math.round(bufferedPercent) })} · {bufferStatusLabel}
                                     </span>
                                 )}
                                 <div className="hidden md:flex items-center gap-2 ml-4">
