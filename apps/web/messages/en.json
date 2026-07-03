@@ -1,1 +1,111 @@
-{}
+{
+  "metadata": {
+    "siteTitle": "Johnny Blog",
+    "siteDescription": "Johnny's personal blog.",
+    "homeTitle": "JohnnyBlog",
+    "homeDescription": "Johnny's personal blog, sharing game guides, music insights, and tech notes. Explore topics like Oxygen Not Included, violin, piano, React, and TypeScript.",
+    "homeOgDescription": "Johnny's personal blog, sharing game guides, music insights, and tech notes.",
+    "aboutTitle": "About Me - JohnnyBlog",
+    "aboutDescription": "Third-year Math student at Imperial College London; former Google prompt engineer; a calculus teacher with many successful students; a Steam player who loves 'Oxygen Not Included'.",
+    "archiveTitle": "Article Archive - JohnnyBlog",
+    "archiveDescription": "Browse all JohnnyBlog articles by date, covering topics like gaming, music, and technology.",
+    "archiveOgDescription": "Browse all JohnnyBlog articles by date",
+    "articleDefaultDescription": "JohnnyBlog Articles",
+    "articleFallbackTitle": "Articles - JohnnyBlog",
+    "articleFallbackDescription": "Read great articles on JohnnyBlog"
+  },
+  "nav": {
+    "backHome": "Back to Home",
+    "archive": "Archive",
+    "about": "About"
+  },
+  "home": {
+    "recentPosts": "Recently Published",
+    "untitledPost": "Untitled Article",
+    "uncategorized": "Uncategorized",
+    "noMatchingPosts": "No matching articles found",
+    "noPosts": "No articles yet",
+    "prevPage": "Previous Page",
+    "nextPage": "Next Page"
+  },
+  "sidebar": {
+    "avatarAlt": "Johnny's avatar",
+    "bio": "An abstract ENTJ who always slips 'f**k' into industrial code, a gaming perfectionist, a math ADHD patient, computer PTSD sufferer, and an amateur violinist striving for musical excellence.",
+    "openWechatQr": "Open WeChat QR Code",
+    "clearFilters": "Clear Filters",
+    "searchPlaceholder": "Search articles...",
+    "navHome": "Home",
+    "navArchive": "Archive",
+    "navAbout": "About"
+  },
+  "archive": {
+    "title": "Article Archive",
+    "subtitle": "Browse all articles by date",
+    "noPosts": "No published articles yet",
+    "uncategorized": "Uncategorized",
+    "untitledPost": "Untitled Article"
+  },
+  "about": {
+    "avatarAlt": "Johnny's avatar",
+    "title": "About Me",
+    "bio": "Third-year undergraduate math student at Imperial College London; spent three months as a prompt engineer at Google (once scolded by my manager for writing 'f**k' in the commit test system); owner of a 'briefcase' international education agency; a calculus teacher with students far and wide, but who no longer wishes to teach; a Steam player who absolutely loves 'Oxygen Not Included'.",
+    "aiNote": "All blog posts are AI-written, except for this text.",
+    "contactTitle": "Contact Me",
+    "contactSubtitle": "Let's connect!",
+    "wechat": "WeChat"
+  },
+  "contact": {
+    "wechatTitle": "Add WeChat Friend",
+    "wechatSubtitle": "Scan the QR code below or copy my WeChat ID to add me.",
+    "copyWechatId": "Copy WeChat ID",
+    "wechatQrAlt": "WeChat Friend QR Code"
+  },
+  "article": {
+    "similarTitle": "Similar Articles",
+    "similarCategory": "{category} Category",
+    "scoreLinkDefault": "View related score",
+    "scoreOpenPdf": "Open score PDF",
+    "scoreView": "View",
+    "actionFailed": "Action failed",
+    "viewsCount": "{count} Views",
+    "likesCount": "{count} Likes",
+    "likeButton": "Like ({count})",
+    "justNow": "Just now",
+    "minutesAgo": "{count} minutes ago",
+    "hoursAgo": "{count} hours ago",
+    "daysAgo": "{count} days ago",
+    "loading": "Loading...",
+    "notFound": "Article not found or failed to load",
+    "backHome": "Back to Home",
+    "home": "Home",
+    "immersiveTitle": "Immersive Reading",
+    "immersiveExitTitle": "Exit Immersive Reading",
+    "immersiveExitShort": "Exit Immersive",
+    "toc": "Table of Contents",
+    "uncategorized": "Uncategorized",
+    "recommendedReading": "Recommended Reading",
+    "seriesToc": "Series Table of Contents"
+  },
+  "footer": {
+    "copyright": "© 2026 JohnnyBlog, created by Boredom and Abstraction",
+    "line1": "This blog was sponsored and developed by Frugal Antigravity and Agent, who was scammed $40 by Cursor.",
+    "line2": "All content on this blog is AI-generated. For copyright infringement, please report to Gemini Banana Pro"
+  },
+  "music": {
+    "recommendTitle": "Music Recommendations",
+    "exploreMore": "Explore More Music"
+  },
+  "projects": {
+    "title": "Projects",
+    "count": "{count} Projects",
+    "visit": "Visit",
+    "fivestars": {
+      "name": "Five Stars Education Platform",
+      "description": "Providing high-quality online platform services for international students"
+    },
+    "stockGenerator": {
+      "name": "Stock Price Generator",
+      "description": "Data generator for a game marathon (bubble theme)"
+    }
+  }
+}

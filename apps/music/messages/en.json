@@ -1,1 +1,54 @@
-{}
+{
+  "metadata": {
+    "siteTitle": "Johnny Music",
+    "siteDescription": "Johnny's Classical Music Space — A curated collection of piano, violin, and chamber music."
+  },
+  "player": {
+    "dailyRecommend": "Daily Recommendations",
+    "allMusic": "All Music",
+    "musicFallbackTitle": "Music",
+    "sectionLibrary": "Library",
+    "sectionArtists": "Artists",
+    "sectionSeries": "Series",
+    "tuner": "Tuner",
+    "scores": "Scores",
+    "backHome": "Back to Home",
+    "searchPlaceholder": "Search music...",
+    "colIndex": "No.",
+    "colTitle": "Title",
+    "colPerformerMusician": "Performer / Artist",
+    "colPlays": "Plays",
+    "colDuration": "Duration",
+    "noMatchingMusic": "No matching music found",
+    "noMusic": "No music available",
+    "playCount": "{count} plays",
+    "playModeSequential": "Play in order",
+    "playModeRepeatOne": "Repeat One",
+    "playModeShuffle": "Shuffle",
+    "buffering": "Buffering",
+    "bufferStatus": "Buffered {percent}%"
+  },
+  "scores": {
+    "title": "Scores",
+    "subtitle": "Open or reference your PDF score library",
+    "filterAll": "All",
+    "violin": "Violin",
+    "piano": "Piano",
+    "pageCount": "{count} pages",
+    "searchPlaceholder": "Search scores, composers...",
+    "colTitleComposer": "Title / Composer",
+    "colInstrument": "Instrument",
+    "loading": "Loading...",
+    "loadingScore": "Loading score...",
+    "noMatchingScores": "No matching scores found",
+    "noScores": "No scores available",
+    "singlePageMode": "Single Page Mode",
+    "doublePageMode": "Double Page Mode",
+    "zoomOut": "Zoom Out",
+    "zoomIn": "Zoom In",
+    "resetZoom": "Reset Zoom",
+    "downloadPdf": "Download PDF",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit Fullscreen"
+  }
+}
