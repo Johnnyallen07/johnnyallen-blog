@@ -6,6 +6,8 @@ import {
     calculateDownloadedPercent,
     calculateDisplayedBufferPercent,
     calculateProgressPercent,
+    getRetryResumeTime,
+    shouldStopCacheDownload,
     calculateThroughputKbps,
     shouldShowBufferStatus,
 } from "./player-metrics.ts";
@@ -52,4 +54,16 @@ test("buffer status hides once cache is effectively complete", () => {
     assert.equal(shouldShowBufferStatus(99.4), true);
     assert.equal(shouldShowBufferStatus(99.5), false);
     assert.equal(shouldShowBufferStatus(100), false);
+});
+
+test("retry resume time preserves the last known playback position", () => {
+    assert.equal(getRetryResumeTime(0, 128.4), 128.4);
+    assert.equal(getRetryResumeTime(91.2, 128.4), 128.4);
+    assert.equal(getRetryResumeTime(142.1, 128.4), 142.1);
+});
+
+test("cache download stops once displayed cache is effectively complete", () => {
+    assert.equal(shouldStopCacheDownload(99.4), false);
+    assert.equal(shouldStopCacheDownload(99.5), true);
+    assert.equal(shouldStopCacheDownload(100), true);
 });

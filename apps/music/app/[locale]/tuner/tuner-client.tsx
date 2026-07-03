@@ -506,12 +506,25 @@ function ScorePanel({
     const [zoom, setZoom] = useState(1);
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState("");
+    const [dimsVersion, setDimsVersion] = useState(0);
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const canvasMapRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
+    const canvasCbRef = useRef<Map<number, (el: HTMLCanvasElement | null) => void>>(new Map());
     const localUrlRef = useRef<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const renderingRef = useRef(false);
+    const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
+    const pageDimsRef = useRef<Array<{ w: number; h: number } | undefined>>([]);
+    const rasterKeyRef = useRef<Map<number, string>>(new Map());
+    const visibleRef = useRef<Set<number>>(new Set());
+    const queueRef = useRef<number[]>([]);
+    const processingRef = useRef(false);
+    const genRef = useRef(0);
+
+    const layoutRef = useRef(layout);
+    layoutRef.current = layout;
+    const zoomRef = useRef(zoom);
+    zoomRef.current = zoom;
 
     useEffect(() => {
         let cancelled = false;
@@ -562,57 +575,165 @@ function ScorePanel({
         if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
     }, []);
 
-    // Render every page, fitted to the panel. A single in-flight guard keeps
-    // pdf.js from drawing the same canvas twice at once (it throws otherwise),
-    // and a ResizeObserver re-fits the pages when the split is dragged.
-    useEffect(() => {
-        if (!pdfDoc) return;
+    const scaleFor = useCallback((container: HTMLDivElement, dims: { w: number; h: number }) => {
+        return layoutRef.current === "vertical"
+            ? ((container.clientWidth - 6) / dims.w) * zoomRef.current
+            : ((container.clientHeight - 6) / dims.h) * zoomRef.current;
+    }, []);
+
+    // Cheap: resize the on-screen canvases via CSS only, so the existing bitmap
+    // scales to keep live divider-drag/resize smooth without re-rasterising.
+    const applyFit = useCallback(() => {
         const container = scrollRef.current;
         if (!container) return;
+        canvasMapRef.current.forEach((canvas, pageNum) => {
+            const dims = pageDimsRef.current[pageNum];
+            if (!dims) return;
+            const scale = scaleFor(container, dims);
+            if (!Number.isFinite(scale) || scale <= 0) return;
+            canvas.style.width = `${Math.floor(dims.w * scale)}px`;
+            canvas.style.height = `${Math.floor(dims.h * scale)}px`;
+        });
+    }, [scaleFor]);
+
+    // Rasterise one page off-screen at device resolution, then blit it onto the
+    // visible canvas in a single synchronous step — the on-screen canvas is never
+    // cleared mid-flight, so there is no blank/flicker frame. A per-page size
+    // cache skips work when the page is already crisp at the current size.
+    const rasterizePage = useCallback(async (pageNum: number) => {
+        const container = scrollRef.current;
+        const doc = pdfDocRef.current;
+        if (!container || !doc) return;
+        const canvas = canvasMapRef.current.get(pageNum);
+        const dims = pageDimsRef.current[pageNum];
+        if (!canvas || !dims) return;
+        const scale = scaleFor(container, dims);
+        if (!Number.isFinite(scale) || scale <= 0) return;
+        const dpr = window.devicePixelRatio || 1;
+        const targetW = Math.max(1, Math.floor(dims.w * scale * dpr));
+        const targetH = Math.max(1, Math.floor(dims.h * scale * dpr));
+        const key = `${targetW}x${targetH}`;
+        if (rasterKeyRef.current.get(pageNum) === key) return;
+        const gen = genRef.current;
+        const page = await doc.getPage(pageNum);
+        if (gen !== genRef.current) return;
+        const off = document.createElement("canvas");
+        off.width = targetW;
+        off.height = targetH;
+        const offCtx = off.getContext("2d");
+        if (!offCtx) return;
+        await page.render({ canvasContext: offCtx, viewport: page.getViewport({ scale: scale * dpr }) }).promise;
+        if (gen !== genRef.current) return;
+        canvas.style.width = `${Math.floor(dims.w * scale)}px`;
+        canvas.style.height = `${Math.floor(dims.h * scale)}px`;
+        canvas.width = targetW;
+        canvas.height = targetH;
+        canvas.getContext("2d")?.drawImage(off, 0, 0);
+        rasterKeyRef.current.set(pageNum, key);
+    }, [scaleFor]);
+
+    const pumpQueue = useCallback(async () => {
+        if (processingRef.current) return;
+        processingRef.current = true;
+        try {
+            while (queueRef.current.length > 0) {
+                const next = queueRef.current.shift();
+                if (next === undefined) break;
+                await rasterizePage(next);
+            }
+        } finally {
+            processingRef.current = false;
+        }
+    }, [rasterizePage]);
+
+    const enqueuePage = useCallback((pageNum: number) => {
+        if (!queueRef.current.includes(pageNum)) queueRef.current.push(pageNum);
+        void pumpQueue();
+    }, [pumpQueue]);
+
+    // Measure intrinsic page sizes once per document so placeholders are sized
+    // correctly (scroll geometry is right immediately) and lazy rasterisation can
+    // fit without re-measuring.
+    useEffect(() => {
+        pdfDocRef.current = pdfDoc;
+        pageDimsRef.current = [];
+        rasterKeyRef.current.clear();
+        visibleRef.current.clear();
+        queueRef.current = [];
+        genRef.current += 1;
+        if (!pdfDoc) return;
         let cancelled = false;
-
-        const renderAll = async () => {
-            while (renderingRef.current) {
-                await new Promise((resolve) => setTimeout(resolve, 0));
+        (async () => {
+            const dims: Array<{ w: number; h: number }> = [];
+            for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum += 1) {
+                const page = await pdfDoc.getPage(pageNum);
                 if (cancelled) return;
+                const viewport = page.getViewport({ scale: 1 });
+                dims[pageNum] = { w: viewport.width, h: viewport.height };
             }
-            renderingRef.current = true;
-            try {
-                const dpr = window.devicePixelRatio || 1;
-                for (let pageNum = 1; pageNum <= numPages; pageNum += 1) {
-                    if (cancelled) return;
-                    const canvas = canvasMapRef.current.get(pageNum);
-                    if (!canvas) continue;
-                    const page = await pdfDoc.getPage(pageNum);
-                    const base = page.getViewport({ scale: 1 });
-                    const cssScale =
-                        layout === "vertical"
-                            ? ((container.clientWidth - 6) / base.width) * zoom
-                            : ((container.clientHeight - 6) / base.height) * zoom;
-                    if (!Number.isFinite(cssScale) || cssScale <= 0) continue;
-                    const cssViewport = page.getViewport({ scale: cssScale });
-                    const renderViewport = page.getViewport({ scale: cssScale * dpr });
-                    canvas.width = Math.floor(renderViewport.width);
-                    canvas.height = Math.floor(renderViewport.height);
-                    canvas.style.width = `${Math.floor(cssViewport.width)}px`;
-                    canvas.style.height = `${Math.floor(cssViewport.height)}px`;
-                    const ctx = canvas.getContext("2d");
-                    if (!ctx) continue;
-                    await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-                }
-            } finally {
-                renderingRef.current = false;
-            }
-        };
-
-        void renderAll();
-        const observer = new ResizeObserver(() => void renderAll());
-        observer.observe(container);
+            if (cancelled) return;
+            pageDimsRef.current = dims;
+            setDimsVersion((value) => value + 1);
+        })();
         return () => {
             cancelled = true;
-            observer.disconnect();
         };
-    }, [pdfDoc, numPages, layout, zoom]);
+    }, [pdfDoc]);
+
+    // Lazily rasterise only the pages near the viewport (huge scores stay light),
+    // and on resize re-fit cheaply (live) then re-rasterise the visible pages
+    // once things settle (debounced) — no per-frame pdf.js work while dragging.
+    useEffect(() => {
+        const container = scrollRef.current;
+        if (!container || pageDimsRef.current.length === 0) return;
+        applyFit();
+
+        const io = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    const pageNum = Number((entry.target as HTMLElement).dataset.page);
+                    if (!pageNum) continue;
+                    if (entry.isIntersecting) {
+                        visibleRef.current.add(pageNum);
+                        enqueuePage(pageNum);
+                    } else {
+                        visibleRef.current.delete(pageNum);
+                    }
+                }
+            },
+            { root: container, rootMargin: "200%" },
+        );
+        canvasMapRef.current.forEach((canvas) => io.observe(canvas));
+
+        let settleTimer: number | undefined;
+        const ro = new ResizeObserver(() => {
+            applyFit();
+            window.clearTimeout(settleTimer);
+            settleTimer = window.setTimeout(() => {
+                genRef.current += 1;
+                rasterKeyRef.current.clear();
+                queueRef.current = [];
+                visibleRef.current.forEach((pageNum) => enqueuePage(pageNum));
+            }, 180);
+        });
+        ro.observe(container);
+
+        return () => {
+            io.disconnect();
+            ro.disconnect();
+            window.clearTimeout(settleTimer);
+        };
+    }, [dimsVersion, numPages, applyFit, enqueuePage]);
+
+    // Layout/zoom changes: re-fit immediately and re-rasterise the visible pages.
+    useEffect(() => {
+        if (pageDimsRef.current.length === 0) return;
+        applyFit();
+        genRef.current += 1;
+        rasterKeyRef.current.clear();
+        queueRef.current = [];
+        visibleRef.current.forEach((pageNum) => enqueuePage(pageNum));
+    }, [layout, zoom, applyFit, enqueuePage]);
 
     // Track which page is centred so the indicator stays in sync while scrolling.
     // Bounding rects keep the maths in one coordinate space — the canvases'
@@ -641,10 +762,19 @@ function ScorePanel({
     const zoomOut = () => setZoom((value) => Math.max(0.6, Number((value - 0.1).toFixed(2))));
 
     const pages = Array.from({ length: numPages }, (_, index) => index + 1);
-    const registerCanvas = (pageNum: number) => (el: HTMLCanvasElement | null) => {
-        if (el) canvasMapRef.current.set(pageNum, el);
-        else canvasMapRef.current.delete(pageNum);
-    };
+    // Stable per-page ref callbacks so scroll-driven re-renders don't detach and
+    // re-attach every canvas (which would churn the IntersectionObserver).
+    const registerCanvas = useCallback((pageNum: number) => {
+        let cb = canvasCbRef.current.get(pageNum);
+        if (!cb) {
+            cb = (el: HTMLCanvasElement | null) => {
+                if (el) canvasMapRef.current.set(pageNum, el);
+                else canvasMapRef.current.delete(pageNum);
+            };
+            canvasCbRef.current.set(pageNum, cb);
+        }
+        return cb;
+    }, []);
 
     return (
         <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-zinc-900 text-white">
@@ -792,6 +922,7 @@ function ScorePanel({
                     <div
                         ref={scrollRef}
                         onScroll={handleScroll}
+                        style={{ scrollbarGutter: "stable" }}
                         className={
                             layout === "vertical"
                                 ? "min-h-0 w-full min-w-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain bg-zinc-800"
@@ -808,6 +939,7 @@ function ScorePanel({
                             {pages.map((pageNum) => (
                                 <canvas
                                     key={pageNum}
+                                    data-page={pageNum}
                                     ref={registerCanvas(pageNum)}
                                     className={`block bg-white shadow-lg ${layout === "horizontal" ? "shrink-0 snap-center" : ""}`}
                                 />
@@ -1507,7 +1639,10 @@ export default function TunerPageClient() {
 
     return (
         <div className={splitActive ? "flex h-screen overflow-hidden bg-[#f8f6f1] text-slate-950" : "min-h-screen bg-[#f8f6f1] text-slate-950"}>
-            <div className={splitActive ? "h-screen min-w-0 flex-1 overflow-y-auto" : "contents"}>
+            <div
+                className={splitActive ? "h-screen min-w-0 flex-1 overflow-y-auto" : "contents"}
+                style={splitActive ? { scrollbarGutter: "stable" } : undefined}
+            >
             <main className={splitActive ? "flex min-h-screen w-full flex-col px-4 py-5 md:px-6 md:py-7" : "mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 md:px-6 md:py-7"}>
                 <div className="mb-5 flex items-center justify-between gap-3">
                     <Link

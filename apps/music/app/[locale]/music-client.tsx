@@ -24,6 +24,8 @@ import {
     calculateDownloadedPercent,
     calculateDisplayedBufferPercent,
     calculateProgressPercent,
+    getRetryResumeTime,
+    shouldStopCacheDownload,
     calculateThroughputKbps,
     shouldShowBufferStatus,
 } from "@/lib/player-metrics";
@@ -354,13 +356,26 @@ export default function MusicPageClient() {
     const mediaBufferedPercentRef = useRef(0);
     const cacheDownloadedPercentRef = useRef(0);
     const cacheAbortRef = useRef<AbortController | null>(null);
+    const lastKnownPlaybackTimeRef = useRef(0);
+    const playbackIntentRef = useRef(false);
+
+    const abortCacheDownload = useCallback(() => {
+        cacheAbortRef.current?.abort();
+        cacheAbortRef.current = null;
+    }, []);
 
     const publishBufferedPercent = useCallback(() => {
-        setBufferedPercent(calculateDisplayedBufferPercent(
+        const nextBufferedPercent = calculateDisplayedBufferPercent(
             mediaBufferedPercentRef.current,
             cacheDownloadedPercentRef.current,
-        ));
-    }, []);
+        );
+        setBufferedPercent(nextBufferedPercent);
+
+        if (shouldStopCacheDownload(nextBufferedPercent)) {
+            abortCacheDownload();
+            setNetworkSpeedKbps(0);
+        }
+    }, [abortCacheDownload]);
 
     const resetBufferTracking = useCallback(() => {
         bufferSampleRef.current = null;
@@ -368,11 +383,6 @@ export default function MusicPageClient() {
         cacheDownloadedPercentRef.current = 0;
         setBufferedPercent(0);
         setNetworkSpeedKbps(0);
-    }, []);
-
-    const abortCacheDownload = useCallback(() => {
-        cacheAbortRef.current?.abort();
-        cacheAbortRef.current = null;
     }, []);
 
     const startCacheDownload = useCallback((song: Song) => {
@@ -408,6 +418,15 @@ export default function MusicPageClient() {
                     const downloadedPercent = calculateDownloadedPercent(loadedBytes, totalBytes);
                     cacheDownloadedPercentRef.current = downloadedPercent;
                     publishBufferedPercent();
+
+                    const displayedPercent = calculateDisplayedBufferPercent(
+                        mediaBufferedPercentRef.current,
+                        downloadedPercent,
+                    );
+                    if (shouldStopCacheDownload(displayedPercent)) {
+                        await reader.cancel().catch(() => undefined);
+                        break;
+                    }
 
                     const now = performance.now();
                     setNetworkSpeedKbps(calculateThroughputKbps(
@@ -458,6 +477,9 @@ export default function MusicPageClient() {
 
         const onTimeUpdate = () => {
             setCurrentTime(audio.currentTime);
+            if (Number.isFinite(audio.currentTime) && audio.currentTime > 0) {
+                lastKnownPlaybackTimeRef.current = audio.currentTime;
+            }
             updateBufferMetrics();
 
             // Update MediaSession position state
@@ -521,7 +543,6 @@ export default function MusicPageClient() {
             retryCountRef.current = 0; // reset retry on successful buffer
         };
         const onLoadStart = () => {
-            resetBufferTracking();
             setIsLoading(true);
         };
         const onWaiting = () => {
@@ -553,20 +574,28 @@ export default function MusicPageClient() {
             const song = currentSongRef.current;
             if (song && retryCountRef.current < maxRetries) {
                 retryCountRef.current += 1;
-                const savedTime = audio.currentTime;
+                const savedTime = getRetryResumeTime(audio.currentTime, lastKnownPlaybackTimeRef.current);
+                const shouldResumePlayback = playbackIntentRef.current;
                 console.warn(`Audio error, retrying (${retryCountRef.current}/${maxRetries})...`);
                 setTimeout(() => {
                     bufferSampleRef.current = null;
-                    audio.src = song.fileUrl;
-                    audio.load();
                     const restorePosition = () => {
                         audio.removeEventListener("loadedmetadata", restorePosition);
                         if (savedTime > 0 && savedTime < (audio.duration || song.duration)) {
                             audio.currentTime = savedTime;
+                            lastKnownPlaybackTimeRef.current = savedTime;
+                            setCurrentTime(savedTime);
                         }
-                        audio.play().catch(() => { });
+                        if (shouldResumePlayback) {
+                            audio.play().catch(() => {
+                                playbackIntentRef.current = false;
+                                setIsPlaying(false);
+                            });
+                        }
                     };
                     audio.addEventListener("loadedmetadata", restorePosition, { once: true });
+                    audio.src = song.fileUrl;
+                    audio.load();
                 }, 1000);
             } else {
                 setIsLoading(false);
@@ -576,6 +605,7 @@ export default function MusicPageClient() {
         };
         const onEnded = () => handleTrackEnd();
         const onPlay = () => {
+            playbackIntentRef.current = true;
             setIsPlaying(true);
             if ("mediaSession" in navigator) {
                 navigator.mediaSession.playbackState = "playing";
@@ -869,6 +899,8 @@ export default function MusicPageClient() {
 
         retryCountRef.current = 0;
         resetBufferTracking();
+        lastKnownPlaybackTimeRef.current = 0;
+        playbackIntentRef.current = true;
         halfPlayedRef.current = null;
         setCurrentSong(song);
         setCurrentTime(0);
@@ -904,11 +936,13 @@ export default function MusicPageClient() {
             .catch((err) => {
                 // Autoplay blocked is not a network error; the user can press play.
                 if (err.name === "NotAllowedError") {
+                    playbackIntentRef.current = false;
                     setIsLoading(false);
                     setIsPlaying(false);
                     return;
                 }
                 console.error("Audio play failed:", err);
+                playbackIntentRef.current = false;
                 setIsLoading(false);
                 setIsPlaying(false);
             });
@@ -939,6 +973,8 @@ export default function MusicPageClient() {
         setCurrentTime(savedTime);
         setAudioDuration(song.duration || 0);
         resetBufferTracking();
+        lastKnownPlaybackTimeRef.current = savedTime;
+        playbackIntentRef.current = false;
         setIsLoading(true);
 
         // Update MediaSession metadata
@@ -973,9 +1009,12 @@ export default function MusicPageClient() {
         const audio = audioRef.current;
         if (!audio || !currentSong) return;
         if (!audio.paused && !audio.ended) {
+            playbackIntentRef.current = false;
             audio.pause();
         } else {
+            playbackIntentRef.current = true;
             audio.play().catch(() => {
+                playbackIntentRef.current = false;
                 setIsPlaying(false);
                 setIsLoading(false);
             });
@@ -1041,6 +1080,8 @@ export default function MusicPageClient() {
         // If more than 3 seconds in, restart current track
         if (audio && audio.currentTime > 3) {
             audio.currentTime = 0;
+            lastKnownPlaybackTimeRef.current = 0;
+            setCurrentTime(0);
             return;
         }
         const prev = getPrevSong();
@@ -1054,6 +1095,9 @@ export default function MusicPageClient() {
                 const audio = audioRef.current;
                 if (audio) {
                     audio.currentTime = 0;
+                    lastKnownPlaybackTimeRef.current = 0;
+                    setCurrentTime(0);
+                    playbackIntentRef.current = true;
                     audio.play().catch(() => { });
                 }
             } else {
@@ -1067,9 +1111,11 @@ export default function MusicPageClient() {
         if (!("mediaSession" in navigator)) return;
         const ms = navigator.mediaSession;
         ms.setActionHandler("play", () => {
+            playbackIntentRef.current = true;
             audioRef.current?.play().catch(() => { });
         });
         ms.setActionHandler("pause", () => {
+            playbackIntentRef.current = false;
             audioRef.current?.pause();
         });
         ms.setActionHandler("previoustrack", () => {
@@ -1081,6 +1127,7 @@ export default function MusicPageClient() {
         ms.setActionHandler("seekto", (details) => {
             if (audioRef.current && details.seekTime != null) {
                 audioRef.current.currentTime = details.seekTime;
+                lastKnownPlaybackTimeRef.current = details.seekTime;
                 setCurrentTime(details.seekTime);
             }
         });
@@ -1183,8 +1230,10 @@ export default function MusicPageClient() {
             const audio = audioRef.current;
             if (audio) {
                 audio.currentTime = t;
+                lastKnownPlaybackTimeRef.current = t;
                 setCurrentTime(t);
                 if (isPlaying) {
+                    playbackIntentRef.current = true;
                     audio.play().catch(() => { });
                 }
             }
@@ -1217,8 +1266,10 @@ export default function MusicPageClient() {
             const audio = audioRef.current;
             if (audio) {
                 audio.currentTime = t;
+                lastKnownPlaybackTimeRef.current = t;
                 setCurrentTime(t);
                 if (isPlaying) {
+                    playbackIntentRef.current = true;
                     audio.play().catch(() => { });
                 }
             }

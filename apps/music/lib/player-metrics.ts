@@ -41,6 +41,20 @@ export function shouldShowBufferStatus(bufferedPercent: number): boolean {
     return clampPercent(bufferedPercent) < 99.5;
 }
 
+export function shouldStopCacheDownload(bufferedPercent: number): boolean {
+    return !shouldShowBufferStatus(bufferedPercent);
+}
+
+export function getRetryResumeTime(mediaCurrentTime: number, lastKnownTime: number): number {
+    const mediaTime = Number.isFinite(mediaCurrentTime) && mediaCurrentTime > 0
+        ? mediaCurrentTime
+        : 0;
+    const knownTime = Number.isFinite(lastKnownTime) && lastKnownTime > 0
+        ? lastKnownTime
+        : 0;
+    return Math.max(mediaTime, knownTime);
+}
+
 export function calculateBufferedBytes(
     buffered: TimeRanges,
     duration: number,
