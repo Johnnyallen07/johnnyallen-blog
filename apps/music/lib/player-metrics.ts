@@ -10,17 +10,50 @@ export function calculateProgressPercent(currentTime: number, duration: number):
     return clampPercent((currentTime / duration) * 100);
 }
 
-export function getFarthestBufferedEnd(buffered: TimeRanges): number {
-    let farthestEnd = 0;
+/**
+ * Contiguous buffered coverage measured from the start of the track.
+ * Seeking creates holes in `buffered`; counting the farthest range end would
+ * report 100% while the middle of the track has no data, so only ranges that
+ * chain together from 0 (bridging sub-`gapToleranceSeconds` gaps) count.
+ */
+export function getContiguousBufferedEnd(
+    buffered: TimeRanges,
+    gapToleranceSeconds = 0.5,
+): number {
+    const ranges: Array<[number, number]> = [];
     for (let index = 0; index < buffered.length; index += 1) {
-        farthestEnd = Math.max(farthestEnd, buffered.end(index));
+        ranges.push([buffered.start(index), buffered.end(index)]);
     }
-    return farthestEnd;
+    ranges.sort((a, b) => a[0] - b[0]);
+
+    let contiguousEnd = 0;
+    for (const [start, end] of ranges) {
+        if (start > contiguousEnd + gapToleranceSeconds) break;
+        contiguousEnd = Math.max(contiguousEnd, end);
+    }
+    return contiguousEnd;
 }
 
 export function calculateBufferedPercent(buffered: TimeRanges, duration: number): number {
     if (!Number.isFinite(duration) || duration <= 0) return 0;
-    return clampPercent((getFarthestBufferedEnd(buffered) / duration) * 100);
+    return clampPercent((getContiguousBufferedEnd(buffered) / duration) * 100);
+}
+
+export function isTimeWithinRanges(
+    ranges: TimeRanges,
+    time: number,
+    toleranceSeconds = 0.25,
+): boolean {
+    if (!Number.isFinite(time)) return false;
+    for (let index = 0; index < ranges.length; index += 1) {
+        if (
+            time >= ranges.start(index) - toleranceSeconds &&
+            time <= ranges.end(index) + toleranceSeconds
+        ) {
+            return true;
+        }
+    }
+    return false;
 }
 
 export function calculateDownloadedPercent(loadedBytes: number, totalBytes: number): number {
@@ -41,10 +74,6 @@ export function shouldShowBufferStatus(bufferedPercent: number): boolean {
     return clampPercent(bufferedPercent) < 99.5;
 }
 
-export function shouldStopCacheDownload(bufferedPercent: number): boolean {
-    return !shouldShowBufferStatus(bufferedPercent);
-}
-
 export function getRetryResumeTime(mediaCurrentTime: number, lastKnownTime: number): number {
     const mediaTime = Number.isFinite(mediaCurrentTime) && mediaCurrentTime > 0
         ? mediaCurrentTime
@@ -53,17 +82,6 @@ export function getRetryResumeTime(mediaCurrentTime: number, lastKnownTime: numb
         ? lastKnownTime
         : 0;
     return Math.max(mediaTime, knownTime);
-}
-
-export function calculateBufferedBytes(
-    buffered: TimeRanges,
-    duration: number,
-    fileSize: number,
-): number {
-    if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(fileSize) || fileSize <= 0) {
-        return 0;
-    }
-    return Math.round((getFarthestBufferedEnd(buffered) / duration) * fileSize);
 }
 
 export function calculateThroughputKbps(

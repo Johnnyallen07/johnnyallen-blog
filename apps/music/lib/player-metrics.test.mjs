@@ -6,8 +6,9 @@ import {
     calculateDownloadedPercent,
     calculateDisplayedBufferPercent,
     calculateProgressPercent,
+    getContiguousBufferedEnd,
     getRetryResumeTime,
-    shouldStopCacheDownload,
+    isTimeWithinRanges,
     calculateThroughputKbps,
     shouldShowBufferStatus,
 } from "./player-metrics.ts";
@@ -25,13 +26,33 @@ test("progress follows playback time independent of cached amount", () => {
     assert.equal(calculateProgressPercent(240, 180), 100);
 });
 
-test("buffered percent uses the farthest buffered audio range", () => {
+test("buffered percent only counts data contiguous from the start", () => {
+    // A forward seek leaves a hole: [0-15s] + [30-60s]. Only the first 15s
+    // are actually playable without hitting the network again.
     const buffered = makeRanges([
         [0, 15],
         [30, 60],
     ]);
 
-    assert.equal(calculateBufferedPercent(buffered, 120), 50);
+    assert.equal(calculateBufferedPercent(buffered, 120), 12.5);
+});
+
+test("contiguous buffered end bridges sub-tolerance gaps and stops at holes", () => {
+    assert.equal(getContiguousBufferedEnd(makeRanges([[0, 15], [15.3, 60]])), 60);
+    assert.equal(getContiguousBufferedEnd(makeRanges([[15.3, 60], [0, 15]])), 60);
+    assert.equal(getContiguousBufferedEnd(makeRanges([[0, 15], [30, 60]])), 15);
+    assert.equal(getContiguousBufferedEnd(makeRanges([[10, 60]])), 0);
+    assert.equal(getContiguousBufferedEnd(makeRanges([])), 0);
+});
+
+test("time membership in ranges honors the tolerance window", () => {
+    const seekable = makeRanges([[0, 30], [60, 90]]);
+
+    assert.equal(isTimeWithinRanges(seekable, 15), true);
+    assert.equal(isTimeWithinRanges(seekable, 30.2), true);
+    assert.equal(isTimeWithinRanges(seekable, 45), false);
+    assert.equal(isTimeWithinRanges(seekable, 61), true);
+    assert.equal(isTimeWithinRanges(seekable, NaN), false);
 });
 
 test("throughput is calculated from byte deltas over elapsed time", () => {
@@ -60,10 +81,4 @@ test("retry resume time preserves the last known playback position", () => {
     assert.equal(getRetryResumeTime(0, 128.4), 128.4);
     assert.equal(getRetryResumeTime(91.2, 128.4), 128.4);
     assert.equal(getRetryResumeTime(142.1, 128.4), 142.1);
-});
-
-test("cache download stops once displayed cache is effectively complete", () => {
-    assert.equal(shouldStopCacheDownload(99.4), false);
-    assert.equal(shouldStopCacheDownload(99.5), true);
-    assert.equal(shouldStopCacheDownload(100), true);
 });

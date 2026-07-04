@@ -25,7 +25,7 @@ import {
     calculateDisplayedBufferPercent,
     calculateProgressPercent,
     getRetryResumeTime,
-    shouldStopCacheDownload,
+    isTimeWithinRanges,
     calculateThroughputKbps,
     shouldShowBufferStatus,
 } from "@/lib/player-metrics";
@@ -358,102 +358,242 @@ export default function MusicPageClient() {
     const cacheAbortRef = useRef<AbortController | null>(null);
     const lastKnownPlaybackTimeRef = useRef(0);
     const playbackIntentRef = useRef(false);
+    /** Fully downloaded song kept as a local blob so seeks always have data. */
+    const cachedAudioRef = useRef<{ songId: string; url: string } | null>(null);
+    /** Seek target the media element has no data for yet; resolved by polling. */
+    const pendingSeekRef = useRef<{ time: number; resume: boolean } | null>(null);
+    /** Position/play-state to restore after the next loadedmetadata (src swap or retry). */
+    const pendingRestoreRef = useRef<{ src: string; time: number; resume: boolean } | null>(null);
 
     const abortCacheDownload = useCallback(() => {
         cacheAbortRef.current?.abort();
         cacheAbortRef.current = null;
     }, []);
 
+    const releaseCachedAudio = useCallback(() => {
+        if (cachedAudioRef.current) {
+            URL.revokeObjectURL(cachedAudioRef.current.url);
+            cachedAudioRef.current = null;
+        }
+    }, []);
+
     const publishBufferedPercent = useCallback(() => {
-        const nextBufferedPercent = calculateDisplayedBufferPercent(
+        setBufferedPercent(calculateDisplayedBufferPercent(
             mediaBufferedPercentRef.current,
             cacheDownloadedPercentRef.current,
-        );
-        setBufferedPercent(nextBufferedPercent);
-
-        if (shouldStopCacheDownload(nextBufferedPercent)) {
-            abortCacheDownload();
-            setNetworkSpeedKbps(0);
-        }
-    }, [abortCacheDownload]);
+        ));
+    }, []);
 
     const resetBufferTracking = useCallback(() => {
         bufferSampleRef.current = null;
         mediaBufferedPercentRef.current = 0;
         cacheDownloadedPercentRef.current = 0;
+        pendingSeekRef.current = null;
         setBufferedPercent(0);
         setNetworkSpeedKbps(0);
     }, []);
 
+    const handlePlayFailure = useCallback((err: unknown) => {
+        // A src swap (e.g. switching to the cached copy) aborts an in-flight
+        // play(); the new source's restore logic resumes, so nothing failed.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (!(err instanceof DOMException && err.name === "NotAllowedError")) {
+            console.error("Audio play failed:", err);
+        }
+        playbackIntentRef.current = false;
+        setIsPlaying(false);
+        setIsLoading(false);
+    }, []);
+
+    const applySeek = useCallback((audio: HTMLAudioElement, time: number, resume: boolean) => {
+        audio.currentTime = time;
+        lastKnownPlaybackTimeRef.current = time;
+        setCurrentTime(time);
+        if (resume) {
+            playbackIntentRef.current = true;
+            audio.play().catch(handlePlayFailure);
+        }
+    }, [handlePlayFailure]);
+
+    /** Play from the fully cached local copy, preserving position and play state. */
+    const switchToCachedSource = useCallback((audio: HTMLAudioElement, time: number, resume: boolean) => {
+        const cached = cachedAudioRef.current;
+        if (!cached) return false;
+        if (audio.src === cached.url) {
+            applySeek(audio, time, resume);
+            return true;
+        }
+        setIsLoading(true);
+        audio.src = cached.url;
+        pendingRestoreRef.current = { src: audio.src, time, resume };
+        audio.load();
+        return true;
+    }, [applySeek]);
+
+    const performSeek = useCallback((time: number, resume: boolean) => {
+        const audio = audioRef.current;
+        const song = currentSongRef.current;
+        if (!audio || !song) return;
+
+        const duration = isFinite(audio.duration) && audio.duration > 0
+            ? audio.duration
+            : song.duration;
+        const target = duration > 0
+            ? Math.min(Math.max(0, time), Math.max(0, duration - 0.25))
+            : Math.max(0, time);
+
+        pendingSeekRef.current = null;
+        lastKnownPlaybackTimeRef.current = target;
+        setCurrentTime(target);
+
+        const cached = cachedAudioRef.current;
+        if (cached && cached.songId === song.id) {
+            switchToCachedSource(audio, target, resume);
+            return;
+        }
+
+        if (isTimeWithinRanges(audio.seekable, target) || isTimeWithinRanges(audio.buffered, target)) {
+            applySeek(audio, target, resume);
+            return;
+        }
+
+        // No data at the target yet: hold here and wait for the cache instead
+        // of letting the element clamp the seek back to the start of the song.
+        pendingSeekRef.current = { time: target, resume };
+        playbackIntentRef.current = resume;
+        audio.pause();
+        setIsLoading(true);
+    }, [applySeek, switchToCachedSource]);
+
+    const tryResolvePendingSeek = useCallback(() => {
+        const pending = pendingSeekRef.current;
+        const audio = audioRef.current;
+        const song = currentSongRef.current;
+        if (!pending || !audio || !song) return;
+
+        const cached = cachedAudioRef.current;
+        if (cached && cached.songId === song.id) {
+            pendingSeekRef.current = null;
+            switchToCachedSource(audio, pending.time, pending.resume);
+            return;
+        }
+        if (isTimeWithinRanges(audio.seekable, pending.time) || isTimeWithinRanges(audio.buffered, pending.time)) {
+            pendingSeekRef.current = null;
+            applySeek(audio, pending.time, pending.resume);
+            if (!pending.resume) setIsLoading(false);
+        }
+    }, [applySeek, switchToCachedSource]);
+
+    /** Called when the background download finishes: unblock waiting seeks and starving playback. */
+    const handleCacheDownloadComplete = useCallback(() => {
+        const audio = audioRef.current;
+        const song = currentSongRef.current;
+        const cached = cachedAudioRef.current;
+        if (!audio || !song || !cached || cached.songId !== song.id) return;
+
+        if (pendingSeekRef.current) {
+            const pending = pendingSeekRef.current;
+            pendingSeekRef.current = null;
+            switchToCachedSource(audio, pending.time, pending.resume);
+            return;
+        }
+
+        // Weak network: the element is starving mid-song while the full copy
+        // just landed locally — swap over and keep going from the same spot.
+        if (
+            audio.src !== cached.url &&
+            playbackIntentRef.current &&
+            audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA &&
+            !audio.ended
+        ) {
+            const resumeTime = getRetryResumeTime(audio.currentTime, lastKnownPlaybackTimeRef.current);
+            switchToCachedSource(audio, resumeTime, true);
+        }
+    }, [switchToCachedSource]);
+
     const startCacheDownload = useCallback((song: Song) => {
         abortCacheDownload();
 
-        if (!song.fileUrl || !song.fileSize) return;
+        if (!song.fileUrl) return;
 
         const controller = new AbortController();
         cacheAbortRef.current = controller;
 
         void (async () => {
-            let loadedBytes = 0;
-            let previousSample = { bytes: 0, at: performance.now() };
-
-            try {
-                const response = await fetch(song.fileUrl, {
-                    signal: controller.signal,
-                    cache: "force-cache",
-                });
-                if (!response.ok || !response.body) return;
-
-                const contentLength = Number(response.headers.get("content-length"));
-                const totalBytes = Number.isFinite(contentLength) && contentLength > 0
-                    ? contentLength
-                    : song.fileSize;
-                const reader = response.body.getReader();
-
-                while (!controller.signal.aborted) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    loadedBytes += value.byteLength;
-                    const downloadedPercent = calculateDownloadedPercent(loadedBytes, totalBytes);
-                    cacheDownloadedPercentRef.current = downloadedPercent;
-                    publishBufferedPercent();
-
-                    const displayedPercent = calculateDisplayedBufferPercent(
-                        mediaBufferedPercentRef.current,
-                        downloadedPercent,
-                    );
-                    if (shouldStopCacheDownload(displayedPercent)) {
-                        await reader.cancel().catch(() => undefined);
-                        break;
-                    }
-
-                    const now = performance.now();
-                    setNetworkSpeedKbps(calculateThroughputKbps(
-                        loadedBytes,
-                        previousSample.bytes,
-                        now - previousSample.at,
-                    ));
-                    previousSample = { bytes: loadedBytes, at: now };
+            const maxAttempts = 4;
+            for (let attempt = 0; attempt < maxAttempts && !controller.signal.aborted; attempt += 1) {
+                if (attempt > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+                    if (controller.signal.aborted) break;
                 }
 
-                if (!controller.signal.aborted) {
+                const chunks: BlobPart[] = [];
+                let loadedBytes = 0;
+                let previousSample = { bytes: 0, at: performance.now() };
+
+                try {
+                    const response = await fetch(song.fileUrl, {
+                        signal: controller.signal,
+                        cache: "force-cache",
+                    });
+                    if (!response.ok || !response.body) {
+                        if (response.status >= 400 && response.status < 500) break;
+                        continue;
+                    }
+
+                    const contentLength = Number(response.headers.get("content-length"));
+                    const totalBytes = Number.isFinite(contentLength) && contentLength > 0
+                        ? contentLength
+                        : song.fileSize;
+                    const contentType = response.headers.get("content-type") || "audio/mpeg";
+                    const reader = response.body.getReader();
+
+                    while (!controller.signal.aborted) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        chunks.push(value);
+                        loadedBytes += value.byteLength;
+                        if (totalBytes > 0) {
+                            // Hold the bar below 100 until the local copy actually exists.
+                            cacheDownloadedPercentRef.current = Math.min(
+                                99,
+                                calculateDownloadedPercent(loadedBytes, totalBytes),
+                            );
+                            publishBufferedPercent();
+                        }
+
+                        const now = performance.now();
+                        setNetworkSpeedKbps(calculateThroughputKbps(
+                            loadedBytes,
+                            previousSample.bytes,
+                            now - previousSample.at,
+                        ));
+                        previousSample = { bytes: loadedBytes, at: now };
+                    }
+
+                    if (controller.signal.aborted) break;
+
+                    releaseCachedAudio();
+                    const blob = new Blob(chunks, { type: contentType });
+                    cachedAudioRef.current = { songId: song.id, url: URL.createObjectURL(blob) };
                     cacheDownloadedPercentRef.current = 100;
                     publishBufferedPercent();
                     setNetworkSpeedKbps(0);
-                }
-            } catch (err) {
-                if (!controller.signal.aborted) {
+                    handleCacheDownloadComplete();
+                    break;
+                } catch (err) {
+                    if (controller.signal.aborted) break;
                     setNetworkSpeedKbps(0);
-                    console.warn("Audio cache progress failed:", err);
-                }
-            } finally {
-                if (cacheAbortRef.current === controller) {
-                    cacheAbortRef.current = null;
+                    console.warn(`Audio cache download failed (attempt ${attempt + 1}/${maxAttempts}):`, err);
                 }
             }
+
+            if (cacheAbortRef.current === controller) {
+                cacheAbortRef.current = null;
+            }
         })();
-    }, [abortCacheDownload, publishBufferedPercent]);
+    }, [abortCacheDownload, publishBufferedPercent, releaseCachedAudio, handleCacheDownloadComplete]);
 
     // Initialize audio element once
     useEffect(() => {
@@ -476,9 +616,13 @@ export default function MusicPageClient() {
         };
 
         const onTimeUpdate = () => {
-            setCurrentTime(audio.currentTime);
-            if (Number.isFinite(audio.currentTime) && audio.currentTime > 0) {
-                lastKnownPlaybackTimeRef.current = audio.currentTime;
+            // While a seek is waiting for data, the UI already shows the target
+            // position; don't let the stale element time overwrite it.
+            if (!pendingSeekRef.current) {
+                setCurrentTime(audio.currentTime);
+                if (Number.isFinite(audio.currentTime) && audio.currentTime > 0) {
+                    lastKnownPlaybackTimeRef.current = audio.currentTime;
+                }
             }
             updateBufferMetrics();
 
@@ -530,6 +674,20 @@ export default function MusicPageClient() {
             }
             updateBufferMetrics();
             setIsLoading(false);
+
+            // Restore position/play state after a src swap or a retry reload.
+            const restore = pendingRestoreRef.current;
+            if (restore) {
+                pendingRestoreRef.current = null;
+                if (restore.src === audio.src) {
+                    if (restore.time > 0) {
+                        performSeek(restore.time, restore.resume);
+                    } else if (restore.resume) {
+                        playbackIntentRef.current = true;
+                        audio.play().catch(handlePlayFailure);
+                    }
+                }
+            }
         };
         const onDurationChange = () => {
             if (isFinite(audio.duration) && audio.duration > 0) {
@@ -539,6 +697,7 @@ export default function MusicPageClient() {
         };
         const onCanPlay = () => {
             updateBufferMetrics();
+            tryResolvePendingSeek();
             setIsLoading(false);
             retryCountRef.current = 0; // reset retry on successful buffer
         };
@@ -546,8 +705,18 @@ export default function MusicPageClient() {
             setIsLoading(true);
         };
         const onWaiting = () => {
-            // Mobile: buffer ran out, show loading spinner
+            // Buffer ran out, show loading spinner
             setIsLoading(true);
+            // If the full local copy exists, stop waiting on the network.
+            const song = currentSongRef.current;
+            const cached = cachedAudioRef.current;
+            if (song && cached && cached.songId === song.id && audio.src !== cached.url) {
+                switchToCachedSource(
+                    audio,
+                    getRetryResumeTime(audio.currentTime, lastKnownPlaybackTimeRef.current),
+                    playbackIntentRef.current,
+                );
+            }
         };
         const onPlaying = () => {
             // Buffer recovered, hide loading spinner
@@ -556,7 +725,9 @@ export default function MusicPageClient() {
         };
         const onProgress = () => {
             updateBufferMetrics();
-            if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA || audio.paused) {
+            tryResolvePendingSeek();
+            if (!pendingSeekRef.current
+                && (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA || audio.paused)) {
                 setIsLoading(false);
             }
         };
@@ -578,23 +749,12 @@ export default function MusicPageClient() {
                 const shouldResumePlayback = playbackIntentRef.current;
                 console.warn(`Audio error, retrying (${retryCountRef.current}/${maxRetries})...`);
                 setTimeout(() => {
+                    if (currentSongRef.current?.id !== song.id) return;
                     bufferSampleRef.current = null;
-                    const restorePosition = () => {
-                        audio.removeEventListener("loadedmetadata", restorePosition);
-                        if (savedTime > 0 && savedTime < (audio.duration || song.duration)) {
-                            audio.currentTime = savedTime;
-                            lastKnownPlaybackTimeRef.current = savedTime;
-                            setCurrentTime(savedTime);
-                        }
-                        if (shouldResumePlayback) {
-                            audio.play().catch(() => {
-                                playbackIntentRef.current = false;
-                                setIsPlaying(false);
-                            });
-                        }
-                    };
-                    audio.addEventListener("loadedmetadata", restorePosition, { once: true });
-                    audio.src = song.fileUrl;
+                    // Prefer the fully cached local copy over hitting the network again.
+                    const cached = cachedAudioRef.current;
+                    audio.src = cached && cached.songId === song.id ? cached.url : song.fileUrl;
+                    pendingRestoreRef.current = { src: audio.src, time: savedTime, resume: shouldResumePlayback };
                     audio.load();
                 }, 1000);
             } else {
@@ -634,12 +794,16 @@ export default function MusicPageClient() {
         audio.addEventListener("pause", onPause);
 
         const bufferPoll = window.setInterval(() => {
-            if (currentSongRef.current) updateBufferMetrics();
+            if (currentSongRef.current) {
+                updateBufferMetrics();
+                tryResolvePendingSeek();
+            }
         }, 500);
 
         return () => {
             window.clearInterval(bufferPoll);
             abortCacheDownload();
+            releaseCachedAudio();
             audio.removeEventListener("timeupdate", onTimeUpdate);
             audio.removeEventListener("loadedmetadata", onLoadedMetadata);
             audio.removeEventListener("durationchange", onDurationChange);
@@ -899,6 +1063,7 @@ export default function MusicPageClient() {
 
         retryCountRef.current = 0;
         resetBufferTracking();
+        pendingRestoreRef.current = null;
         lastKnownPlaybackTimeRef.current = 0;
         playbackIntentRef.current = true;
         halfPlayedRef.current = null;
@@ -928,24 +1093,23 @@ export default function MusicPageClient() {
         }
 
         audio.pause();
-        audio.src = song.fileUrl;
-        audio.load();
-        startCacheDownload(song);
+        const cached = cachedAudioRef.current;
+        if (cached && cached.songId === song.id) {
+            // Replaying the same song (repeat-one/next): use the local copy.
+            abortCacheDownload();
+            audio.src = cached.url;
+            audio.load();
+            cacheDownloadedPercentRef.current = 100;
+            publishBufferedPercent();
+        } else {
+            releaseCachedAudio();
+            audio.src = song.fileUrl;
+            audio.load();
+            startCacheDownload(song);
+        }
         audio.play()
             .then(() => setIsLoading(false))
-            .catch((err) => {
-                // Autoplay blocked is not a network error; the user can press play.
-                if (err.name === "NotAllowedError") {
-                    playbackIntentRef.current = false;
-                    setIsLoading(false);
-                    setIsPlaying(false);
-                    return;
-                }
-                console.error("Audio play failed:", err);
-                playbackIntentRef.current = false;
-                setIsLoading(false);
-                setIsPlaying(false);
-            });
+            .catch(handlePlayFailure);
 
         // Build/reset shuffle queue if entering shuffle mode
         if (playMode === "shuffle" && queue) {
@@ -953,7 +1117,7 @@ export default function MusicPageClient() {
             setShuffleQueue([song, ...shuffled]);
             setShuffleIndex(0);
         }
-    }, [playMode, resetBufferTracking, startCacheDownload]);
+    }, [playMode, resetBufferTracking, startCacheDownload, abortCacheDownload, releaseCachedAudio, publishBufferedPercent, handlePlayFailure]);
 
     /* ── Restore saved song on mount ── */
     useEffect(() => {
@@ -986,40 +1150,35 @@ export default function MusicPageClient() {
             });
         }
 
+        // After metadata loads, seek to saved time (stay paused).
         audio.src = song.fileUrl;
+        pendingRestoreRef.current = { src: audio.src, time: savedTime, resume: false };
         audio.load();
         startCacheDownload(song);
-
-        // After metadata loads, seek to saved time (stay paused).
-        const onReady = () => {
-            audio.removeEventListener("loadedmetadata", onReady);
-            if (savedTime > 0 && savedTime < (audio.duration || song.duration)) {
-                audio.currentTime = savedTime;
-                setCurrentTime(savedTime);
-            }
-            if (isFinite(audio.duration) && audio.duration > 0) {
-                setAudioDuration(audio.duration);
-            }
-            setIsLoading(false);
-        };
-        audio.addEventListener("loadedmetadata", onReady, { once: true });
     }, [resetBufferTracking, startCacheDownload]);
 
     const togglePlayPause = useCallback(() => {
         const audio = audioRef.current;
         if (!audio || !currentSong) return;
+        const pending = pendingSeekRef.current;
+        if (pending) {
+            // A seek is waiting for data; playing from the element's current
+            // position would be wrong, so just flip whether we resume later.
+            const resume = !pending.resume;
+            pendingSeekRef.current = { ...pending, resume };
+            playbackIntentRef.current = resume;
+            setIsPlaying(resume);
+            setIsLoading(resume);
+            return;
+        }
         if (!audio.paused && !audio.ended) {
             playbackIntentRef.current = false;
             audio.pause();
         } else {
             playbackIntentRef.current = true;
-            audio.play().catch(() => {
-                playbackIntentRef.current = false;
-                setIsPlaying(false);
-                setIsLoading(false);
-            });
+            audio.play().catch(handlePlayFailure);
         }
-    }, [currentSong]);
+    }, [currentSong, handlePlayFailure]);
 
     // Next / Previous track helpers
     const getNextSong = useCallback((): Song | null => {
@@ -1079,42 +1238,51 @@ export default function MusicPageClient() {
         const audio = audioRef.current;
         // If more than 3 seconds in, restart current track
         if (audio && audio.currentTime > 3) {
-            audio.currentTime = 0;
-            lastKnownPlaybackTimeRef.current = 0;
-            setCurrentTime(0);
+            performSeek(0, playbackIntentRef.current || !audio.paused);
             return;
         }
         const prev = getPrevSong();
         if (prev) playSong(prev);
-    }, [getPrevSong, playSong]);
+    }, [getPrevSong, playSong, performSeek]);
 
     // Keep the ended handler ref up-to-date
     useEffect(() => {
         handleTrackEndRef.current = () => {
             if (playMode === "repeat-one") {
-                const audio = audioRef.current;
-                if (audio) {
-                    audio.currentTime = 0;
-                    lastKnownPlaybackTimeRef.current = 0;
-                    setCurrentTime(0);
-                    playbackIntentRef.current = true;
-                    audio.play().catch(() => { });
-                }
+                performSeek(0, true);
             } else {
                 playNext();
             }
         };
-    }, [playMode, playNext]);
+    }, [playMode, playNext, performSeek]);
 
     // MediaSession action handlers (lock screen / notification controls)
     useEffect(() => {
         if (!("mediaSession" in navigator)) return;
         const ms = navigator.mediaSession;
         ms.setActionHandler("play", () => {
+            const pending = pendingSeekRef.current;
+            if (pending) {
+                // A seek is waiting for data; just mark that playback should
+                // resume once it lands instead of playing the old position.
+                pendingSeekRef.current = { ...pending, resume: true };
+                playbackIntentRef.current = true;
+                setIsPlaying(true);
+                setIsLoading(true);
+                return;
+            }
             playbackIntentRef.current = true;
             audioRef.current?.play().catch(() => { });
         });
         ms.setActionHandler("pause", () => {
+            const pending = pendingSeekRef.current;
+            if (pending) {
+                pendingSeekRef.current = { ...pending, resume: false };
+                playbackIntentRef.current = false;
+                setIsPlaying(false);
+                setIsLoading(false);
+                return;
+            }
             playbackIntentRef.current = false;
             audioRef.current?.pause();
         });
@@ -1125,10 +1293,8 @@ export default function MusicPageClient() {
             playNext();
         });
         ms.setActionHandler("seekto", (details) => {
-            if (audioRef.current && details.seekTime != null) {
-                audioRef.current.currentTime = details.seekTime;
-                lastKnownPlaybackTimeRef.current = details.seekTime;
-                setCurrentTime(details.seekTime);
+            if (details.seekTime != null) {
+                performSeek(details.seekTime, playbackIntentRef.current);
             }
         });
         return () => {
@@ -1138,7 +1304,7 @@ export default function MusicPageClient() {
             ms.setActionHandler("nexttrack", null);
             ms.setActionHandler("seekto", null);
         };
-    }, [playNext, playPrev]);
+    }, [playNext, playPrev, performSeek]);
 
     const cyclePlayMode = useCallback(() => {
         setPlayMode((prev) => {
@@ -1214,71 +1380,52 @@ export default function MusicPageClient() {
     const handleProgressMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
         progressDragging.current = true;
-        const time = computeSeekTime(e.clientX);
-        setSeekPreview(time);
+        setSeekPreview(computeSeekTime(e.clientX));
 
         const onMouseMove = (ev: MouseEvent) => {
             if (!progressDragging.current) return;
-            const t = computeSeekTime(ev.clientX);
-            setSeekPreview(t);
+            setSeekPreview(computeSeekTime(ev.clientX));
         };
         const onMouseUp = (ev: MouseEvent) => {
             progressDragging.current = false;
             const t = computeSeekTime(ev.clientX);
             setSeekPreview(null);
-            // Seek audio to the final position
             const audio = audioRef.current;
-            if (audio) {
-                audio.currentTime = t;
-                lastKnownPlaybackTimeRef.current = t;
-                setCurrentTime(t);
-                if (isPlaying) {
-                    playbackIntentRef.current = true;
-                    audio.play().catch(() => { });
-                }
-            }
+            performSeek(t, playbackIntentRef.current || (audio ? !audio.paused : false));
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
         };
         window.addEventListener("mousemove", onMouseMove);
         window.addEventListener("mouseup", onMouseUp);
-    }, [computeSeekTime, isPlaying]);
+    }, [computeSeekTime, performSeek]);
 
     const handleProgressTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
-        progressDragging.current = true;
         const touch = e.touches[0];
         if (!touch) return;
-        const time = computeSeekTime(touch.clientX);
-        setSeekPreview(time);
+        progressDragging.current = true;
+        let lastClientX = touch.clientX;
+        setSeekPreview(computeSeekTime(lastClientX));
 
         const onTouchMove = (ev: TouchEvent) => {
             if (!progressDragging.current) return;
             const t2 = ev.touches[0];
             if (!t2) return;
-            const t = computeSeekTime(t2.clientX);
-            setSeekPreview(t);
+            lastClientX = t2.clientX;
+            setSeekPreview(computeSeekTime(lastClientX));
         };
         const onTouchEnd = (ev: TouchEvent) => {
             progressDragging.current = false;
             const ct = ev.changedTouches[0];
-            const t = ct ? computeSeekTime(ct.clientX) : (seekPreview ?? 0);
+            const t = computeSeekTime(ct ? ct.clientX : lastClientX);
             setSeekPreview(null);
             const audio = audioRef.current;
-            if (audio) {
-                audio.currentTime = t;
-                lastKnownPlaybackTimeRef.current = t;
-                setCurrentTime(t);
-                if (isPlaying) {
-                    playbackIntentRef.current = true;
-                    audio.play().catch(() => { });
-                }
-            }
+            performSeek(t, playbackIntentRef.current || (audio ? !audio.paused : false));
             window.removeEventListener("touchmove", onTouchMove);
             window.removeEventListener("touchend", onTouchEnd);
         };
         window.addEventListener("touchmove", onTouchMove, { passive: true });
         window.addEventListener("touchend", onTouchEnd);
-    }, [computeSeekTime, isPlaying, seekPreview]);
+    }, [computeSeekTime, performSeek]);
 
     const toggleMute = useCallback(() => {
         setIsMuted((prev) => !prev);

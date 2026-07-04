@@ -421,7 +421,7 @@ export default function YoutubeDownloadPage() {
                                     更新 Cookie
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+                            <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
                                 <DialogHeader>
                                     <DialogTitle>更新 YouTube Cookie</DialogTitle>
                                     <DialogDescription>
@@ -429,7 +429,7 @@ export default function YoutubeDownloadPage() {
                                     </DialogDescription>
                                 </DialogHeader>
 
-                                <div className="space-y-4">
+                                <div className="min-w-0 space-y-4">
                                     <div>
                                         <Label htmlFor="youtube-cookie-file">cookies.txt</Label>
                                         <Input
@@ -443,7 +443,7 @@ export default function YoutubeDownloadPage() {
                                             <p className="mt-1 text-xs text-gray-500">{cookieFileName}</p>
                                         )}
                                     </div>
-                                    <div>
+                                    <div className="min-w-0">
                                         <Label htmlFor="youtube-cookie-text">Cookie 内容</Label>
                                         <Textarea
                                             id="youtube-cookie-text"
@@ -454,7 +454,7 @@ export default function YoutubeDownloadPage() {
                                             }}
                                             rows={9}
                                             spellCheck={false}
-                                            className="mt-1.5 h-48 max-h-72 resize-y overflow-auto font-mono text-xs [field-sizing:fixed]"
+                                            className="mt-1.5 h-48 max-h-72 min-w-0 max-w-full resize-y overflow-auto break-all font-mono text-xs field-sizing-fixed"
                                             placeholder="# Netscape HTTP Cookie File"
                                         />
                                     </div>
