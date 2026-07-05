@@ -11,15 +11,25 @@ import {
 import { MusicScoreService } from './music-score.service';
 import { CreateMusicScoreDto } from './dto/create-music-score.dto';
 import { UpdateMusicScoreDto } from './dto/update-music-score.dto';
+import { CreateScoreUploadUrlsDto } from './dto/create-score-upload-urls.dto';
 
 @Controller('music-scores')
 export class MusicScoreController {
   constructor(private readonly musicScoreService: MusicScoreService) {}
 
-  /** 生成预签名上传 URL */
+  /** 生成预签名上传 URL（PDF 或图片） */
   @Post('upload-url')
-  async getUploadUrl(@Body('fileName') fileName: string) {
-    return this.musicScoreService.generateUploadUrl(fileName);
+  async getUploadUrl(
+    @Body('fileName') fileName: string,
+    @Body('contentType') contentType?: string,
+  ) {
+    return this.musicScoreService.generateUploadUrl(fileName, contentType);
+  }
+
+  /** 批量生成预签名上传 URL（图片乐谱多页） */
+  @Post('upload-urls')
+  async getUploadUrls(@Body() dto: CreateScoreUploadUrlsDto) {
+    return this.musicScoreService.generateUploadUrls(dto.files);
   }
 
   /** 获取乐谱列表（可按乐器筛选） */

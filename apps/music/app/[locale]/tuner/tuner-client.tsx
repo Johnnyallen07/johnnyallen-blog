@@ -128,6 +128,8 @@ interface MusicScore {
     title: string;
     composer: string | null;
     instrument: string;
+    fileType?: string;
+    pages?: { key: string; url: string }[] | null;
     fileUrl: string;
     fileSize: number;
     pageCount: number;
@@ -501,6 +503,8 @@ function ScorePanel({
     const [picking, setPicking] = useState(true);
     const [title, setTitle] = useState("乐谱");
     const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+    // 图片乐谱：按顺序的页面 URL；非空时走 <img> 渲染，不经过 pdf.js
+    const [imagePages, setImagePages] = useState<string[] | null>(null);
     const [numPages, setNumPages] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
     const [zoom, setZoom] = useState(1);
@@ -539,12 +543,24 @@ function ScorePanel({
         };
     }, []);
 
+    const openImageScore = useCallback((pageUrls: string[], label: string) => {
+        setLoading(false);
+        setLoadError("");
+        setPicking(false);
+        setTitle(label);
+        setPdfDoc(null);
+        setImagePages(pageUrls);
+        setNumPages(pageUrls.length);
+        setCurrentPage(1);
+    }, []);
+
     const loadFromUrl = useCallback((url: string, label: string) => {
         setLoading(true);
         setLoadError("");
         setPicking(false);
         setTitle(label);
         setPdfDoc(null);
+        setImagePages(null);
         setNumPages(0);
         setCurrentPage(1);
         void import("pdfjs-dist")
@@ -746,8 +762,11 @@ function ScorePanel({
         const target = layout === "vertical" ? rect.top + rect.height / 2 : rect.left + rect.width / 2;
         let nearest = 1;
         let best = Infinity;
-        canvasMapRef.current.forEach((canvas, pageNum) => {
-            const cr = canvas.getBoundingClientRect();
+        // canvas（PDF）和 img（图片乐谱）都带 data-page，统一按 DOM 找最近页
+        container.querySelectorAll<HTMLElement>("[data-page]").forEach((el) => {
+            const pageNum = Number(el.dataset.page);
+            if (!pageNum) return;
+            const cr = el.getBoundingClientRect();
             const mid = layout === "vertical" ? cr.top + cr.height / 2 : cr.left + cr.width / 2;
             const distance = Math.abs(mid - target);
             if (distance < best) {
@@ -809,7 +828,7 @@ function ScorePanel({
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1">
-                    {pdfDoc && (
+                    {(pdfDoc || imagePages) && (
                         <>
                             <button
                                 type="button"
@@ -881,7 +900,16 @@ function ScorePanel({
                                 <button
                                     key={score.id}
                                     type="button"
-                                    onClick={() => loadFromUrl(score.fileUrl, score.title)}
+                                    onClick={() => {
+                                        if (score.fileType === "images" && score.pages?.length) {
+                                            openImageScore(
+                                                score.pages.map((page) => page.url),
+                                                score.title,
+                                            );
+                                        } else {
+                                            loadFromUrl(score.fileUrl, score.title);
+                                        }
+                                    }}
                                     className="group flex w-full items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2.5 text-left transition hover:border-amber-400/40 hover:bg-white/10"
                                 >
                                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-400">
@@ -936,14 +964,32 @@ function ScorePanel({
                                     : "flex h-full items-center gap-1"
                             }
                         >
-                            {pages.map((pageNum) => (
-                                <canvas
-                                    key={pageNum}
-                                    data-page={pageNum}
-                                    ref={registerCanvas(pageNum)}
-                                    className={`block bg-white shadow-lg ${layout === "horizontal" ? "shrink-0 snap-center" : ""}`}
-                                />
-                            ))}
+                            {imagePages
+                                ? imagePages.map((url, index) => (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                          key={index}
+                                          data-page={index + 1}
+                                          src={url}
+                                          alt={`${title} - ${index + 1}`}
+                                          draggable={false}
+                                          loading="lazy"
+                                          style={
+                                              layout === "vertical"
+                                                  ? { width: `${Math.round(zoom * 100)}%` }
+                                                  : { height: `${Math.round(zoom * 100)}%` }
+                                          }
+                                          className={`block bg-white shadow-lg ${layout === "horizontal" ? "shrink-0 snap-center" : ""}`}
+                                      />
+                                  ))
+                                : pages.map((pageNum) => (
+                                      <canvas
+                                          key={pageNum}
+                                          data-page={pageNum}
+                                          ref={registerCanvas(pageNum)}
+                                          className={`block bg-white shadow-lg ${layout === "horizontal" ? "shrink-0 snap-center" : ""}`}
+                                      />
+                                  ))}
                         </div>
                     </div>
                     {numPages > 0 && (

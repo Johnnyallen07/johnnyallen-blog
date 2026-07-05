@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
@@ -27,6 +27,8 @@ interface MusicScore {
     title: string;
     composer: string | null;
     instrument: string;
+    fileType?: string;
+    pages?: { key: string; url: string }[] | null;
     fileUrl: string;
     fileSize: number;
     pageCount: number;
@@ -119,8 +121,27 @@ function ScoreViewer({
     const rightCanvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Load PDF
+    // 图片乐谱：按顺序的页面 URL；空数组表示 PDF 乐谱
+    const imagePages = useMemo(
+        () =>
+            score.fileType === "images" && score.pages
+                ? score.pages.map((page) => page.url)
+                : [],
+        [score]
+    );
+    const isImageScore = imagePages.length > 0;
+
+    // 图片页与 PDF 一致地"适配容器高度再乘缩放"，容器高度用 ResizeObserver 跟踪
+    const [fitHeight, setFitHeight] = useState<number | null>(null);
+
+    // Load PDF (image scores skip pdf.js entirely)
     useEffect(() => {
+        if (isImageScore) {
+            setTotalPages(imagePages.length);
+            setIsLoading(false);
+            return;
+        }
+
         let cancelled = false;
         setIsLoading(true);
 
@@ -143,7 +164,33 @@ function ScoreViewer({
         return () => {
             cancelled = true;
         };
-    }, [score.fileUrl]);
+    }, [score.fileUrl, isImageScore, imagePages.length]);
+
+    // Track container height for image page fitting
+    useEffect(() => {
+        if (!isImageScore) return;
+        const el = containerRef.current;
+        if (!el) return;
+        const update = () =>
+            setFitHeight(Math.max(120, el.clientHeight - 96));
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [isImageScore]);
+
+    // Preload the next spread so page turns feel instant
+    useEffect(() => {
+        if (!isImageScore) return;
+        const step = isDoubleSpread ? 2 : 1;
+        for (const pageNum of [currentPage + step, currentPage + step + 1]) {
+            const url = imagePages[pageNum - 1];
+            if (url) {
+                const img = new window.Image();
+                img.src = url;
+            }
+        }
+    }, [isImageScore, imagePages, currentPage, isDoubleSpread]);
 
     // Render pages
     const renderPage = useCallback(
@@ -341,13 +388,15 @@ function ScoreViewer({
 
                     <div className="w-px h-4 bg-white/10 mx-1" />
 
-                    <button
-                        onClick={handleDownload}
-                        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-                        title={t("downloadPdf")}
-                    >
-                        <Download className="w-4 h-4" />
-                    </button>
+                    {!isImageScore && (
+                        <button
+                            onClick={handleDownload}
+                            className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+                            title={t("downloadPdf")}
+                        >
+                            <Download className="w-4 h-4" />
+                        </button>
+                    )}
                     <button
                         onClick={toggleFullscreen}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
@@ -382,15 +431,51 @@ function ScoreViewer({
 
                         {/* Pages */}
                         <div className="flex min-h-full items-center justify-center gap-3">
-                            <canvas
-                                ref={leftCanvasRef}
-                                className="shadow-2xl rounded-sm"
-                            />
-                            {isDoubleSpread && currentPage + 1 <= totalPages && (
-                                <canvas
-                                    ref={rightCanvasRef}
-                                    className="shadow-2xl rounded-sm"
-                                />
+                            {isImageScore ? (
+                                <>
+                                    {/* 乐谱原图直出（COS 外链、需全分辨率），不走 next/image */}
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                        src={imagePages[currentPage - 1]}
+                                        alt={`${score.title} - ${currentPage}`}
+                                        draggable={false}
+                                        style={{
+                                            height: fitHeight
+                                                ? fitHeight * zoom
+                                                : undefined,
+                                        }}
+                                        className="shadow-2xl rounded-sm bg-white"
+                                    />
+                                    {isDoubleSpread &&
+                                        currentPage + 1 <= totalPages && (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                                src={imagePages[currentPage]}
+                                                alt={`${score.title} - ${currentPage + 1}`}
+                                                draggable={false}
+                                                style={{
+                                                    height: fitHeight
+                                                        ? fitHeight * zoom
+                                                        : undefined,
+                                                }}
+                                                className="shadow-2xl rounded-sm bg-white"
+                                            />
+                                        )}
+                                </>
+                            ) : (
+                                <>
+                                    <canvas
+                                        ref={leftCanvasRef}
+                                        className="shadow-2xl rounded-sm"
+                                    />
+                                    {isDoubleSpread &&
+                                        currentPage + 1 <= totalPages && (
+                                            <canvas
+                                                ref={rightCanvasRef}
+                                                className="shadow-2xl rounded-sm"
+                                            />
+                                        )}
+                                </>
                             )}
                         </div>
 

@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsNumber } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsArray,
+  ArrayMinSize,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { ScorePageDto } from './score-page.dto';
 
 export class UpdateMusicScoreDto {
   @IsOptional()
@@ -12,6 +21,14 @@ export class UpdateMusicScoreDto {
   @IsOptional()
   @IsString()
   instrument?: string;
+
+  /** 图片乐谱：整组页面（顺序即展示顺序），被移除的页面会从 COS 删除 */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ScorePageDto)
+  pages?: ScorePageDto[];
 
   @IsOptional()
   @IsString()

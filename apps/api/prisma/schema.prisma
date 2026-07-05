@@ -188,6 +188,10 @@ model MusicScore {
   title       String
   composer    String?
   instrument  String
+  // "pdf"：fileKey/fileUrl 指向单个 PDF；"images"：pages 按顺序存每页图片，fileKey/fileUrl 指向第一页
+  fileType    String   @default("pdf")
+  // 图片乐谱页面（按展示顺序）：[{ key, url, size? }]
+  pages       Json?
   fileKey     String
   fileUrl     String
   fileSize    Int      @default(0)
