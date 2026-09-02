@@ -32,6 +32,10 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Production traffic reaches the API through one local Nginx reverse proxy.
+  // This keeps audit/risk IPs useful without trusting arbitrary forwarded hops.
+  app.set('trust proxy', 1);
+
   // 提高 JSON body 限制，支持 base64 文件上传（参考题目图片/PDF）
   app.useBodyParser('json', { limit: '50mb' });
 

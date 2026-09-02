@@ -23,8 +23,13 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# ffmpeg: 音乐分割/音频转码；yt-dlp: YouTube 音频下载；texlive: LaTeX 编译
-RUN apk add --no-cache ffmpeg yt-dlp texlive
+# ffmpeg: 音乐分割/音频转码；texlive: LaTeX 编译
+# yt-dlp 更新频繁，Alpine community 包容易滞后导致 YouTube 403；
+# 用 venv 从 PyPI 安装，重建镜像时即可拉取最新 extractor。
+RUN apk add --no-cache ffmpeg python3 py3-pip texlive \
+  && python3 -m venv /opt/yt-dlp \
+  && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
+  && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp
 
 # --ignore-scripts 跳过 postinstall（prisma generate），避免 prisma CLI 不存在报错
 # Prisma Client 会从 builder 阶段复制，无需重新生成

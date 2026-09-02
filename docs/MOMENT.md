@@ -6,7 +6,8 @@ Moment 是 `moment.johnnyallen.blog` 上的只读私人资料库。照片和备�
 
 - Web 页面没有任何上传接口；浏览器只能搜索、预览与下载。
 - Mac 同步使用独立的 `mom_sync_…` 密钥，只能读取清单、申请 15 分钟上传 URL、登记文件，不能读取或下载任何内容。
-- 私密访问需要管理员密码 + TOTP。Moment 会话有效期 2 小时，只保存在 `HttpOnly`、`Secure`、`SameSite=Strict` cookie 中。
+- 私密访问首次需要管理员密码 + TOTP。短会话有效期 2 小时；选择信任设备后，同一浏览器可在 7 天内通过服务端登记的可信设备会话自动续期。两类凭证都只保存在 `HttpOnly`、`Secure`、`SameSite=Strict` 的 `__Host-` cookie 中，服务端只保存可信设备密钥摘要。
+- 可信设备以高熵 Cookie 的持有证明为核心，并绑定归一化的浏览器/系统类型；IP 变化只进入风险审计，不作为硬性拦截条件，以兼容 VPN、蜂窝网络和正常漫游。后台可查看并立即撤销设备，主动退出也会撤销当前设备。
 - 连续 5 次验证码失败会锁定 15 分钟；TOTP 密钥使用 AES-256-GCM 加密；恢复码只保存 SHA-256 摘要且每个只能使用一次。
 - 公开精选也不直接匿名调用 API。Moment Next.js 服务端持有只读 gateway token，API 根据 `PUBLIC` 可见性再次过滤。
 - COS 对象统一位于 `moment/vault/`，不生成公网 URL。每次查看与下载都会记录审计事件。
@@ -41,9 +42,10 @@ Moment 是 `moment.johnnyallen.blog` 上的只读私人资料库。照片和备�
    sudo certbot --nginx -d moment.johnnyallen.blog --redirect
    ```
 
-5. 登录 `admin.johnnyallen.blog/moment`，绑定 TOTP 并离线保存一次性恢复码。
-6. 添加分类。分类 slug 可与 Mac 同步目录的第一级文件夹同名，例如 `family/IMG_001.HEIC` 会尝试归入 slug 为 `family` 的分类。
-7. 创建 Mac 同步密钥。密钥只显示一次，可随时从 Admin 撤销。
+5. 登录 `admin.johnnyallen.blog/moment`，扫描二维码绑定 TOTP，并离线保存一次性恢复码。
+6. 公开页面不展示私人入口；需要首次解锁时直接访问 `moment.johnnyallen.blog/login`。
+7. 添加分类。分类 slug 可与 Mac 同步目录的第一级文件夹同名，例如 `family/IMG_001.HEIC` 会尝试归入 slug 为 `family` 的分类。
+8. 创建 Mac 同步密钥。密钥只显示一次，可随时从 Admin 撤销。
 
 ## Mac 一键同步
 

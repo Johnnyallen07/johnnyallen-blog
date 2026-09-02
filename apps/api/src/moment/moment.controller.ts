@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -47,7 +48,34 @@ export class MomentController {
   @Post('auth/login')
   @UseGuards(MomentLoginGatewayGuard)
   login(@Body() dto: MomentLoginDto, @Req() req: Request) {
-    return this.auth.login(dto.username, dto.password, dto.code, req.ip);
+    return this.auth.login(
+      dto.username,
+      dto.password,
+      dto.code,
+      dto.rememberDevice,
+      req.get('user-agent'),
+      req.ip,
+    );
+  }
+
+  @Post('auth/trusted/refresh')
+  @UseGuards(MomentLoginGatewayGuard)
+  refreshTrustedDevice(
+    @Headers('x-moment-trusted-token') token: string | undefined,
+    @Req() req: Request,
+  ) {
+    if (!token) throw new BadRequestException('缺少可信设备凭证');
+    return this.auth.refreshTrustedDevice(token, req.get('user-agent'), req.ip);
+  }
+
+  @Post('auth/trusted/revoke')
+  @UseGuards(MomentLoginGatewayGuard)
+  revokeTrustedToken(
+    @Headers('x-moment-trusted-token') token: string | undefined,
+    @Req() req: Request,
+  ) {
+    if (!token) return { revoked: false };
+    return this.auth.revokeTrustedToken(token, req.ip);
   }
 
   @Get('auth/setup/status')
@@ -114,6 +142,18 @@ export class MomentController {
   @UseGuards(MomentAdminGuard)
   categories() {
     return this.moment.categories();
+  }
+
+  @Get('admin/trusted-devices')
+  @UseGuards(MomentAdminGuard)
+  trustedDevices(@Req() req: MomentRequest) {
+    return this.auth.trustedDevices(req.momentUserId!);
+  }
+
+  @Delete('admin/trusted-devices/:id')
+  @UseGuards(MomentAdminGuard)
+  revokeTrustedDevice(@Param('id') id: string, @Req() req: MomentRequest) {
+    return this.auth.revokeTrustedDevice(req.momentUserId!, id, req.ip);
   }
 
   @Post('admin/categories')

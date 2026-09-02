@@ -8,6 +8,10 @@ import {
     calculateProgressPercent,
     getContiguousBufferedEnd,
     getRetryResumeTime,
+    getStablePlaybackTime,
+    hasBufferedDataAhead,
+    hasCompleteMediaMetadata,
+    getRecoveryDelayMs,
     isTimeWithinRanges,
     calculateThroughputKbps,
     shouldShowBufferStatus,
@@ -81,4 +85,33 @@ test("retry resume time preserves the last known playback position", () => {
     assert.equal(getRetryResumeTime(0, 128.4), 128.4);
     assert.equal(getRetryResumeTime(91.2, 128.4), 128.4);
     assert.equal(getRetryResumeTime(142.1, 128.4), 142.1);
+});
+
+test("stable playback time cannot roll back during buffering or reload", () => {
+    assert.equal(getStablePlaybackTime(0, 128.4), 128.4);
+    assert.equal(getStablePlaybackTime(91.2, 128.4, 130), 130);
+    assert.equal(getStablePlaybackTime(142.1, 128.4, 130), 142.1);
+});
+
+test("resume waits until the current position has playable data ahead", () => {
+    const ranges = makeRanges([[0, 12], [20, 30]]);
+
+    assert.equal(hasBufferedDataAhead(ranges, 11.7, 0.5, 60), false);
+    assert.equal(hasBufferedDataAhead(ranges, 10, 0.5, 60), true);
+    assert.equal(hasBufferedDataAhead(ranges, 19, 0.5, 60), false);
+    assert.equal(hasBufferedDataAhead(ranges, 29.8, 0.5, 30), true);
+});
+
+test("metadata is complete only with a usable duration", () => {
+    assert.equal(hasCompleteMediaMetadata(0, 180), false);
+    assert.equal(hasCompleteMediaMetadata(1, Number.NaN), false);
+    assert.equal(hasCompleteMediaMetadata(1, Number.POSITIVE_INFINITY), false);
+    assert.equal(hasCompleteMediaMetadata(1, 180), true);
+});
+
+test("recovery delay backs off but stays bounded", () => {
+    assert.equal(getRecoveryDelayMs(1), 1000);
+    assert.equal(getRecoveryDelayMs(2), 2000);
+    assert.equal(getRecoveryDelayMs(5), 15000);
+    assert.equal(getRecoveryDelayMs(30), 15000);
 });

@@ -19,6 +19,7 @@ export class MomentLoginDto {
   @IsString() @IsNotEmpty() @MaxLength(100) username: string;
   @IsString() @IsNotEmpty() @MaxLength(200) password: string;
   @IsString() @IsNotEmpty() @MaxLength(40) code: string;
+  @IsOptional() @IsBoolean() rememberDevice = true;
 }
 
 export class TotpCodeDto {

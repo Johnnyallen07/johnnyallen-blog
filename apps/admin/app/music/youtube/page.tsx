@@ -1,18 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ChangeEvent } from "react";
+import {
+    useState,
+    useEffect,
+    useCallback,
+    useRef,
+    type ChangeEvent,
+    type DragEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
-    ArrowLeft,
-    Youtube,
-    Loader2,
-    CheckCircle2,
     AlertCircle,
-    Plus,
-    X,
-    Pencil,
+    ArrowLeft,
+    CheckCircle2,
+    ClipboardPaste,
+    FileText,
     KeyRound,
+    Loader2,
+    Plus,
+    RefreshCw,
+    Save,
+    Sparkles,
     Upload,
+    X,
+    Youtube,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,9 +47,11 @@ import {
 } from "@/components/ui/select";
 import { fetchClient } from "@/lib/api";
 
-/* ── Types ── */
-
-interface SidebarEntity { id: string; name: string; slug: string; }
+interface SidebarEntity {
+    id: string;
+    name: string;
+    slug: string;
+}
 
 interface TaskProgress {
     status: "fetching_info" | "downloading" | "converting" | "done" | "error";
@@ -49,40 +62,78 @@ interface TaskProgress {
     duration?: number;
 }
 
+interface MetadataSuggestion {
+    taskId: string;
+    title: string;
+    musician: string;
+    performer: string;
+    category: string;
+    series: string | null;
+    confidence: number;
+    reason: string;
+    needsReview: string[];
+}
+
+interface EditableMetadata {
+    musician: string;
+    performer: string;
+    categoryId: string;
+    seriesId: string;
+    confidence: number;
+    reason: string;
+    needsReview: string[];
+}
+
+interface CookieSummary {
+    configured: boolean;
+    bytes?: number;
+    updatedAt?: string;
+    totalCookies?: number;
+    youtubeCookies?: number;
+    activeYoutubeCookies?: number;
+    domains?: string[];
+    expiresAt?: string | null;
+    likelyExpired?: boolean;
+    issue?: string;
+}
+
 type ItemStatus = "queued" | "downloading" | "downloaded" | "uploading" | "saved" | "error";
+type SuggestionStatus = "idle" | "loading" | "ready" | "error";
 
 interface QueueItem {
     id: string;
     url: string;
     taskId: string | null;
     title: string;
-    editedTitle: string;
     status: ItemStatus;
     progress: number;
     statusLabel: string;
     error: string;
+    failureStage?: "download" | "save";
     fileSize: number;
     duration: number;
+    suggestionStatus: SuggestionStatus;
+    suggestionError: string;
+    metadata: EditableMetadata;
 }
 
-/* ── Helpers ── */
+const EMPTY_METADATA: EditableMetadata = {
+    musician: "",
+    performer: "",
+    categoryId: "",
+    seriesId: "",
+    confidence: 0,
+    reason: "",
+    needsReview: [],
+};
 
-function isYoutubeUrl(url: string): boolean {
-    return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url.trim());
-}
-
-function formatDuration(seconds: number): string {
-    if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return "0:00";
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function formatFileSize(bytes: number): string {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-}
+const REVIEW_LABELS: Record<string, string> = {
+    title: "标题",
+    musician: "作曲家",
+    performer: "演奏者",
+    category: "分类",
+    series: "系列",
+};
 
 const DL_STATUS_LABELS: Record<string, string> = {
     fetching_info: "获取视频信息...",
@@ -92,81 +143,144 @@ const DL_STATUS_LABELS: Record<string, string> = {
     error: "下载失败",
 };
 
-/* ── Page ── */
+function isYoutubeUrl(url: string): boolean {
+    return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url.trim());
+}
+
+function formatDuration(seconds: number): string {
+    if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return "0:00";
+    const minutes = Math.floor(seconds / 60);
+    const remainder = Math.floor(seconds % 60);
+    return `${minutes}:${remainder.toString().padStart(2, "0")}`;
+}
+
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(value?: string | null): string {
+    if (!value) return "未知";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString("zh-CN");
+}
 
 export default function YoutubeDownloadPage() {
     const router = useRouter();
-
     const [urlInput, setUrlInput] = useState("");
     const [queue, setQueue] = useState<QueueItem[]>([]);
     const pollingTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
     const isProcessing = useRef(false);
     const isUploading = useRef<Set<string>>(new Set());
-
-    // Shared metadata
-    const [musician, setMusician] = useState("");
-    const [performer, setPerformer] = useState("");
-    const [categoryId, setCategoryId] = useState("");
-    const [seriesId, setSeriesId] = useState("");
+    const isSuggesting = useRef<Set<string>>(new Set());
 
     const [categories, setCategories] = useState<SidebarEntity[]>([]);
     const [seriesList, setSeriesList] = useState<SidebarEntity[]>([]);
+    const [musicians, setMusicians] = useState<string[]>([]);
+    const categoriesRef = useRef<SidebarEntity[]>([]);
+    const seriesListRef = useRef<SidebarEntity[]>([]);
+
     const [cookieDialogOpen, setCookieDialogOpen] = useState(false);
     const [cookieText, setCookieText] = useState("");
     const [cookieFileName, setCookieFileName] = useState("");
+    const [cookieSummary, setCookieSummary] = useState<CookieSummary | null>(null);
     const [cookieStatus, setCookieStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
     const [isUpdatingCookie, setIsUpdatingCookie] = useState(false);
+    const [isCookieDragging, setIsCookieDragging] = useState(false);
 
-    // Refs for metadata so auto-upload closure always reads latest values
-    const metaRef = useRef({ musician: "", performer: "", categoryId: "", seriesId: "" });
     useEffect(() => {
-        metaRef.current = { musician, performer, categoryId, seriesId };
-    }, [musician, performer, categoryId, seriesId]);
-
-    const categoriesRef = useRef<SidebarEntity[]>([]);
-    const seriesListRef = useRef<SidebarEntity[]>([]);
-    useEffect(() => { categoriesRef.current = categories; }, [categories]);
-    useEffect(() => { seriesListRef.current = seriesList; }, [seriesList]);
+        categoriesRef.current = categories;
+    }, [categories]);
+    useEffect(() => {
+        seriesListRef.current = seriesList;
+    }, [seriesList]);
 
     const fetchDropdowns = useCallback(async () => {
         try {
-            const [cats, srs] = await Promise.all([
+            const [cats, series, knownMusicians] = await Promise.all([
                 fetchClient("/music-categories"),
                 fetchClient("/music-series"),
+                fetchClient("/music/musicians"),
             ]);
             setCategories(Array.isArray(cats) ? cats : []);
-            setSeriesList(Array.isArray(srs) ? srs : []);
-        } catch { /* ignore */ }
+            setSeriesList(Array.isArray(series) ? series : []);
+            setMusicians(Array.isArray(knownMusicians) ? knownMusicians : []);
+        } catch {
+            // 元数据建议仍可运行，失败时允许用户手工填写。
+        }
     }, []);
 
-    useEffect(() => { fetchDropdowns(); }, [fetchDropdowns]);
+    const fetchCookieSummary = useCallback(async () => {
+        try {
+            const result = await fetchClient("/music/youtube-cookies") as CookieSummary;
+            setCookieSummary(result);
+        } catch (error) {
+            setCookieSummary({
+                configured: false,
+                issue: error instanceof Error ? error.message : "无法读取 Cookie 状态",
+            });
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchDropdowns();
+        fetchCookieSummary();
+    }, [fetchDropdowns, fetchCookieSummary]);
+
     useEffect(() => {
         const timers = pollingTimers.current;
-        return () => { timers.forEach((timer) => clearInterval(timer)); };
+        return () => timers.forEach((timer) => clearInterval(timer));
     }, []);
 
-    const handleCookieFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    const readCookieFile = async (file: File) => {
         setCookieStatus(null);
         setCookieFileName(file.name);
         setCookieText(await file.text());
     };
 
+    const handleCookieFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) await readCookieFile(file);
+    };
+
+    const handleCookieDrop = async (event: DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        setIsCookieDragging(false);
+        const file = event.dataTransfer.files?.[0];
+        if (file) await readCookieFile(file);
+    };
+
+    const pasteCookies = async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text.trim()) throw new Error("剪贴板为空");
+            setCookieText(text);
+            setCookieFileName("从剪贴板粘贴");
+            setCookieStatus(null);
+        } catch (error) {
+            setCookieStatus({
+                type: "error",
+                message: error instanceof Error ? error.message : "无法读取剪贴板",
+            });
+        }
+    };
+
     const updateYoutubeCookies = async () => {
         const cookies = cookieText.trim();
         if (!cookies) return;
-
         setIsUpdatingCookie(true);
         setCookieStatus(null);
         try {
             const result = await fetchClient("/music/youtube-cookies", {
                 method: "POST",
                 body: JSON.stringify({ cookies }),
-            }) as { bytes?: number; updatedAt?: string };
-
-            const size = typeof result.bytes === "number" ? `${result.bytes} bytes` : "已保存";
-            setCookieStatus({ type: "success", message: `Cookie 已更新：${size}` });
+            }) as CookieSummary & { ok?: boolean };
+            setCookieSummary(result);
+            setCookieStatus({
+                type: "success",
+                message: `已安全更新，共识别 ${result.youtubeCookies ?? 0} 条 YouTube/Google Cookie。`,
+            });
             setCookieText("");
             setCookieFileName("");
         } catch (error) {
@@ -179,314 +293,420 @@ export default function YoutubeDownloadPage() {
         }
     };
 
-    /* ── Add URLs ── */
-
     const addUrls = () => {
-        const rawInput = urlInput.trim();
-        if (!rawInput) return;
-        const urls = rawInput.split(/[\n\r]+/).map((u) => u.trim()).filter((u) => u && isYoutubeUrl(u));
+        const urls = urlInput
+            .split(/[\n\r]+/)
+            .map((url) => url.trim())
+            .filter((url) => url && isYoutubeUrl(url));
         if (urls.length === 0) return;
 
-        const existingUrls = new Set(queue.map((q) => q.url));
+        const existingUrls = new Set(queue.map((item) => item.url));
         const newItems: QueueItem[] = urls
-            .filter((u) => !existingUrls.has(u))
+            .filter((url) => !existingUrls.has(url))
             .map((url) => ({
-                id: crypto.randomUUID(), url, taskId: null,
-                title: "", editedTitle: "",
-                status: "queued" as const, progress: 0,
-                statusLabel: "等待下载", error: "",
-                fileSize: 0, duration: 0,
+                id: crypto.randomUUID(),
+                url,
+                taskId: null,
+                title: "",
+                status: "queued",
+                progress: 0,
+                statusLabel: "等待下载",
+                error: "",
+                fileSize: 0,
+                duration: 0,
+                suggestionStatus: "idle",
+                suggestionError: "",
+                metadata: { ...EMPTY_METADATA, needsReview: [] },
             }));
         if (newItems.length === 0) return;
-        setQueue((prev) => [...prev, ...newItems]);
+        setQueue((current) => [...current, ...newItems]);
         setUrlInput("");
     };
 
     const removeFromQueue = (id: string) => {
-        const item = queue.find((q) => q.id === id);
+        const item = queue.find((entry) => entry.id === id);
         if (item?.taskId) {
-            fetchClient(`/music/youtube-download/${item.taskId}`, { method: "DELETE" }).catch(() => { });
+            fetchClient(`/music/youtube-download/${item.taskId}`, { method: "DELETE" }).catch(() => undefined);
         }
-        setQueue((prev) => prev.filter((q) => q.id !== id));
         const timer = pollingTimers.current.get(id);
-        if (timer) { clearInterval(timer); pollingTimers.current.delete(id); }
+        if (timer) clearInterval(timer);
+        pollingTimers.current.delete(id);
+        setQueue((current) => current.filter((entry) => entry.id !== id));
     };
 
-    const updateTitle = (id: string, newTitle: string) => {
-        setQueue((prev) => prev.map((q) => q.id === id ? { ...q, editedTitle: newTitle } : q));
+    const updateTitle = (id: string, title: string) => {
+        setQueue((current) => current.map((item) => item.id === id
+            ? {
+                ...item,
+                title,
+                metadata: {
+                    ...item.metadata,
+                    needsReview: item.metadata.needsReview.filter((field) => field !== "title"),
+                },
+            }
+            : item));
     };
 
-    /* ── Auto-upload+save a downloaded item ── */
+    const updateMetadata = (id: string, field: "musician" | "performer" | "categoryId" | "seriesId", value: string) => {
+        const reviewField = field === "categoryId" ? "category" : field === "seriesId" ? "series" : field;
+        setQueue((current) => current.map((item) => item.id === id
+            ? {
+                ...item,
+                metadata: {
+                    ...item.metadata,
+                    [field]: value,
+                    needsReview: item.metadata.needsReview.filter((name) => name !== reviewField),
+                },
+            }
+            : item));
+    };
+
+    const suggestItem = useCallback(async (itemId: string, taskId: string) => {
+        if (isSuggesting.current.has(itemId)) return;
+        isSuggesting.current.add(itemId);
+        setQueue((current) => current.map((item) => item.id === itemId
+            ? { ...item, suggestionStatus: "loading", suggestionError: "" }
+            : item));
+
+        try {
+            const result = await fetchClient("/music/youtube-metadata/suggest", {
+                method: "POST",
+                body: JSON.stringify({ taskIds: [taskId] }),
+            }) as { suggestions?: MetadataSuggestion[] };
+            const suggestion = result.suggestions?.[0];
+            if (!suggestion) throw new Error("AI 未返回音乐信息");
+
+            const categoryId = categoriesRef.current.find((item) => item.name === suggestion.category)?.id || "";
+            const seriesId = seriesListRef.current.find((item) => item.name === suggestion.series)?.id || "";
+            setQueue((current) => current.map((item) => item.id === itemId
+                ? {
+                    ...item,
+                    title: suggestion.title || item.title,
+                    suggestionStatus: "ready",
+                    suggestionError: "",
+                    statusLabel: "等待审核",
+                    metadata: {
+                        musician: suggestion.musician,
+                        performer: suggestion.performer,
+                        categoryId,
+                        seriesId,
+                        confidence: suggestion.confidence,
+                        reason: suggestion.reason,
+                        needsReview: suggestion.needsReview,
+                    },
+                }
+                : item));
+            if (suggestion.musician) {
+                setMusicians((current) => current.includes(suggestion.musician)
+                    ? current
+                    : [...current, suggestion.musician].sort());
+            }
+        } catch (error) {
+            setQueue((current) => current.map((item) => item.id === itemId
+                ? {
+                    ...item,
+                    suggestionStatus: "error",
+                    suggestionError: error instanceof Error ? error.message : "AI 补全失败",
+                    statusLabel: "请手工填写或重试 AI",
+                }
+                : item));
+        } finally {
+            isSuggesting.current.delete(itemId);
+        }
+    }, []);
+
+    useEffect(() => {
+        for (const item of queue) {
+            if (
+                (item.status === "downloading" || item.status === "downloaded")
+                && item.title
+                && item.taskId
+                && item.suggestionStatus === "idle"
+            ) {
+                suggestItem(item.id, item.taskId);
+            }
+        }
+    }, [queue, suggestItem]);
+
+    const itemIsComplete = (item: QueueItem) => Boolean(
+        item.title.trim()
+        && item.metadata.musician.trim()
+        && item.metadata.performer.trim()
+        && item.metadata.categoryId,
+    );
 
     const uploadAndSaveItem = useCallback(async (item: QueueItem) => {
-        if (!item.taskId || isUploading.current.has(item.id)) return;
+        if (!item.taskId || isUploading.current.has(item.id) || !itemIsComplete(item)) return;
         isUploading.current.add(item.id);
-
-        const meta = metaRef.current;
-        const catName = categoriesRef.current.find((c) => c.id === meta.categoryId)?.name || "";
-        const seriesName = seriesListRef.current.find((s) => s.id === meta.seriesId)?.name || "";
-
-        if (!meta.musician || !meta.performer || !catName) {
-            // Metadata not ready yet — skip, will retry via effect
+        const category = categoriesRef.current.find((entry) => entry.id === item.metadata.categoryId)?.name;
+        const series = seriesListRef.current.find((entry) => entry.id === item.metadata.seriesId)?.name;
+        if (!category) {
             isUploading.current.delete(item.id);
             return;
         }
 
-        // Mark as uploading
-        setQueue((prev) => prev.map((q) =>
-            q.id === item.id ? { ...q, status: "uploading" as const, statusLabel: "上传到云端..." } : q
-        ));
-
+        setQueue((current) => current.map((entry) => entry.id === item.id
+            ? { ...entry, status: "uploading", statusLabel: "上传到云端并保存...", error: "" }
+            : entry));
         try {
             await fetchClient(`/music/youtube-upload/${item.taskId}/save`, {
                 method: "POST",
                 body: JSON.stringify({
-                    title: item.editedTitle || item.title,
-                    musician: meta.musician,
-                    performer: meta.performer,
-                    category: catName,
-                    series: seriesName || undefined,
+                    title: item.title.trim(),
+                    musician: item.metadata.musician.trim(),
+                    performer: item.metadata.performer.trim(),
+                    category,
+                    series: series || undefined,
                 }),
             });
-
-            setQueue((prev) => prev.map((q) =>
-                q.id === item.id ? { ...q, status: "saved" as const, statusLabel: "已保存" } : q
-            ));
+            setQueue((current) => current.map((entry) => entry.id === item.id
+                ? { ...entry, status: "saved", statusLabel: "已审核并保存", failureStage: undefined }
+                : entry));
         } catch (error) {
-            setQueue((prev) => prev.map((q) =>
-                q.id === item.id ? {
-                    ...q, status: "error" as const,
-                    statusLabel: "上传失败",
+            setQueue((current) => current.map((entry) => entry.id === item.id
+                ? {
+                    ...entry,
+                    status: "error",
+                    statusLabel: "保存失败",
+                    failureStage: "save",
                     error: error instanceof Error ? error.message : "上传/保存失败",
-                } : q
-            ));
+                }
+                : entry));
         } finally {
             isUploading.current.delete(item.id);
         }
     }, []);
 
-    /* ── Auto-trigger upload for downloaded items when metadata is ready ── */
-
-    useEffect(() => {
-        const meta = metaRef.current;
-        const catName = categories.find((c) => c.id === meta.categoryId)?.name || "";
-        if (!meta.musician || !meta.performer || !catName) return;
-
-        const readyItems = queue.filter(
-            (q) => q.status === "downloaded" && q.taskId && !isUploading.current.has(q.id)
-        );
-        for (const item of readyItems) {
-            uploadAndSaveItem(item);
-        }
-    }, [queue, musician, performer, categoryId, categories, uploadAndSaveItem]);
-
-    /* ── Process download queue (one at a time) ── */
+    const saveAllReviewed = async () => {
+        const ready = queue.filter((item) => item.status === "downloaded" && itemIsComplete(item));
+        for (const item of ready) await uploadAndSaveItem(item);
+    };
 
     const processQueue = useCallback(async () => {
         if (isProcessing.current) return;
+        const nextItem = queue.find((item) => item.status === "queued");
+        if (!nextItem) return;
         isProcessing.current = true;
-
-        const nextItem = queue.find((q) => q.status === "queued");
-        if (!nextItem) { isProcessing.current = false; return; }
 
         try {
             const data = await fetchClient("/music/youtube-download", {
-                method: "POST", body: JSON.stringify({ url: nextItem.url }),
+                method: "POST",
+                body: JSON.stringify({ url: nextItem.url }),
             });
             const taskId = data.taskId as string;
-
-            setQueue((prev) => prev.map((q) =>
-                q.id === nextItem.id ? { ...q, taskId, status: "downloading" as const, statusLabel: "获取视频信息...", progress: 0 } : q
-            ));
+            setQueue((current) => current.map((item) => item.id === nextItem.id
+                ? { ...item, taskId, status: "downloading", statusLabel: "获取视频信息...", progress: 0 }
+                : item));
 
             const timer = setInterval(async () => {
                 try {
-                    const progress = (await fetchClient(`/music/youtube-download/${taskId}`)) as TaskProgress;
-                    setQueue((prev) => prev.map((q) => {
-                        if (q.id !== nextItem.id) return q;
-
+                    const progress = await fetchClient(`/music/youtube-download/${taskId}`) as TaskProgress;
+                    setQueue((current) => current.map((item) => {
+                        if (item.id !== nextItem.id) return item;
                         if (progress.status === "done") {
                             clearInterval(timer);
                             pollingTimers.current.delete(nextItem.id);
                             isProcessing.current = false;
                             return {
-                                ...q, status: "downloaded" as const, progress: 100,
-                                statusLabel: "下载完成，准备上传...",
-                                title: progress.title,
-                                editedTitle: q.editedTitle || progress.title,
+                                ...item,
+                                status: "downloaded",
+                                progress: 100,
+                                statusLabel: item.suggestionStatus === "ready"
+                                    ? "等待审核"
+                                    : item.suggestionStatus === "error"
+                                        ? "请手工填写或重试 AI"
+                                        : "AI 正在整理音乐信息...",
+                                title: item.title || progress.title,
                                 fileSize: progress.fileSize ?? 0,
                                 duration: progress.duration ?? 0,
                             };
                         }
-
                         if (progress.status === "error") {
                             clearInterval(timer);
                             pollingTimers.current.delete(nextItem.id);
                             isProcessing.current = false;
-                            return { ...q, status: "error" as const, progress: 0, statusLabel: "下载失败", error: progress.error || "下载失败" };
+                            return {
+                                ...item,
+                                status: "error",
+                                failureStage: "download",
+                                progress: 0,
+                                statusLabel: "下载失败",
+                                error: progress.error || "下载失败",
+                            };
                         }
-
                         return {
-                            ...q, progress: progress.progress,
+                            ...item,
+                            progress: progress.progress,
                             statusLabel: DL_STATUS_LABELS[progress.status] || "处理中...",
-                            title: progress.title || q.title,
-                            editedTitle: q.editedTitle || progress.title || "",
+                            title: progress.title || item.title,
                         };
                     }));
-                } catch { /* polling error, will retry */ }
+                } catch {
+                    // 短暂轮询错误，下次继续。
+                }
             }, 800);
-
             pollingTimers.current.set(nextItem.id, timer);
         } catch (error) {
-            setQueue((prev) => prev.map((q) =>
-                q.id === nextItem.id ? { ...q, status: "error" as const, error: error instanceof Error ? error.message : "启动下载失败", statusLabel: "失败" } : q
-            ));
+            setQueue((current) => current.map((item) => item.id === nextItem.id
+                ? {
+                    ...item,
+                    status: "error",
+                    failureStage: "download",
+                    error: error instanceof Error ? error.message : "启动下载失败",
+                    statusLabel: "失败",
+                }
+                : item));
             isProcessing.current = false;
         }
     }, [queue]);
 
     useEffect(() => {
-        const hasQueued = queue.some((q) => q.status === "queued");
-        const hasActive = queue.some((q) => q.status === "downloading");
-        if (hasQueued && !hasActive && !isProcessing.current) { processQueue(); }
+        const hasQueued = queue.some((item) => item.status === "queued");
+        const hasActive = queue.some((item) => item.status === "downloading");
+        if (hasQueued && !hasActive && !isProcessing.current) processQueue();
     }, [queue, processQueue]);
 
-    const retryItem = (id: string) => {
-        setQueue((prev) => prev.map((q) =>
-            q.id === id ? { ...q, status: "queued" as const, taskId: null, progress: 0, error: "", statusLabel: "等待下载" } : q
-        ));
+    const retryItem = (item: QueueItem) => {
+        if (item.failureStage === "save") {
+            uploadAndSaveItem({ ...item, status: "downloaded" });
+            return;
+        }
+        setQueue((current) => current.map((entry) => entry.id === item.id
+            ? {
+                ...entry,
+                status: "queued",
+                taskId: null,
+                progress: 0,
+                error: "",
+                failureStage: undefined,
+                statusLabel: "等待下载",
+                suggestionStatus: "idle",
+            }
+            : entry));
     };
 
-    /* ── Stats ── */
-
-    const savedCount = queue.filter((q) => q.status === "saved").length;
-    const downloadingCount = queue.filter((q) => q.status === "downloading").length;
-    const uploadingCount = queue.filter((q) => q.status === "uploading").length;
-    const errorCount = queue.filter((q) => q.status === "error").length;
+    const savedCount = queue.filter((item) => item.status === "saved").length;
+    const errorCount = queue.filter((item) => item.status === "error").length;
+    const readyToSave = queue.filter((item) => item.status === "downloaded" && itemIsComplete(item)).length;
     const allDone = queue.length > 0 && savedCount === queue.length;
-
     const overallProgress = queue.length > 0
-        ? Math.round(queue.reduce((sum, q) => sum + (q.status === "saved" ? 100 : q.status === "uploading" ? 95 : q.status === "downloaded" ? 90 : q.progress * 0.9), 0) / queue.length)
+        ? Math.round(queue.reduce((sum, item) => {
+            if (item.status === "saved") return sum + 100;
+            if (item.status === "uploading") return sum + 95;
+            if (item.status === "downloaded") return sum + 85;
+            return sum + item.progress * 0.8;
+        }, 0) / queue.length)
         : 0;
 
-    const metaReady = !!(musician && performer && categoryId);
-
-    /* ── Render helpers ── */
-
     const statusIcon = (item: QueueItem) => {
-        switch (item.status) {
-            case "saved": return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-            case "uploading": return <Loader2 className="h-5 w-5 text-amber-500 animate-spin" />;
-            case "downloaded": return metaReady
-                ? <Loader2 className="h-5 w-5 text-amber-500 animate-spin" />
-                : <CheckCircle2 className="h-5 w-5 text-amber-500" />;
-            case "error": return <AlertCircle className="h-5 w-5 text-red-500" />;
-            case "downloading": return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
-            default: return <span className="text-sm text-gray-400 w-5 text-center block">·</span>;
+        if (item.status === "saved") return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+        if (item.status === "error") return <AlertCircle className="h-5 w-5 text-red-500" />;
+        if (item.status === "downloaded" && item.suggestionStatus === "ready") {
+            return <Sparkles className="h-5 w-5 text-violet-500" />;
         }
-    };
-
-    const statusColor = (status: ItemStatus) => {
-        switch (status) {
-            case "saved": return "bg-green-50/60 border-green-200";
-            case "uploading": return "bg-amber-50/40 border-amber-200";
-            case "downloaded": return metaReady ? "bg-amber-50/40 border-amber-200" : "bg-amber-50/40 border-amber-200";
-            case "error": return "bg-red-50/60 border-red-200";
-            case "downloading": return "bg-blue-50/50 border-blue-200";
-            default: return "bg-gray-50/50 border-gray-100";
+        if (item.status === "downloaded" && item.suggestionStatus === "error") {
+            return <AlertCircle className="h-5 w-5 text-amber-500" />;
         }
+        if (item.status === "queued") return <span className="block w-5 text-center text-gray-400">·</span>;
+        return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />;
     };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
-            {/* Header */}
-            <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-                <div className="max-w-4xl mx-auto px-8 py-4 flex items-center justify-between">
+            <datalist id="known-musicians">
+                {musicians.map((name) => <option key={name} value={name} />)}
+            </datalist>
+
+            <div className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+                <div className="mx-auto flex max-w-5xl items-center justify-between px-8 py-4">
                     <Button variant="ghost" size="sm" onClick={() => router.push("/music")}>
-                        <ArrowLeft className="h-4 w-4 mr-1" /> 返回音乐管理
+                        <ArrowLeft className="mr-1 h-4 w-4" /> 返回音乐管理
                     </Button>
                     <div className="flex items-center gap-3">
                         {queue.length > 0 && (
                             <div className="text-sm text-gray-500">
-                                {savedCount}/{queue.length} 已完成
-                                {downloadingCount > 0 && ` · ${downloadingCount} 下载中`}
-                                {uploadingCount > 0 && ` · ${uploadingCount} 上传中`}
+                                {savedCount}/{queue.length} 已保存
+                                {readyToSave > 0 && <span className="text-violet-600"> · {readyToSave} 待确认</span>}
                                 {errorCount > 0 && <span className="text-red-500"> · {errorCount} 失败</span>}
                             </div>
                         )}
-                        <Dialog open={cookieDialogOpen} onOpenChange={setCookieDialogOpen}>
+                        <Dialog open={cookieDialogOpen} onOpenChange={(open) => {
+                            setCookieDialogOpen(open);
+                            if (open) fetchCookieSummary();
+                        }}>
                             <DialogTrigger asChild>
                                 <Button variant="outline" size="sm">
-                                    <KeyRound className="h-4 w-4 mr-1" />
-                                    更新 Cookie
+                                    <span className={`mr-2 h-2 w-2 rounded-full ${cookieSummary?.configured && !cookieSummary.likelyExpired ? "bg-green-500" : "bg-amber-500"}`} />
+                                    <KeyRound className="mr-1 h-4 w-4" />
+                                    YouTube Cookie
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
+                            <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-2xl">
                                 <DialogHeader>
                                     <DialogTitle>更新 YouTube Cookie</DialogTitle>
-                                    <DialogDescription>
-                                        选择新导出的 cookies.txt，或粘贴 Netscape 格式内容。
-                                    </DialogDescription>
+                                    <DialogDescription>Cookie 只写入 API 的私有文件，不会在页面中回显。</DialogDescription>
                                 </DialogHeader>
 
-                                <div className="min-w-0 space-y-4">
-                                    <div>
-                                        <Label htmlFor="youtube-cookie-file">cookies.txt</Label>
-                                        <Input
-                                            id="youtube-cookie-file"
-                                            type="file"
-                                            accept=".txt,text/plain"
-                                            onChange={handleCookieFileChange}
-                                            className="mt-1.5"
-                                        />
-                                        {cookieFileName && (
-                                            <p className="mt-1 text-xs text-gray-500">{cookieFileName}</p>
+                                <div className="space-y-4">
+                                    <div className={`rounded-lg border p-3 ${cookieSummary?.configured && !cookieSummary.likelyExpired ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-800">{cookieSummary?.configured ? "已配置 Cookie" : "尚未配置可用 Cookie"}</p>
+                                                <p className="mt-1 text-xs text-gray-600">
+                                                    {cookieSummary?.issue || (cookieSummary?.configured
+                                                        ? `${cookieSummary.activeYoutubeCookies ?? 0}/${cookieSummary.youtubeCookies ?? 0} 条相关 Cookie 当前未过期`
+                                                        : "上传浏览器导出的 Netscape cookies.txt 后即可使用")}
+                                                </p>
+                                            </div>
+                                            <RefreshCw className="h-4 w-4 text-gray-400" />
+                                        </div>
+                                        {cookieSummary?.updatedAt && (
+                                            <div className="mt-2 grid gap-1 text-xs text-gray-500 sm:grid-cols-2">
+                                                <span>更新时间：{formatDate(cookieSummary.updatedAt)}</span>
+                                                <span>最晚到期：{formatDate(cookieSummary.expiresAt)}</span>
+                                            </div>
                                         )}
                                     </div>
-                                    <div className="min-w-0">
-                                        <Label htmlFor="youtube-cookie-text">Cookie 内容</Label>
+
+                                    <div
+                                        onDragOver={(event) => { event.preventDefault(); setIsCookieDragging(true); }}
+                                        onDragLeave={() => setIsCookieDragging(false)}
+                                        onDrop={handleCookieDrop}
+                                        className={`rounded-lg border-2 border-dashed p-5 text-center transition-colors ${isCookieDragging ? "border-red-400 bg-red-50" : "border-gray-200 bg-gray-50"}`}
+                                    >
+                                        <FileText className="mx-auto mb-2 h-7 w-7 text-gray-400" />
+                                        <Label htmlFor="youtube-cookie-file" className="cursor-pointer text-sm font-medium text-gray-700">拖入 cookies.txt，或点击选择文件</Label>
+                                        <Input id="youtube-cookie-file" type="file" accept=".txt,text/plain" onChange={handleCookieFileChange} className="sr-only" />
+                                        {cookieFileName && <p className="mt-2 text-xs text-gray-500">{cookieFileName}</p>}
+                                        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={pasteCookies}>
+                                            <ClipboardPaste className="mr-1 h-4 w-4" /> 从剪贴板读取
+                                        </Button>
+                                    </div>
+
+                                    <div>
+                                        <div className="mb-1.5 flex items-center justify-between">
+                                            <Label htmlFor="youtube-cookie-text">内容预览 / 手工粘贴</Label>
+                                            {cookieText && <button type="button" onClick={() => { setCookieText(""); setCookieFileName(""); }} className="text-xs text-gray-400 hover:text-gray-700">清空</button>}
+                                        </div>
                                         <Textarea
                                             id="youtube-cookie-text"
                                             value={cookieText}
-                                            onChange={(event) => {
-                                                setCookieText(event.target.value);
-                                                setCookieStatus(null);
-                                            }}
-                                            rows={9}
+                                            onChange={(event) => { setCookieText(event.target.value); setCookieStatus(null); }}
+                                            rows={8}
                                             spellCheck={false}
-                                            className="mt-1.5 h-48 max-h-72 min-w-0 max-w-full resize-y overflow-auto break-all font-mono text-xs field-sizing-fixed"
+                                            className="h-44 resize-y break-all font-mono text-xs"
                                             placeholder="# Netscape HTTP Cookie File"
                                         />
                                     </div>
-                                    {cookieStatus && (
-                                        <div className={`rounded-md px-3 py-2 text-sm ${cookieStatus.type === "success"
-                                            ? "bg-green-50 text-green-700"
-                                            : "bg-red-50 text-red-700"
-                                            }`}>
-                                            {cookieStatus.message}
-                                        </div>
-                                    )}
+
+                                    {cookieStatus && <div className={`rounded-md px-3 py-2 text-sm ${cookieStatus.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>{cookieStatus.message}</div>}
                                 </div>
 
                                 <DialogFooter>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => setCookieDialogOpen(false)}
-                                        disabled={isUpdatingCookie}
-                                    >
-                                        关闭
-                                    </Button>
-                                    <Button
-                                        onClick={updateYoutubeCookies}
-                                        disabled={!cookieText.trim() || isUpdatingCookie}
-                                        className="bg-red-600 hover:bg-red-700"
-                                    >
-                                        {isUpdatingCookie ? (
-                                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                        ) : (
-                                            <Upload className="h-4 w-4 mr-1" />
-                                        )}
-                                        保存 Cookie
+                                    <Button variant="outline" onClick={() => setCookieDialogOpen(false)} disabled={isUpdatingCookie}>关闭</Button>
+                                    <Button onClick={updateYoutubeCookies} disabled={!cookieText.trim() || isUpdatingCookie} className="bg-red-600 hover:bg-red-700">
+                                        {isUpdatingCookie ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Upload className="mr-1 h-4 w-4" />}
+                                        验证并保存
                                     </Button>
                                 </DialogFooter>
                             </DialogContent>
@@ -495,194 +715,147 @@ export default function YoutubeDownloadPage() {
                 </div>
             </div>
 
-            <div className="max-w-4xl mx-auto p-8">
-                {/* Title */}
-                <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl mb-4 shadow-lg">
+            <div className="mx-auto max-w-5xl p-8">
+                <div className="mb-8 text-center">
+                    <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500 to-red-600 shadow-lg">
                         <Youtube className="h-8 w-8 text-white" />
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-900">YouTube 批量下载</h1>
-                    <p className="text-gray-500 mt-2">粘贴链接 → 填写公共属性 → 自动下载、上传并保存到数据库</p>
+                    <h1 className="text-3xl font-bold text-gray-900">YouTube 音乐入库</h1>
+                    <p className="mt-2 text-gray-500">粘贴链接 → AI 检索并填写 → 人工审核 → 确认后上传保存</p>
                 </div>
 
-                {/* Step 1: Add URLs */}
-                <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-semibold flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-6 h-6 bg-red-100 text-red-600 rounded-full text-xs font-bold">1</span>
+                <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between">
+                        <h2 className="flex items-center gap-2 text-lg font-semibold">
+                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-xs font-bold text-red-600">1</span>
                             添加 YouTube 链接
                         </h2>
-                        <span className="text-xs text-gray-400">支持多行粘贴</span>
+                        <span className="text-xs text-gray-400">每行一个，可批量粘贴</span>
                     </div>
-                    <div className="space-y-3">
-                        <textarea
-                            placeholder={"粘贴一个或多个 YouTube 链接（每行一个）：\nhttps://www.youtube.com/watch?v=...\nhttps://www.youtube.com/watch?v=..."}
-                            value={urlInput} onChange={(e) => setUrlInput(e.target.value)}
-                            rows={3}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-400 transition-all placeholder:text-gray-400"
-                        />
-                        <Button onClick={addUrls} disabled={!urlInput.trim()} className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700">
-                            <Plus className="h-4 w-4 mr-1" /> 添加到队列
-                        </Button>
-                    </div>
+                    <Textarea placeholder={"https://www.youtube.com/watch?v=...\nhttps://youtu.be/..."} value={urlInput} onChange={(event) => setUrlInput(event.target.value)} rows={3} className="resize-none" />
+                    <Button onClick={addUrls} disabled={!urlInput.trim()} className="mt-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700">
+                        <Plus className="mr-1 h-4 w-4" /> 添加并开始处理
+                    </Button>
                 </div>
 
-                {/* Step 2: Shared metadata */}
                 {queue.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-                        <h2 className="text-lg font-semibold mb-1 flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-6 h-6 bg-amber-100 text-amber-600 rounded-full text-xs font-bold">2</span>
-                            公共属性
-                        </h2>
-                        <p className="text-xs text-gray-400 mb-4 ml-8">
-                            填写后，已下载的曲目会自动上传并保存到数据库
-                        </p>
-                        {!metaReady && queue.some((q) => q.status === "downloaded") && (
-                            <div className="bg-amber-50 rounded-lg p-3 mb-4 ml-8">
-                                <p className="text-xs text-amber-700">⚠ 请填写作曲家、演奏者和分类，已下载的曲目将自动上传保存</p>
-                            </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-4">
+                    <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                             <div>
-                                <Label className="text-sm">Musician / Composer *</Label>
-                                <Input placeholder="例如 Beethoven" value={musician} onChange={(e) => setMusician(e.target.value)} className="mt-1.5" />
+                                <h2 className="flex items-center gap-2 text-lg font-semibold">
+                                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-600">2</span>
+                                    审核 AI 填写的信息
+                                </h2>
+                                <p className="ml-8 mt-1 text-xs text-gray-400">紫色标记表示 AI 建议已就绪；只有点击确认后才会入库。</p>
                             </div>
-                            <div>
-                                <Label className="text-sm">Performer / 演奏者 *</Label>
-                                <Input placeholder="输入演奏者名称..." value={performer} onChange={(e) => setPerformer(e.target.value)} className="mt-1.5" />
-                            </div>
-                            <div>
-                                <Label className="text-sm">Category / 分类 *</Label>
-                                <Select value={categoryId} onValueChange={setCategoryId}>
-                                    <SelectTrigger className="mt-1.5"><SelectValue placeholder="选择分类..." /></SelectTrigger>
-                                    <SelectContent>
-                                        {categories.length === 0
-                                            ? <SelectItem value="_none" disabled>暂无分类</SelectItem>
-                                            : categories.map((cat) => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)
-                                        }
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div>
-                                <Label className="text-sm">Series / 系列 (可选)</Label>
-                                <Select value={seriesId} onValueChange={setSeriesId}>
-                                    <SelectTrigger className="mt-1.5"><SelectValue placeholder="选择系列..." /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="_none">无系列</SelectItem>
-                                        {seriesList.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 3: Download queue */}
-                {queue.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-semibold flex items-center gap-2">
-                                <span className="inline-flex items-center justify-center w-6 h-6 bg-blue-100 text-blue-600 rounded-full text-xs font-bold">3</span>
-                                下载进度
-                                <span className="text-sm font-normal text-gray-400">({queue.length} 首)</span>
-                            </h2>
+                            <Button onClick={saveAllReviewed} disabled={readyToSave === 0}>
+                                <Save className="mr-1 h-4 w-4" /> 确认保存全部完整项 ({readyToSave})
+                            </Button>
                         </div>
 
-                        {/* Overall progress */}
-                        {queue.length > 0 && (
-                            <div className="mb-4 pb-4 border-b border-gray-100">
-                                <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-                                    <span>整体进度</span>
-                                    <span>{overallProgress}%</span>
-                                </div>
-                                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                                    <div
-                                        className="h-full bg-gradient-to-r from-blue-400 via-amber-500 to-green-500 rounded-full transition-all duration-500"
-                                        style={{ width: `${overallProgress}%` }}
-                                    />
-                                </div>
+                        <div className="mb-5 border-b border-gray-100 pb-4">
+                            <div className="mb-1.5 flex justify-between text-xs text-gray-500"><span>整体进度</span><span>{overallProgress}%</span></div>
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                                <div className="h-full rounded-full bg-gradient-to-r from-blue-400 via-violet-500 to-green-500 transition-all duration-500" style={{ width: `${overallProgress}%` }} />
                             </div>
-                        )}
+                        </div>
 
-                        {/* Queue items */}
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                             {queue.map((item) => (
-                                <div key={item.id} className={`p-4 rounded-lg border transition-all ${statusColor(item.status)}`}>
+                                <div key={item.id} className={`rounded-xl border p-4 ${item.status === "saved" ? "border-green-200 bg-green-50/60" : item.status === "error" ? "border-red-200 bg-red-50/60" : item.status === "downloaded" ? "border-violet-200 bg-violet-50/30" : "border-gray-200 bg-gray-50/50"}`}>
                                     <div className="flex items-start gap-3">
-                                        <span className="mt-1 flex-shrink-0">{statusIcon(item)}</span>
-                                        <div className="flex-1 min-w-0">
-                                            {/* Title: editable only while downloading/downloaded */}
-                                            {(item.status === "downloaded" || item.status === "downloading") && item.title ? (
-                                                <div className="flex items-center gap-2">
-                                                    <Pencil className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                                                    <input
-                                                        type="text" value={item.editedTitle}
-                                                        onChange={(e) => updateTitle(item.id, e.target.value)}
-                                                        className="text-sm font-medium text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:border-amber-400 focus:outline-none w-full py-0.5"
-                                                    />
-                                                </div>
+                                        <span className="mt-1 shrink-0">{statusIcon(item)}</span>
+                                        <div className="min-w-0 flex-1">
+                                            {item.title && item.status !== "saved" ? (
+                                                <Input value={item.title} onChange={(event) => updateTitle(item.id, event.target.value)} className="h-8 bg-white font-medium" />
                                             ) : (
-                                                <p className="text-sm font-medium text-gray-900 truncate">
-                                                    {item.editedTitle || item.title || item.url.replace(/^https?:\/\/(www\.)?/, "")}
-                                                </p>
+                                                <p className="truncate text-sm font-medium text-gray-900">{item.title || item.url.replace(/^https?:\/\/(www\.)?/, "")}</p>
                                             )}
-
-                                            {/* Status line */}
-                                            <div className="flex items-center gap-3 mt-1">
-                                                <span className={`text-xs ${item.status === "saved" ? "text-green-600"
-                                                    : item.status === "error" ? "text-red-600"
-                                                        : item.status === "uploading" ? "text-amber-600"
-                                                            : item.status === "downloading" ? "text-blue-600"
-                                                                : item.status === "downloaded" ? (metaReady ? "text-amber-600" : "text-amber-600")
-                                                                    : "text-gray-400"
-                                                    }`}>
-                                                    {item.status === "downloaded" && !metaReady ? "等待填写公共属性..." : item.statusLabel}
-                                                </span>
-                                                {(item.status === "saved" || item.status === "downloaded") && item.duration > 0 && (
-                                                    <span className="text-xs text-gray-400">
-                                                        {formatDuration(item.duration)} · {formatFileSize(item.fileSize)}
-                                                    </span>
-                                                )}
-                                                {item.status === "error" && item.error && (
-                                                    <span className="text-xs text-red-400 truncate max-w-xs">{item.error}</span>
-                                                )}
+                                            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
+                                                <span className={item.status === "error" ? "text-red-600" : item.status === "saved" ? "text-green-600" : "text-gray-500"}>{item.statusLabel}</span>
+                                                {item.duration > 0 && <span className="text-gray-400">{formatDuration(item.duration)} · {formatFileSize(item.fileSize)}</span>}
                                             </div>
-
-                                            {/* Progress bar */}
                                             {item.status === "downloading" && (
-                                                <div className="mt-2 w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-gradient-to-r from-blue-400 to-blue-500 rounded-full transition-all duration-500" style={{ width: `${item.progress}%` }} />
+                                                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                                                    <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${item.progress}%` }} />
                                                 </div>
                                             )}
+                                            {item.error && <p className="mt-2 text-xs text-red-500">{item.error}</p>}
                                         </div>
-
-                                        {/* Actions */}
-                                        <div className="flex items-center gap-1 flex-shrink-0">
-                                            {item.status === "error" && (
-                                                <Button variant="ghost" size="sm" onClick={() => retryItem(item.id)} className="text-xs h-7">重试</Button>
+                                        <div className="flex shrink-0 items-center gap-1">
+                                            {item.status === "error" && <Button variant="ghost" size="sm" onClick={() => retryItem(item)}>重试</Button>}
+                                            {item.status === "downloaded" && item.taskId && (
+                                                <Button variant="ghost" size="sm" onClick={() => suggestItem(item.id, item.taskId!)} disabled={item.suggestionStatus === "loading"} title="重新生成 AI 建议">
+                                                    <RefreshCw className={`h-4 w-4 ${item.suggestionStatus === "loading" ? "animate-spin" : ""}`} />
+                                                </Button>
                                             )}
-                                            {item.status !== "downloading" && item.status !== "uploading" && (
-                                                <button onClick={() => removeFromQueue(item.id)} className="p-1 hover:bg-gray-200/60 rounded transition-colors">
-                                                    <X className="h-4 w-4 text-gray-400" />
-                                                </button>
-                                            )}
+                                            {item.status !== "downloading" && item.status !== "uploading" && <button onClick={() => removeFromQueue(item.id)} className="rounded p-1 hover:bg-gray-200/60"><X className="h-4 w-4 text-gray-400" /></button>}
                                         </div>
                                     </div>
+
+                                    {item.status === "downloaded" && (
+                                        <div className="ml-8 mt-4 border-t border-violet-100 pt-4">
+                                            {item.suggestionStatus === "loading" && <div className="mb-4 flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700"><Loader2 className="h-4 w-4 animate-spin" /> AI 正在检索音乐库并整理信息…</div>}
+                                            {item.suggestionStatus === "error" && <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">AI 补全失败：{item.suggestionError}。可手工填写或点击右上角重试。</div>}
+                                            {item.suggestionStatus === "ready" && (
+                                                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-700">
+                                                    <Sparkles className="h-4 w-4" />
+                                                    <span>AI 置信度 {Math.round(item.metadata.confidence * 100)}%</span>
+                                                    <span className="text-violet-400">·</span>
+                                                    <span>{item.metadata.reason}</span>
+                                                    {item.metadata.needsReview.length > 0 && <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-700">请重点检查：{item.metadata.needsReview.map((field) => REVIEW_LABELS[field] || field).join("、")}</span>}
+                                                </div>
+                                            )}
+
+                                            <div className="grid gap-4 sm:grid-cols-2">
+                                                <div>
+                                                    <Label className="text-xs">Musician / Composer *</Label>
+                                                    <Input list="known-musicians" value={item.metadata.musician} onChange={(event) => updateMetadata(item.id, "musician", event.target.value)} placeholder="例如 Mozart" className="mt-1.5 bg-white" />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">Performer / 演奏者 *</Label>
+                                                    <Input value={item.metadata.performer} onChange={(event) => updateMetadata(item.id, "performer", event.target.value)} placeholder="确认实际演奏者或来源频道" className="mt-1.5 bg-white" />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">Category / 分类 *</Label>
+                                                    <Select value={item.metadata.categoryId} onValueChange={(value) => updateMetadata(item.id, "categoryId", value)}>
+                                                        <SelectTrigger className="mt-1.5 bg-white"><SelectValue placeholder="选择分类..." /></SelectTrigger>
+                                                        <SelectContent>
+                                                            {categories.length === 0 ? <SelectItem value="_none" disabled>暂无分类</SelectItem> : categories.map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">Series / 系列（可选）</Label>
+                                                    <Select value={item.metadata.seriesId || "_none"} onValueChange={(value) => updateMetadata(item.id, "seriesId", value === "_none" ? "" : value)}>
+                                                        <SelectTrigger className="mt-1.5 bg-white"><SelectValue placeholder="无系列" /></SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="_none">无系列</SelectItem>
+                                                            {seriesList.map((series) => <SelectItem key={series.id} value={series.id}>{series.name}</SelectItem>)}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                            <div className="mt-4 flex items-center justify-between gap-3">
+                                                <p className="text-xs text-gray-400">请试听或核对来源后再确认；保存后仍可在音乐管理中编辑。</p>
+                                                <Button onClick={() => uploadAndSaveItem(item)} disabled={!itemIsComplete(item) || item.suggestionStatus === "loading"}>
+                                                    <Save className="mr-1 h-4 w-4" /> 确认并保存
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
                     </div>
                 )}
 
-                {/* All done */}
                 {allDone && (
-                    <div className="bg-green-50 rounded-xl p-8 text-center">
-                        <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto mb-3" />
-                        <p className="text-lg font-semibold text-green-700">全部保存成功！</p>
-                        <p className="text-sm text-green-600 mt-1">共 {savedCount} 首曲目已保存到数据库</p>
-                        <Button variant="outline" className="mt-4" onClick={() => router.push("/music")}>
-                            返回音乐管理
-                        </Button>
+                    <div className="rounded-xl bg-green-50 p-8 text-center">
+                        <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-green-500" />
+                        <p className="text-lg font-semibold text-green-700">全部审核并保存成功</p>
+                        <p className="mt-1 text-sm text-green-600">共 {savedCount} 首曲目已保存到数据库</p>
+                        <Button variant="outline" className="mt-4" onClick={() => router.push("/music")}>返回音乐管理</Button>
                     </div>
                 )}
             </div>

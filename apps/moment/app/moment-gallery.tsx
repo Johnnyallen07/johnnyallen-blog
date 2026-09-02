@@ -220,14 +220,7 @@ export function MomentGallery() {
               <span className="hidden md:inline">已解锁</span>
               <LogOut className="h-3.5 w-3.5 text-[#777]" />
             </button>
-          ) : (
-            <a
-              href="/login"
-              className="flex h-10 items-center gap-2 rounded-xl bg-[#1d1d1f] px-4 text-xs font-semibold text-white transition hover:bg-black"
-            >
-              <LockKeyhole className="h-3.5 w-3.5" /> 私密访问
-            </a>
-          )}
+          ) : null}
         </div>
       </header>
 

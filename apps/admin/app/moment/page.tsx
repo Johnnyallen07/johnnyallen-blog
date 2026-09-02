@@ -13,8 +13,10 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Smartphone,
   Trash2,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { fetchClient, getApiBaseUrl, getAuthToken } from "@/lib/api";
 
@@ -42,6 +44,15 @@ type SyncToken = {
   createdAt: string;
   lastUsedAt?: string | null;
   expiresAt?: string | null;
+  revokedAt?: string | null;
+};
+type TrustedDevice = {
+  id: string;
+  deviceLabel: string;
+  lastIp?: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
   revokedAt?: string | null;
 };
 
@@ -77,6 +88,7 @@ export default function MomentAdminPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [syncTokens, setSyncTokens] = useState<SyncToken[]>([]);
+  const [trustedDevices, setTrustedDevices] = useState<TrustedDevice[]>([]);
   const [newCategory, setNewCategory] = useState({
     name: "",
     slug: "",
@@ -87,6 +99,9 @@ export default function MomentAdminPage() {
   const [newTokenLabel, setNewTokenLabel] = useState("Johnny’s MacBook");
   const [revealedToken, setRevealedToken] = useState("");
   const [busy, setBusy] = useState(false);
+  const activeTrustedDevices = trustedDevices.filter(
+    (item) => !item.revokedAt && new Date(item.expiresAt) > new Date(),
+  );
 
   useEffect(() => {
     const cached = window.sessionStorage.getItem("moment_admin_token");
@@ -101,14 +116,17 @@ export default function MomentAdminPage() {
     try {
       const query = new URLSearchParams({ limit: "100", visibility: "all" });
       if (search) query.set("q", search);
-      const [categoryData, catalog, tokenData] = await Promise.all([
-        momentFetch("/moment/admin/categories", momentToken),
-        momentFetch(`/moment/catalog?${query}`, momentToken),
-        momentFetch("/moment/admin/sync-tokens", momentToken),
-      ]);
+      const [categoryData, catalog, tokenData, trustedDeviceData] =
+        await Promise.all([
+          momentFetch("/moment/admin/categories", momentToken),
+          momentFetch(`/moment/catalog?${query}`, momentToken),
+          momentFetch("/moment/admin/sync-tokens", momentToken),
+          momentFetch("/moment/admin/trusted-devices", momentToken),
+        ]);
       setCategories(categoryData);
       setAssets(catalog.items);
       setSyncTokens(tokenData);
+      setTrustedDevices(trustedDeviceData);
     } catch (error) {
       toast.error((error as Error).message);
       if ((error as Error).message.includes("Token")) {
@@ -167,7 +185,7 @@ export default function MomentAdminPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${getAuthToken() || ""}`,
         },
-        body: JSON.stringify(login),
+        body: JSON.stringify({ ...login, rememberDevice: false }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || "验证失败");
@@ -290,12 +308,32 @@ export default function MomentAdminPage() {
                     在 Apple Passwords、1Password 或 Authenticator
                     中打开下面的链接；也可手动输入密钥。
                   </p>
-                  <a
-                    href={setup.otpauthUri}
-                    className="break-all text-sm font-medium text-blue-600"
-                  >
-                    在验证器中添加
-                  </a>
+                  <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-center">
+                    <div className="w-fit rounded-2xl border bg-white p-3 shadow-sm">
+                      <QRCodeSVG
+                        value={setup.otpauthUri}
+                        size={180}
+                        level="M"
+                        marginSize={0}
+                        title="Moment 双重验证二维码"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">
+                        扫描二维码
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">
+                        使用手机相机、Apple Passwords、1Password 或 Google
+                        Authenticator 扫描。Mac 上也可以直接打开验证器链接。
+                      </p>
+                      <a
+                        href={setup.otpauthUri}
+                        className="mt-3 inline-flex text-sm font-medium text-blue-600"
+                      >
+                        在验证器中打开
+                      </a>
+                    </div>
+                  </div>
                   <div className="mt-3 flex items-center justify-between rounded-lg border bg-white p-3 font-mono text-sm">
                     <span>{setup.secret}</span>
                     <button
@@ -310,7 +348,13 @@ export default function MomentAdminPage() {
                 <div className="flex gap-2">
                   <input
                     value={setupCode}
-                    onChange={(e) => setSetupCode(e.target.value)}
+                    onChange={(e) =>
+                      setSetupCode(
+                        e.target.value.replace(/\D/g, "").slice(0, 6),
+                      )
+                    }
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
                     placeholder="输入 6 位验证码"
                     className="h-11 flex-1 rounded-xl border px-3"
                   />
@@ -537,6 +581,58 @@ export default function MomentAdminPage() {
                     尚无文件，请先从 Mac 同步
                   </p>
                 )}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border bg-white p-6 shadow-sm">
+              <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
+                <Smartphone className="h-5 w-5" />
+                可信设备
+              </h2>
+              <p className="mb-5 text-sm leading-6 text-gray-500">
+                完成密码和动态验证码后，Moment 可在同一浏览器中保持 7
+                天免验证。设备凭证受 HttpOnly Cookie 保护；IP
+                变化只记录风险事件，不会因 VPN 或网络切换阻止访问。
+              </p>
+              <div className="space-y-2">
+                {activeTrustedDevices.length === 0 && (
+                  <p className="rounded-xl bg-gray-50 px-4 py-5 text-center text-sm text-gray-400">
+                    暂无可信设备
+                  </p>
+                )}
+                {activeTrustedDevices.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-col justify-between gap-3 rounded-xl bg-gray-50 px-4 py-3 sm:flex-row sm:items-center"
+                  >
+                    <div>
+                      <p className="font-medium">{item.deviceLabel}</p>
+                      <p className="mt-1 text-xs text-gray-400">
+                        最近使用{" "}
+                        {new Date(item.lastUsedAt).toLocaleString("zh-CN")}
+                        {` · 到期 ${new Date(item.expiresAt).toLocaleString("zh-CN")}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await momentFetch(
+                            `/moment/admin/trusted-devices/${item.id}`,
+                            momentToken,
+                            { method: "DELETE" },
+                          );
+                          toast.success("可信设备已撤销");
+                          await loadAdmin();
+                        } catch (error) {
+                          toast.error((error as Error).message);
+                        }
+                      }}
+                      className="self-start text-xs font-medium text-red-600 sm:self-auto"
+                    >
+                      撤销访问
+                    </button>
+                  </div>
+                ))}
               </div>
             </section>
 

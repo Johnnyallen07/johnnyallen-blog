@@ -10,14 +10,15 @@ datasource db {
 }
 
 model User {
-  id               String            @id @default(uuid())
-  username         String            @unique
-  email            String?           @unique
-  name             String?
-  password         String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  momentCredential MomentCredential?
+  id                   String                @id @default(uuid())
+  username             String                @unique
+  email                String?               @unique
+  name                 String?
+  password             String
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  momentCredential     MomentCredential?
+  momentTrustedDevices MomentTrustedDevice[]
 }
 
 // ===== Moment private library =====
@@ -45,6 +46,23 @@ model MomentCredential {
   lastUsedAt         DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+}
+
+model MomentTrustedDevice {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash       String
+  deviceLabel     String
+  deviceSignature String
+  lastIp          String?
+  lastUsedAt      DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([expiresAt])
 }
 
 model MomentCategory {

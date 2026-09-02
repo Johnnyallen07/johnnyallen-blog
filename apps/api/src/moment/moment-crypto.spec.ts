@@ -3,6 +3,8 @@ import {
   decryptSecret,
   encryptSecret,
   matchedTotpStep,
+  sha256,
+  verifySha256,
   verifyTotp,
 } from './moment-crypto';
 
@@ -27,5 +29,11 @@ describe('Moment crypto', () => {
     expect(
       codes.every((code) => /^[A-F0-9]{4}(?:-[A-F0-9]{4}){3}$/.test(code)),
     ).toBe(true);
+  });
+
+  it('verifies opaque trusted-device secrets without storing them', () => {
+    const storedHash = sha256('trusted-device-secret');
+    expect(verifySha256('trusted-device-secret', storedHash)).toBe(true);
+    expect(verifySha256('copied-or-forged-secret', storedHash)).toBe(false);
   });
 });

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { getApiBaseUrl } from "@/lib/api";
+import { resolvePageJump } from "@/lib/page-navigation";
 
 import {
     buildPianoKeys,
@@ -507,6 +508,7 @@ function ScorePanel({
     const [imagePages, setImagePages] = useState<string[] | null>(null);
     const [numPages, setNumPages] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
+    const [pageInput, setPageInput] = useState("1");
     const [zoom, setZoom] = useState(1);
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState("");
@@ -777,6 +779,28 @@ function ScorePanel({
         setCurrentPage(nearest);
     }, [layout, numPages]);
 
+    useEffect(() => {
+        setPageInput(String(currentPage));
+    }, [currentPage]);
+
+    const goToPage = useCallback((value: string) => {
+        const page = resolvePageJump(
+            value,
+            currentPage,
+            numPages,
+            layout === "vertical" ? "continuous" : "single",
+        );
+        setPageInput(String(page));
+        setCurrentPage(page);
+        scrollRef.current
+            ?.querySelector<HTMLElement>(`[data-page="${page}"]`)
+            ?.scrollIntoView({
+                behavior: "smooth",
+                block: layout === "vertical" ? "start" : "nearest",
+                inline: "center",
+            });
+    }, [currentPage, layout, numPages]);
+
     const zoomIn = () => setZoom((value) => Math.min(2.6, Number((value + 0.1).toFixed(2))));
     const zoomOut = () => setZoom((value) => Math.max(0.6, Number((value - 0.1).toFixed(2))));
 
@@ -993,8 +1017,22 @@ function ScorePanel({
                         </div>
                     </div>
                     {numPages > 0 && (
-                        <div className="border-t border-white/10 px-3 py-1 text-center text-[11px] tabular-nums text-gray-400">
-                            {currentPage} / {numPages}
+                        <div className="flex items-center justify-center gap-1 border-t border-white/10 px-3 py-1 text-[11px] tabular-nums text-gray-400">
+                            <input
+                                value={pageInput}
+                                onChange={(event) => setPageInput(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        goToPage(pageInput);
+                                    }
+                                }}
+                                onBlur={() => setPageInput(String(currentPage))}
+                                inputMode="numeric"
+                                aria-label="页码"
+                                className="w-11 rounded border border-white/10 bg-white/5 px-1 py-0.5 text-center text-white outline-none transition focus:border-amber-400"
+                            />
+                            <span>/ {numPages}</span>
                         </div>
                     )}
                 </>

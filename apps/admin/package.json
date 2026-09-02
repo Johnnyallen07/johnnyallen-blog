@@ -47,6 +47,7 @@
         "lucide-react": "^0.563.0",
         "next": "16.1.5",
         "pdfjs-dist": "4.4.168",
+        "qrcode.react": "^4.2.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
         "react-hook-form": "^7.71.1",

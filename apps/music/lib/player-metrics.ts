@@ -84,6 +84,64 @@ export function getRetryResumeTime(mediaCurrentTime: number, lastKnownTime: numb
     return Math.max(mediaTime, knownTime);
 }
 
+/**
+ * Playback time shown by the UI must never move behind the last committed
+ * position because a media element was reloading or temporarily starved.
+ * Backward movement is handled explicitly by the seek controls instead.
+ */
+export function getStablePlaybackTime(
+    mediaCurrentTime: number,
+    lastKnownTime: number,
+    heldTime?: number | null,
+): number {
+    const mediaTime = Number.isFinite(mediaCurrentTime) && mediaCurrentTime >= 0
+        ? mediaCurrentTime
+        : 0;
+    const knownTime = Number.isFinite(lastKnownTime) && lastKnownTime >= 0
+        ? lastKnownTime
+        : 0;
+    const frozenTime = heldTime != null && Number.isFinite(heldTime) && heldTime >= 0
+        ? heldTime
+        : 0;
+    return Math.max(mediaTime, knownTime, frozenTime);
+}
+
+/** Whether the range containing `time` has enough data to safely resume. */
+export function hasBufferedDataAhead(
+    ranges: TimeRanges,
+    time: number,
+    minimumAheadSeconds = 0.5,
+    duration = Number.POSITIVE_INFINITY,
+): boolean {
+    if (!Number.isFinite(time) || time < 0) return false;
+
+    const requiredEnd = Number.isFinite(duration) && duration > 0
+        ? Math.min(time + minimumAheadSeconds, duration)
+        : time + minimumAheadSeconds;
+
+    for (let index = 0; index < ranges.length; index += 1) {
+        const start = ranges.start(index);
+        const end = ranges.end(index);
+        if (time >= start - 0.1 && time <= end + 0.1 && end >= requiredEnd - 0.1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export function hasCompleteMediaMetadata(readyState: number, duration: number): boolean {
+    return readyState >= 1 && Number.isFinite(duration) && duration > 0;
+}
+
+export function getRecoveryDelayMs(
+    attempt: number,
+    baseDelayMs = 1000,
+    maximumDelayMs = 15_000,
+): number {
+    const exponent = Math.max(0, Math.min(10, Math.floor(attempt) - 1));
+    return Math.min(maximumDelayMs, baseDelayMs * (2 ** exponent));
+}
+
 export function calculateThroughputKbps(
     latestBytes: number,
     previousBytes: number,

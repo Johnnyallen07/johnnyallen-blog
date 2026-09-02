@@ -12,6 +12,7 @@ import { MusicScoreController } from './music-score.controller';
 import { MusicScoreService } from './music-score.service';
 import { AuthModule } from '../auth/auth.module';
 import { I18nModule } from '../i18n/i18n.module';
+import { MusicMetadataService } from './music-metadata.service';
 
 @Module({
   imports: [AuthModule, I18nModule],
@@ -28,6 +29,7 @@ import { I18nModule } from '../i18n/i18n.module';
     MusicArtistService,
     MusicSeriesService,
     MusicScoreService,
+    MusicMetadataService,
     PrismaService,
   ],
 })

@@ -44,6 +44,8 @@
     "noScores": "No scores available",
     "singlePageMode": "Single Page Mode",
     "doublePageMode": "Double Page Mode",
+    "continuousScrollMode": "Continuous Scroll Mode",
+    "pageNumber": "Page number",
     "zoomOut": "Zoom Out",
     "zoomIn": "Zoom In",
     "resetZoom": "Reset Zoom",

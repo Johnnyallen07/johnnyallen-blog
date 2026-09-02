@@ -17,6 +17,7 @@ import { CreateMusicTrackDto } from './dto/create-music-track.dto';
 import { UpdateMusicTrackDto } from './dto/update-music-track.dto';
 import { YoutubeDownloadDto } from './dto/youtube-download.dto';
 import { SplitMusicDto } from './dto/split-music.dto';
+import { SuggestYoutubeMetadataDto } from './dto/suggest-youtube-metadata.dto';
 
 @Controller('music')
 export class MusicController {
@@ -46,6 +47,25 @@ export class MusicController {
   ) {
     await this.requireAdmin(authHeader);
     return this.musicService.updateYoutubeCookies(cookies);
+  }
+
+  /** 查看 Cookie 是否已配置、更新时间与粗略有效性（不返回敏感内容） */
+  @Get('youtube-cookies')
+  async getYoutubeCookiesStatus(
+    @Headers('authorization') authHeader: string | undefined,
+  ) {
+    await this.requireAdmin(authHeader);
+    return this.musicService.getYoutubeCookiesStatus();
+  }
+
+  /** 检索现有音乐库并由 AI 生成逐条待审核元数据 */
+  @Post('youtube-metadata/suggest')
+  async suggestYoutubeMetadata(
+    @Headers('authorization') authHeader: string | undefined,
+    @Body() dto: SuggestYoutubeMetadataDto,
+  ) {
+    await this.requireAdmin(authHeader);
+    return this.musicService.suggestYoutubeMetadata(dto.taskIds);
   }
 
   /** 轮询下载进度 */

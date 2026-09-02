@@ -14,6 +14,7 @@ export default function MomentLoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -25,7 +26,7 @@ export default function MomentLoginPage() {
       const response = await fetch("/api/moment/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, code }),
+        body: JSON.stringify({ username, password, code, rememberDevice }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.message || "验证失败");
@@ -54,8 +55,8 @@ export default function MomentLoginPage() {
             解锁私人资料库
           </h1>
           <p className="mt-2 text-sm leading-6 text-[#777]">
-            需要管理员密码和动态验证码。验证会话仅保存在当前设备，2
-            小时后自动失效。
+            需要管理员密码和动态验证码。可信设备会使用受保护的浏览器凭证，7
+            天内再次访问无需重复验证。
           </p>
           <form onSubmit={submit} className="mt-8 space-y-4">
             <label className="block">
@@ -103,6 +104,22 @@ export default function MomentLoginPage() {
                 className="h-14 w-full rounded-xl border border-black/10 bg-[#f7f7f5] px-4 text-center text-xl font-semibold tracking-[.3em] outline-none focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/10"
               />
             </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-black/[.07] bg-white/60 px-4 py-3">
+              <input
+                type="checkbox"
+                checked={rememberDevice}
+                onChange={(event) => setRememberDevice(event.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-[#1267df]"
+              />
+              <span>
+                <span className="block text-xs font-semibold text-[#333]">
+                  信任此设备 7 天
+                </span>
+                <span className="mt-1 block text-[11px] leading-4 text-[#777]">
+                  仅限自己的手机或电脑；退出会立即撤销这台设备。
+                </span>
+              </span>
+            </label>
             {error && (
               <p className="rounded-xl bg-red-50 px-3 py-2.5 text-xs text-red-700">
                 {error}
@@ -118,7 +135,7 @@ export default function MomentLoginPage() {
           </form>
         </section>
         <p className="mt-5 text-center text-[11px] leading-5 text-[#8a8a8f]">
-          全程 HTTPS · HttpOnly 会话 · 失败锁定 · 下载审计
+          全程 HTTPS · HttpOnly 可信设备 · 失败锁定 · 下载审计
         </p>
       </div>
     </main>

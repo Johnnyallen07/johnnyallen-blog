@@ -17,6 +17,10 @@ import { CreateMusicTrackDto } from './dto/create-music-track.dto';
 import { UpdateMusicTrackDto } from './dto/update-music-track.dto';
 import { SplitSegmentDto } from './dto/split-music.dto';
 import { I18nService } from '../i18n/i18n.service';
+import {
+  MusicMetadataService,
+  YoutubeSourceMetadata,
+} from './music-metadata.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +32,7 @@ export class MusicService {
   constructor(
     private prisma: PrismaService,
     private i18n: I18nService,
+    private musicMetadata: MusicMetadataService,
   ) {
     this.cos = new COS({
       SecretId: process.env.COS_SECRET_ID || '',
@@ -152,6 +157,7 @@ export class MusicService {
       tempFilePath?: string; // temp MP3 kept on disk until user triggers upload
       fileSize?: number;
       duration?: number;
+      sourceMetadata?: Omit<YoutubeSourceMetadata, 'taskId'>;
       result?: {
         title: string;
         fileKey: string;
@@ -198,6 +204,28 @@ export class MusicService {
     };
   }
 
+  /** 用当前音乐库和固定作曲家词表检索上下文，再让 AI 生成待审核信息。 */
+  async suggestYoutubeMetadata(taskIds: string[]) {
+    const sources = taskIds.map((taskId) => {
+      const task = this.ytTasks.get(taskId);
+      if (!task) throw new NotFoundException(`Task not found: ${taskId}`);
+      if (!task.title) {
+        throw new BadRequestException(`Task 尚未取得视频信息: ${taskId}`);
+      }
+      return {
+        taskId,
+        title: task.title,
+        description: task.sourceMetadata?.description,
+        uploader: task.sourceMetadata?.uploader,
+        channel: task.sourceMetadata?.channel,
+        tags: task.sourceMetadata?.tags,
+        duration: task.duration || task.sourceMetadata?.duration,
+      };
+    });
+
+    return { suggestions: await this.musicMetadata.suggest(sources) };
+  }
+
   /** Clean up a completed task from memory and its temp file */
   cleanupTask(taskId: string) {
     const task = this.ytTasks.get(taskId);
@@ -219,12 +247,12 @@ export class MusicService {
     if (!task) {
       throw new NotFoundException('Task not found');
     }
-    if (task.status !== 'done' || !task.tempFilePath) {
-      throw new BadRequestException('Task not ready for upload');
-    }
     // If already uploaded, return cached result
     if (task.result) {
       return task.result;
+    }
+    if (task.status !== 'done' || !task.tempFilePath) {
+      throw new BadRequestException('Task not ready for upload');
     }
 
     const fileId = uuidv4();
@@ -351,9 +379,23 @@ export class MusicService {
       const info = JSON.parse(infoJson) as {
         title?: string;
         duration?: number;
+        description?: string;
+        uploader?: string;
+        channel?: string;
+        tags?: string[];
       };
       const videoTitle = info.title || 'untitled';
       task.title = videoTitle;
+      task.sourceMetadata = {
+        title: videoTitle,
+        duration: info.duration,
+        description: info.description,
+        uploader: info.uploader,
+        channel: info.channel,
+        tags: Array.isArray(info.tags)
+          ? info.tags.filter((tag): tag is string => typeof tag === 'string')
+          : [],
+      };
       task.progress = 10;
       this.logger.log(`[${taskId}] Title: ${videoTitle}`);
 
@@ -476,6 +518,33 @@ export class MusicService {
     );
   }
 
+  async getYoutubeCookiesStatus() {
+    const cookiesPath = this.getYoutubeCookiesPath();
+    const stat = await fs.promises
+      .stat(cookiesPath)
+      .catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+
+    if (!stat) return { configured: false };
+    if (!stat.isFile()) {
+      return {
+        configured: false,
+        issue: 'cookies.txt 当前不是文件',
+      };
+    }
+
+    const content = await fs.promises.readFile(cookiesPath, 'utf8');
+    const summary = this.summarizeYoutubeCookies(content);
+    return {
+      configured: summary.youtubeCookies > 0,
+      bytes: stat.size,
+      updatedAt: stat.mtime.toISOString(),
+      ...summary,
+    };
+  }
+
   async updateYoutubeCookies(cookies: string) {
     if (typeof cookies !== 'string') {
       throw new BadRequestException('请上传 cookies.txt 内容');
@@ -488,9 +557,8 @@ export class MusicService {
     }
 
     const hasCookieHeader = normalized.includes('# Netscape HTTP Cookie File');
-    const hasYoutubeCookie =
-      /(^|\n)([^#\n]*\.)?(youtube\.com|google\.com)\t/.test(normalized);
-    if (!hasCookieHeader || !hasYoutubeCookie) {
+    const cookieSummary = this.summarizeYoutubeCookies(normalized);
+    if (!hasCookieHeader || cookieSummary.youtubeCookies === 0) {
       throw new BadRequestException(
         '请上传 Netscape 格式的 YouTube cookies.txt',
       );
@@ -541,10 +609,47 @@ export class MusicService {
       throw error;
     }
 
+    return { ok: true, ...(await this.getYoutubeCookiesStatus()) };
+  }
+
+  private summarizeYoutubeCookies(content: string) {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    let totalCookies = 0;
+    let youtubeCookies = 0;
+    let activeYoutubeCookies = 0;
+    let latestYoutubeExpiry = 0;
+    const domains = new Set<string>();
+
+    for (const line of content.split(/\r?\n/)) {
+      if (!line || (line.startsWith('#') && !line.startsWith('#HttpOnly_'))) {
+        continue;
+      }
+      const fields = line.replace(/^#HttpOnly_/, '').split('\t');
+      if (fields.length < 7) continue;
+      totalCookies += 1;
+      const domain = fields[0]?.replace(/^\./, '') || '';
+      const expires = Number(fields[4] || 0);
+      const isYoutube =
+        domain === 'youtube.com' ||
+        domain.endsWith('.youtube.com') ||
+        domain === 'google.com' ||
+        domain.endsWith('.google.com');
+      if (!isYoutube) continue;
+      youtubeCookies += 1;
+      domains.add(domain);
+      if (!expires || expires > nowSeconds) activeYoutubeCookies += 1;
+      if (expires > latestYoutubeExpiry) latestYoutubeExpiry = expires;
+    }
+
     return {
-      ok: true,
-      bytes: Buffer.byteLength(normalized, 'utf8'),
-      updatedAt: new Date().toISOString(),
+      totalCookies,
+      youtubeCookies,
+      activeYoutubeCookies,
+      domains: [...domains].sort(),
+      expiresAt: latestYoutubeExpiry
+        ? new Date(latestYoutubeExpiry * 1000).toISOString()
+        : null,
+      likelyExpired: youtubeCookies > 0 && activeYoutubeCookies === 0,
     };
   }
 

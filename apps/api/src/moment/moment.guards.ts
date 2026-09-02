@@ -14,6 +14,7 @@ import { AuthService } from '../auth/auth.service';
 export type MomentRequest = Request & {
   momentAccess?: 'public' | 'admin';
   momentActor?: string;
+  momentUserId?: string;
 };
 
 function bearer(req: Request): string | undefined {
@@ -61,6 +62,7 @@ export class MomentAccessGuard implements CanActivate {
       const payload = await this.auth.verifyAdminToken(token);
       req.momentAccess = 'admin';
       req.momentActor = `user:${payload.sub}`;
+      req.momentUserId = payload.sub;
       return true;
     }
     const publicToken = req.headers['x-moment-public-token'];
@@ -89,6 +91,7 @@ export class MomentAdminGuard implements CanActivate {
     const payload = await this.auth.verifyAdminToken(token);
     req.momentAccess = 'admin';
     req.momentActor = `user:${payload.sub}`;
+    req.momentUserId = payload.sub;
     return true;
   }
 }
