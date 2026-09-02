@@ -19,6 +19,24 @@ model User {
   updatedAt            DateTime              @updatedAt
   momentCredential     MomentCredential?
   momentTrustedDevices MomentTrustedDevice[]
+  adminTrustedDevices  AdminTrustedDevice[]
+}
+
+model AdminTrustedDevice {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash       String    @unique
+  deviceLabel     String
+  deviceSignature String
+  lastIp          String?
+  lastUsedAt      DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([expiresAt])
 }
 
 // ===== Moment private library =====
@@ -67,17 +85,21 @@ model MomentTrustedDevice {
 
 model MomentCategory {
   id          String        @id @default(uuid())
-  name        String        @unique
-  slug        String        @unique
+  name        String
   description String?
   icon        String?
   color       String?
   order       Int           @default(0)
+  parentId    String?
+  parent      MomentCategory?  @relation("MomentFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    MomentCategory[] @relation("MomentFolderTree")
+  trashedAt   DateTime?
   assets      MomentAsset[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   @@index([order])
+  @@index([parentId, trashedAt, name])
 }
 
 model MomentAsset {
@@ -97,14 +119,15 @@ model MomentAsset {
   visibility   MomentVisibility  @default(PRIVATE)
   featured     Boolean           @default(false)
   status       MomentAssetStatus @default(READY)
+  trashedAt    DateTime?
   categoryId   String?
   category     MomentCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
-  @@unique([relativePath, checksum])
+  @@index([relativePath, checksum])
   @@index([visibility, status, capturedAt])
-  @@index([categoryId, status])
+  @@index([categoryId, status, trashedAt])
   @@index([checksum])
 }
 

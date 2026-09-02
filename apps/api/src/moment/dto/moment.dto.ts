@@ -28,10 +28,7 @@ export class TotpCodeDto {
 
 export class CreateMomentCategoryDto {
   @IsString() @IsNotEmpty() @MaxLength(80) name: string;
-  @IsString()
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-  @MaxLength(80)
-  slug: string;
+  @IsOptional() @IsString() parentId?: string | null;
   @IsOptional() @IsString() @MaxLength(300) description?: string;
   @IsOptional() @IsString() @MaxLength(40) icon?: string;
   @IsOptional() @Matches(/^#[0-9a-fA-F]{6}$/) color?: string;
@@ -40,11 +37,7 @@ export class CreateMomentCategoryDto {
 
 export class UpdateMomentCategoryDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(80) name?: string;
-  @IsOptional()
-  @IsString()
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-  @MaxLength(80)
-  slug?: string;
+  @IsOptional() @IsString() parentId?: string | null;
   @IsOptional() @IsString() @MaxLength(300) description?: string;
   @IsOptional() @IsString() @MaxLength(40) icon?: string;
   @IsOptional() @Matches(/^#[0-9a-fA-F]{6}$/) color?: string;
@@ -52,6 +45,7 @@ export class UpdateMomentCategoryDto {
 }
 
 export class UpdateMomentAssetDto {
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(255) originalName?: string;
   @IsOptional() @IsString() @MaxLength(160) title?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsString() categoryId?: string | null;
@@ -64,6 +58,19 @@ export class UpdateMomentAssetDto {
   @IsOptional() @IsBoolean() featured?: boolean;
   @IsOptional() @IsIn(['READY', 'ARCHIVED']) status?: 'READY' | 'ARCHIVED';
   @IsOptional() @IsDateString() capturedAt?: string | null;
+}
+
+export class MomentBrowserQueryDto {
+  @IsOptional() @IsString() folderId?: string;
+  @IsOptional() @IsString() @MaxLength(120) q?: string;
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  trash = false;
+}
+
+export class MoveMomentAssetDto {
+  @IsOptional() @IsString() folderId?: string | null;
 }
 
 export class MomentCatalogQueryDto {
@@ -97,7 +104,6 @@ export class CreateUploadUrlDto {
 
 export class CompleteSyncDto extends CreateUploadUrlDto {
   @IsString() @IsNotEmpty() objectKey: string;
-  @IsOptional() @IsString() categorySlug?: string;
   @IsOptional() @IsDateString() capturedAt?: string;
   @IsOptional() @IsInt() @Min(1) width?: number;
   @IsOptional() @IsInt() @Min(1) height?: number;

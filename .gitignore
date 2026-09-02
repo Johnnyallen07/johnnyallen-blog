@@ -150,6 +150,10 @@ test-data/
 # Seed file with local test data
 apps/api/prisma/seed.ts
 .agent
+.claude/
+.superpowers/
+docs/superpowers/
+docs/plans/
 .ssh-tunnel/
 
 devops/*

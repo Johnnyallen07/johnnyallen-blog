@@ -20,6 +20,7 @@ import {
   CreateMomentCategoryDto,
   CreateSyncTokenDto,
   CreateUploadUrlDto,
+  MomentBrowserQueryDto,
   MomentCatalogQueryDto,
   MomentLoginDto,
   TotpCodeDto,
@@ -144,6 +145,12 @@ export class MomentController {
     return this.moment.categories();
   }
 
+  @Get('admin/browser')
+  @UseGuards(MomentAdminGuard)
+  browser(@Query() query: MomentBrowserQueryDto) {
+    return this.moment.browser(query);
+  }
+
   @Get('admin/trusted-devices')
   @UseGuards(MomentAdminGuard)
   trustedDevices(@Req() req: MomentRequest) {
@@ -173,8 +180,29 @@ export class MomentController {
 
   @Delete('admin/categories/:id')
   @UseGuards(MomentAdminGuard)
-  deleteCategory(@Param('id') id: string) {
-    return this.moment.deleteCategory(id);
+  deleteCategory(@Param('id') id: string, @Req() req: MomentRequest) {
+    return this.moment.deleteCategory(id, req.momentActor);
+  }
+
+  @Post('admin/categories/:id/restore')
+  @UseGuards(MomentAdminGuard)
+  restoreCategory(@Param('id') id: string, @Req() req: MomentRequest) {
+    return this.moment.restoreCategory(id, req.momentActor!);
+  }
+
+  @Delete('admin/categories/:id/permanent')
+  @UseGuards(MomentAdminGuard)
+  permanentlyDeleteCategory(
+    @Param('id') id: string,
+    @Req() req: MomentRequest,
+  ) {
+    return this.moment.permanentlyDeleteCategory(id, req.momentActor!);
+  }
+
+  @Get('admin/categories/:id/export')
+  @UseGuards(MomentAdminGuard)
+  folderExport(@Param('id') id: string) {
+    return this.moment.folderExport(id);
   }
 
   @Patch('admin/assets/:id')
@@ -185,6 +213,42 @@ export class MomentController {
     @Req() req: MomentRequest,
   ) {
     return this.moment.updateAsset(id, dto, req.momentActor!);
+  }
+
+  @Delete('admin/assets/:id')
+  @UseGuards(MomentAdminGuard)
+  trashAsset(@Param('id') id: string, @Req() req: MomentRequest) {
+    return this.moment.trashAsset(id, req.momentActor!);
+  }
+
+  @Post('admin/assets/:id/restore')
+  @UseGuards(MomentAdminGuard)
+  restoreAsset(@Param('id') id: string, @Req() req: MomentRequest) {
+    return this.moment.restoreAsset(id, req.momentActor!);
+  }
+
+  @Delete('admin/assets/:id/permanent')
+  @UseGuards(MomentAdminGuard)
+  permanentlyDeleteAsset(@Param('id') id: string, @Req() req: MomentRequest) {
+    return this.moment.permanentlyDeleteAsset(id, req.momentActor!);
+  }
+
+  @Get('admin/assets/:id/url')
+  @UseGuards(MomentAdminGuard)
+  assetUrl(@Param('id') id: string, @Query('download') download?: string) {
+    return this.moment.assetUrl(id, download === '1');
+  }
+
+  @Post('admin/upload-url')
+  @UseGuards(MomentAdminGuard)
+  adminUploadUrl(@Body() dto: CreateUploadUrlDto) {
+    return this.moment.createUploadUrl(dto);
+  }
+
+  @Post('admin/complete')
+  @UseGuards(MomentAdminGuard)
+  adminComplete(@Body() dto: CompleteSyncDto, @Req() req: MomentRequest) {
+    return this.moment.completeSync(dto, req.momentActor!);
   }
 
   @Get('admin/sync-tokens')

@@ -6,26 +6,14 @@ export function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 }
 
-/** 从 cookie 中读取 auth_token */
-export function getAuthToken(): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(/(?:^|;\s*)auth_token=([^;]*)/);
-  return match ? (match[1] ?? null) : null;
-}
-
 export async function fetchClient(endpoint: string, options: RequestInit = {}) {
-  const url = `${getApiBaseUrl()}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-
-  const token = getAuthToken();
+  const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const url = `/api/backend${path}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
 
   const response = await fetch(url, {
     ...options,
@@ -34,7 +22,6 @@ export async function fetchClient(endpoint: string, options: RequestInit = {}) {
 
   // 401 未授权 → 跳转登录页
   if (response.status === 401 && typeof window !== "undefined") {
-    document.cookie = "auth_token=; path=/; max-age=0";
     window.location.href = "/login";
     throw new Error("登录已过期，请重新登录");
   }

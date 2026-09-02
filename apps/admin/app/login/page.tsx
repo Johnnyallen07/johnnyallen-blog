@@ -11,6 +11,8 @@ import { Lock } from "lucide-react";
 export default function AdminLoginPage() {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [rememberDevice, setRememberDevice] = useState(true);
+    const [trustedDays, setTrustedDays] = useState(7);
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
 
@@ -19,12 +21,10 @@ export default function AdminLoginPage() {
         setIsLoading(true);
 
         try {
-            const apiUrl =
-                process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-            const res = await fetch(`${apiUrl}/auth/login`, {
+            const res = await fetch("/api/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify({ username, password, rememberDevice, trustedDays }),
             });
 
             if (!res.ok) {
@@ -32,10 +32,7 @@ export default function AdminLoginPage() {
                 throw new Error(err.message || "登录失败");
             }
 
-            const data = await res.json();
-
-            // 将 token 存入 cookie，供 middleware 读取
-            document.cookie = `auth_token=${data.token}; path=/; max-age=${7 * 24 * 3600}; SameSite=Lax`;
+            await res.json();
 
             toast.success("登录成功");
             router.push("/");
@@ -55,6 +52,34 @@ export default function AdminLoginPage() {
                     <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-amber-50 text-amber-600 mb-4">
                         <Lock className="w-6 h-6" />
                     </div>
+
+                    <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={rememberDevice}
+                            onChange={(event) => setRememberDevice(event.target.checked)}
+                            className="mt-0.5"
+                        />
+                        <span className="flex-1">
+                            <span className="block font-medium text-gray-900">信任这台设备</span>
+                            <span className="mt-1 block text-xs leading-5 text-gray-500">设备凭证使用 HttpOnly Cookie；网络或 VPN 变化仅作为风险记录。</span>
+                        </span>
+                    </label>
+                    {rememberDevice && (
+                        <div className="space-y-2">
+                            <Label htmlFor="trusted-days">免登录期限</Label>
+                            <select
+                                id="trusted-days"
+                                value={trustedDays}
+                                onChange={(event) => setTrustedDays(Number(event.target.value))}
+                                className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 text-sm"
+                            >
+                                <option value={1}>1 天</option>
+                                <option value={7}>7 天</option>
+                                <option value={30}>30 天</option>
+                            </select>
+                        </div>
+                    )}
                     <h1 className="text-2xl font-bold text-gray-900">管理员登录</h1>
                     <p className="text-sm text-gray-500 mt-2">请使用您的凭证访问后台</p>
                 </div>

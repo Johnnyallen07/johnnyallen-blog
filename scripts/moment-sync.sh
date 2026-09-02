@@ -58,9 +58,6 @@ while IFS= read -r -d '' local_file; do
   file_size="$(stat -f '%z' "$local_file")"
   modified_epoch="$(stat -f '%m' "$local_file")"
   captured_at="$(date -u -r "$modified_epoch" '+%Y-%m-%dT%H:%M:%SZ')"
-  category_slug="${relative_path%%/*}"
-  [[ "$category_slug" == "$relative_path" ]] && category_slug=""
-
   init_payload="$(jq -n --arg relativePath "$relative_path" --arg checksum "$checksum" --arg mimeType "$mime_type" --arg size "$file_size" \
     '{relativePath:$relativePath,checksum:$checksum,mimeType:$mimeType,size:$size}')"
 
@@ -74,14 +71,14 @@ while IFS= read -r -d '' local_file; do
   upload_url="$(jq -r '.uploadUrl' <<<"$init_response")"
   object_key="$(jq -r '.objectKey' <<<"$init_response")"
   echo "↑ $relative_path"
-  if ! curl --fail --silent --show-error -X PUT -H "Content-Type: $mime_type" --upload-file "$local_file" "$upload_url"; then
+  if ! curl --fail --silent --show-error -X PUT -H "Content-Type: $mime_type" -H "x-cos-meta-sha256: $checksum" --upload-file "$local_file" "$upload_url"; then
     echo "✗ 上传失败: $relative_path"; failed=$((failed + 1)); continue
   fi
 
   complete_payload="$(jq -n \
     --arg relativePath "$relative_path" --arg checksum "$checksum" --arg mimeType "$mime_type" --arg size "$file_size" \
-    --arg objectKey "$object_key" --arg categorySlug "$category_slug" --arg capturedAt "$captured_at" \
-    '{relativePath:$relativePath,checksum:$checksum,mimeType:$mimeType,size:$size,objectKey:$objectKey,capturedAt:$capturedAt} + (if $categorySlug == "" then {} else {categorySlug:$categorySlug} end)')"
+    --arg objectKey "$object_key" --arg capturedAt "$captured_at" \
+    '{relativePath:$relativePath,checksum:$checksum,mimeType:$mimeType,size:$size,objectKey:$objectKey,capturedAt:$capturedAt}')"
   if curl --fail --silent --show-error -X POST \
     -H "X-Moment-Sync-Token: $SYNC_TOKEN" -H 'Content-Type: application/json' \
     --data "$complete_payload" "$MOMENT_API_URL/moment/sync/complete" >/dev/null; then

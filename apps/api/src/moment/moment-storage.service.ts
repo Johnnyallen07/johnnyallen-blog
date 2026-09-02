@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import COS from 'cos-nodejs-sdk-v5';
 import { Readable } from 'stream';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 @Injectable()
 export class MomentStorageService {
@@ -38,7 +38,7 @@ export class MomentStorageService {
     return `moment/vault/${randomUUID()}${safeExtension ? `.${safeExtension}` : ''}`;
   }
 
-  async createUploadUrl(objectKey: string, mimeType: string) {
+  async createUploadUrl(objectKey: string, mimeType: string, checksum: string) {
     return new Promise<string>((resolve, reject) => {
       this.cos.getObjectUrl(
         {
@@ -48,7 +48,10 @@ export class MomentStorageService {
           Method: 'PUT',
           Sign: true,
           Expires: 900,
-          Headers: { 'Content-Type': mimeType },
+          Headers: {
+            'Content-Type': mimeType,
+            'x-cos-meta-sha256': checksum.toLowerCase(),
+          },
         },
         (error, data) => {
           if (error || !data?.Url)
@@ -59,6 +62,38 @@ export class MomentStorageService {
             );
           else resolve(data.Url);
         },
+      );
+    });
+  }
+
+  async createDownloadUrl(
+    objectKey: string,
+    fileName: string,
+    download = false,
+  ) {
+    if (!objectKey.startsWith('moment/vault/'))
+      throw new NotFoundException('文件不存在');
+    return new Promise<string>((resolve, reject) => {
+      this.cos.getObjectUrl(
+        {
+          Bucket: this.bucket(),
+          Region: this.region(),
+          Key: objectKey,
+          Method: 'GET',
+          Sign: true,
+          Expires: 300,
+          Query: {
+            'response-content-disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+          },
+        },
+        (error, data) =>
+          error || !data?.Url
+            ? reject(
+                error instanceof Error
+                  ? error
+                  : new Error(error?.message || '签名失败'),
+              )
+            : resolve(data.Url),
       );
     });
   }
@@ -87,6 +122,46 @@ export class MomentStorageService {
     if (actual && BigInt(actual) !== expectedSize) {
       throw new NotFoundException('COS 文件大小与同步记录不一致');
     }
+  }
+
+  async verifyObject(
+    objectKey: string,
+    expectedSize: bigint,
+    expectedChecksum: string,
+  ) {
+    await this.assertObject(objectKey, expectedSize);
+    const object = await this.getObject(objectKey);
+    const digest = createHash('sha256');
+    let size = 0n;
+    for await (const chunk of object.stream) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += BigInt(buffer.length);
+      digest.update(buffer);
+    }
+    if (
+      size !== expectedSize ||
+      digest.digest('hex') !== expectedChecksum.toLowerCase()
+    ) {
+      throw new NotFoundException('文件完整性校验失败，已拒绝写入资料库');
+    }
+  }
+
+  async deleteObject(objectKey: string) {
+    if (!objectKey.startsWith('moment/vault/'))
+      throw new NotFoundException('文件不存在');
+    await new Promise<void>((resolve, reject) => {
+      this.cos.deleteObject(
+        { Bucket: this.bucket(), Region: this.region(), Key: objectKey },
+        (error) =>
+          error
+            ? reject(
+                error instanceof Error
+                  ? error
+                  : new Error(error.message || 'COS deleteObject failed'),
+              )
+            : resolve(),
+      );
+    });
   }
 
   async getObject(objectKey: string): Promise<{
