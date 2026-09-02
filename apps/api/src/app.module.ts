@@ -12,6 +12,7 @@ import { SeriesModule } from './series/series.module';
 import { MusicModule } from './music/music.module';
 import { AuthModule } from './auth/auth.module';
 import { I18nModule } from './i18n/i18n.module';
+import { MomentModule } from './moment/moment.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { I18nModule } from './i18n/i18n.module';
     SeriesModule,
     MusicModule,
     I18nModule,
+    MomentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

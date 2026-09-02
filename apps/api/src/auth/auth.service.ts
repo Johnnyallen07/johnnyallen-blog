@@ -50,4 +50,21 @@ export class AuthService {
       throw new UnauthorizedException('Token 无效或已过期');
     }
   }
+
+  async signScopedToken(
+    payload: Record<string, unknown>,
+    expiresIn: string | number,
+  ): Promise<string> {
+    return this.jwtService.signAsync(payload, { expiresIn } as never);
+  }
+
+  async verifyScopedToken<T extends Record<string, unknown>>(
+    token: string,
+  ): Promise<T> {
+    try {
+      return await this.jwtService.verifyAsync<T>(token);
+    } catch {
+      throw new UnauthorizedException('Token 无效或已过期');
+    }
+  }
 }

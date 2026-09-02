@@ -11,6 +11,7 @@ import {
   Music,
   Upload,
   Languages,
+  HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/admin/dashboard/CategoryManager";
@@ -145,6 +146,22 @@ export default function AdminDashboard() {
               </div>
             </button>
 
+            <button
+              onClick={() => router.push("/moment")}
+              className="group bg-white border border-gray-200 hover:border-slate-300 rounded-xl p-6 shadow-sm hover:shadow-md hover:bg-slate-50 transition-colors"
+            >
+              <div className="flex flex-col items-center text-center gap-3">
+                <div className="w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center">
+                  <HardDrive className="h-7 w-7 text-slate-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">
+                    Moment
+                  </h3>
+                  <p className="text-sm text-gray-600">管理私人资料库</p>
+                </div>
+              </div>
+            </button>
           </div>
 
           {/* 音乐上传快捷入口 */}

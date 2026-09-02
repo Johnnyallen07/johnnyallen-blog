@@ -43,6 +43,6 @@ jobs:
 
             cd /opt/johnny-blog
             sudo rm -rf cookies.txt
-            docker compose up -d --build --remove-orphans
+            docker compose --env-file .env.production up -d --build --remove-orphans
             docker image prune -f
           EOF

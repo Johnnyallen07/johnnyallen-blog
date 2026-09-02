@@ -1,5 +1,7 @@
 # Turborepo starter
 
+> 私人照片与备份资料库的部署、安全和 Mac 同步说明见 [docs/MOMENT.md](docs/MOMENT.md)。
+
 This Turborepo starter is maintained by the Turborepo core team.
 
 ## Using this example
