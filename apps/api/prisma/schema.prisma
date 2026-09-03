@@ -115,6 +115,8 @@ model MomentAsset {
   capturedAt   DateTime?
   width        Int?
   height       Int?
+  xmpMetadata  Json?
+  metadataText String            @default("")
   tags         String[]
   visibility   MomentVisibility  @default(PRIVATE)
   featured     Boolean           @default(false)
@@ -129,6 +131,7 @@ model MomentAsset {
   @@index([visibility, status, capturedAt])
   @@index([categoryId, status, trashedAt])
   @@index([checksum])
+  @@index([metadataText])
 }
 
 model MomentSyncToken {

@@ -102,8 +102,26 @@ export class CreateUploadUrlDto {
   size: string;
 }
 
+export class CheckMomentUploadDto extends CreateUploadUrlDto {
+  @IsOptional() @IsDateString() capturedAt?: string;
+  @IsOptional() @IsInt() @Min(1) width?: number;
+  @IsOptional() @IsInt() @Min(1) height?: number;
+}
+
+export class CheckMomentFolderDto {
+  @IsString() @IsNotEmpty() @MaxLength(80) name: string;
+  @IsOptional() @IsString() parentId?: string | null;
+}
+
+export class CancelMomentUploadDto {
+  @IsString() @IsNotEmpty() @MaxLength(1024) objectKey: string;
+}
+
 export class CompleteSyncDto extends CreateUploadUrlDto {
   @IsString() @IsNotEmpty() objectKey: string;
+  @IsOptional() @IsIn(['replace', 'reject']) conflictAction?:
+    | 'replace'
+    | 'reject';
   @IsOptional() @IsDateString() capturedAt?: string;
   @IsOptional() @IsInt() @Min(1) width?: number;
   @IsOptional() @IsInt() @Min(1) height?: number;

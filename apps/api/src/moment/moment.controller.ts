@@ -16,6 +16,9 @@ import {
 import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
+  CancelMomentUploadDto,
+  CheckMomentFolderDto,
+  CheckMomentUploadDto,
   CompleteSyncDto,
   CreateMomentCategoryDto,
   CreateSyncTokenDto,
@@ -239,16 +242,43 @@ export class MomentController {
     return this.moment.assetUrl(id, download === '1');
   }
 
+  @Post('admin/reindex-xmp')
+  @UseGuards(MomentAdminGuard)
+  reindexXmp(@Req() req: MomentRequest) {
+    return this.moment.reindexXmp(req.momentActor!);
+  }
+
   @Post('admin/upload-url')
   @UseGuards(MomentAdminGuard)
   adminUploadUrl(@Body() dto: CreateUploadUrlDto) {
     return this.moment.createUploadUrl(dto);
   }
 
+  @Post('admin/upload-check')
+  @UseGuards(MomentAdminGuard)
+  adminUploadCheck(@Body() dto: CheckMomentUploadDto) {
+    return this.moment.checkUpload(dto);
+  }
+
+  @Post('admin/folder-check')
+  @UseGuards(MomentAdminGuard)
+  adminFolderCheck(@Body() dto: CheckMomentFolderDto) {
+    return this.moment.checkFolder(dto);
+  }
+
+  @Post('admin/upload-cancel')
+  @UseGuards(MomentAdminGuard)
+  adminUploadCancel(
+    @Body() dto: CancelMomentUploadDto,
+    @Req() req: MomentRequest,
+  ) {
+    return this.moment.cancelUpload(dto.objectKey, req.momentActor!);
+  }
+
   @Post('admin/complete')
   @UseGuards(MomentAdminGuard)
   adminComplete(@Body() dto: CompleteSyncDto, @Req() req: MomentRequest) {
-    return this.moment.completeSync(dto, req.momentActor!);
+    return this.moment.completeSync(dto, req.momentActor!, 'reject');
   }
 
   @Get('admin/sync-tokens')
@@ -284,6 +314,6 @@ export class MomentController {
   @Post('sync/complete')
   @UseGuards(MomentSyncGuard)
   completeSync(@Body() dto: CompleteSyncDto, @Req() req: MomentRequest) {
-    return this.moment.completeSync(dto, req.momentActor!);
+    return this.moment.completeSync(dto, req.momentActor!, 'replace');
   }
 }

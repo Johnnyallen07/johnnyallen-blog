@@ -1,11 +1,14 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { MomentCategory, Prisma } from '@prisma/client';
+import { Prisma, type MomentCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  CheckMomentFolderDto,
+  CheckMomentUploadDto,
   CompleteSyncDto,
   CreateMomentCategoryDto,
   CreateSyncTokenDto,
@@ -17,6 +20,12 @@ import {
 } from './dto/moment.dto';
 import { randomToken, sha256 } from './moment-crypto';
 import { MomentStorageService } from './moment-storage.service';
+import {
+  type MomentXmpMetadata,
+  momentMetadataText,
+  momentStem,
+  parseMomentXmp,
+} from './moment-xmp';
 
 @Injectable()
 export class MomentService {
@@ -46,6 +55,30 @@ export class MomentService {
     return parts.join('/');
   }
 
+  private searchFacets(
+    assets: { xmpMetadata: Prisma.JsonValue | null; tags: string[] }[],
+  ) {
+    const values = (field: keyof MomentXmpMetadata) =>
+      [...new Set(assets.flatMap((asset) => {
+        const metadata = asset.xmpMetadata as MomentXmpMetadata | null;
+        const value = metadata?.[field];
+        return Array.isArray(value) ? value : value ? [value] : [];
+      }))].slice(0, 12);
+    return {
+      cameras: values('model'),
+      lenses: values('lens'),
+      locations: [...new Set([
+        ...values('location'),
+        ...values('city'),
+        ...values('country'),
+      ])].slice(0, 12),
+      keywords: [...new Set([
+        ...values('keywords'),
+        ...assets.flatMap((asset) => asset.tags),
+      ])].slice(0, 16),
+    };
+  }
+
   async catalog(query: MomentCatalogQueryDto, access: 'public' | 'admin') {
     const where: Prisma.MomentAssetWhereInput = {
       status: 'READY',
@@ -69,11 +102,12 @@ export class MomentService {
         { originalName: { contains: q, mode: 'insensitive' } },
         { relativePath: { contains: q, mode: 'insensitive' } },
         { description: { contains: q, mode: 'insensitive' } },
+        { metadataText: { contains: q, mode: 'insensitive' } },
         { tags: { has: q } },
       ];
     }
     const skip = (query.page - 1) * query.limit;
-    const [items, total, categories] = await this.prisma.$transaction([
+    const [items, total, categories, facetAssets] = await this.prisma.$transaction([
       this.prisma.momentAsset.findMany({
         where,
         include: { category: true },
@@ -90,6 +124,15 @@ export class MomentService {
         where: { trashedAt: null },
         orderBy: [{ order: 'asc' }, { name: 'asc' }],
       }),
+      this.prisma.momentAsset.findMany({
+        where: {
+          status: 'READY',
+          trashedAt: null,
+          ...(access === 'public' ? { visibility: 'PUBLIC' as const } : {}),
+        },
+        select: { xmpMetadata: true, tags: true },
+        take: 1000,
+      }),
     ]);
     return {
       items: items.map((item) => this.serializeAsset(item)),
@@ -98,6 +141,7 @@ export class MomentService {
       page: query.page,
       pages: Math.max(1, Math.ceil(total / query.limit)),
       access,
+      searchFacets: this.searchFacets(facetAssets),
     };
   }
 
@@ -319,10 +363,13 @@ export class MomentService {
             { originalName: { contains: query.q.trim(), mode: 'insensitive' } },
             { title: { contains: query.q.trim(), mode: 'insensitive' } },
             { relativePath: { contains: query.q.trim(), mode: 'insensitive' } },
+            { description: { contains: query.q.trim(), mode: 'insensitive' } },
+            { metadataText: { contains: query.q.trim(), mode: 'insensitive' } },
+            { tags: { has: query.q.trim() } },
           ],
         }
       : { categoryId: folderId, trashedAt };
-    const [folders, assets] = await Promise.all([
+    const [folders, assets, facetAssets] = await Promise.all([
       this.prisma.momentCategory.findMany({
         where: folderWhere,
         include: { _count: { select: { assets: true, children: true } } },
@@ -331,6 +378,11 @@ export class MomentService {
       this.prisma.momentAsset.findMany({
         where: assetWhere,
         orderBy: { originalName: 'asc' },
+      }),
+      this.prisma.momentAsset.findMany({
+        where: { status: 'READY', trashedAt: null },
+        select: { xmpMetadata: true, tags: true },
+        take: 1000,
       }),
     ]);
     const breadcrumbs: Pick<MomentCategory, 'id' | 'name'>[] = [];
@@ -348,6 +400,7 @@ export class MomentService {
       breadcrumbs,
       folders,
       assets: assets.map((item) => this.serializeAsset(item)),
+      searchFacets: this.searchFacets(facetAssets),
     };
   }
 
@@ -367,7 +420,11 @@ export class MomentService {
       ? `${folderPath}/${originalName}`
       : originalName;
     const conflict = await this.prisma.momentAsset.findFirst({
-      where: { relativePath, trashedAt: null, id: { not: id } },
+      where: {
+        relativePath: { equals: relativePath, mode: 'insensitive' },
+        trashedAt: null,
+        id: { not: id },
+      },
     });
     if (conflict) throw new BadRequestException('目标目录中已存在同名文件');
     const data: Prisma.MomentAssetUncheckedUpdateInput = {
@@ -406,7 +463,7 @@ export class MomentService {
     if (!asset) throw new NotFoundException('文件不存在');
     const conflict = await this.prisma.momentAsset.findFirst({
       where: {
-        relativePath: asset.relativePath,
+        relativePath: { equals: asset.relativePath, mode: 'insensitive' },
         trashedAt: null,
         id: { not: id },
       },
@@ -516,11 +573,200 @@ export class MomentService {
     return { items: items.map((item) => this.serializeAsset(item)) };
   }
 
+  private async availableCopyPath(relativePath: string) {
+    const parts = relativePath.split('/');
+    const originalName = parts.pop()!;
+    const extensionIndex = originalName.lastIndexOf('.');
+    const hasExtension = extensionIndex > 0;
+    const baseName = hasExtension
+      ? originalName.slice(0, extensionIndex)
+      : originalName;
+    const extension = hasExtension ? originalName.slice(extensionIndex) : '';
+    for (let copy = 1; copy <= 10_000; copy += 1) {
+      const suffix = copy === 1 ? ' (副本)' : ` (副本 ${copy})`;
+      const candidate = [...parts, `${baseName}${suffix}${extension}`].join(
+        '/',
+      );
+      const exists = await this.prisma.momentAsset.findFirst({
+        where: {
+          relativePath: { equals: candidate, mode: 'insensitive' },
+          trashedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!exists) return candidate;
+    }
+    throw new BadRequestException('无法为重复文件生成可用名称');
+  }
+
+  async checkUpload(dto: CheckMomentUploadDto) {
+    const relativePath = this.cleanPath(dto.relativePath);
+    const checksum = dto.checksum.toLowerCase();
+    const size = BigInt(dto.size);
+    const capturedAt = dto.capturedAt ? new Date(dto.capturedAt) : null;
+    const originalName = relativePath.split('/').pop()!;
+    const candidateSelect = {
+      id: true,
+      checksum: true,
+      originalName: true,
+      relativePath: true,
+      mimeType: true,
+      size: true,
+      capturedAt: true,
+      width: true,
+      height: true,
+      updatedAt: true,
+    } satisfies Prisma.MomentAssetSelect;
+    const [pathCandidate, similarCandidates] = await Promise.all([
+      this.prisma.momentAsset.findFirst({
+        where: {
+          relativePath: { equals: relativePath, mode: 'insensitive' },
+          status: 'READY',
+          trashedAt: null,
+        },
+        select: candidateSelect,
+      }),
+      this.prisma.momentAsset.findMany({
+        where: {
+          status: 'READY',
+          trashedAt: null,
+          OR: [
+            { checksum },
+            {
+              originalName: { equals: originalName, mode: 'insensitive' },
+              mimeType: dto.mimeType,
+            },
+            ...(capturedAt ? [{ capturedAt, size }] : []),
+            ...(dto.width && dto.height
+              ? [
+                  {
+                    width: dto.width,
+                    height: dto.height,
+                    size,
+                    mimeType: dto.mimeType,
+                  },
+                ]
+              : []),
+          ],
+        },
+        select: candidateSelect,
+        orderBy: [{ relativePath: 'asc' }, { updatedAt: 'desc' }],
+        take: 20,
+      }),
+    ]);
+    const candidates = [
+      ...(pathCandidate ? [pathCandidate] : []),
+      ...similarCandidates.filter((asset) => asset.id !== pathCandidate?.id),
+    ].slice(0, 20);
+    const serialized = candidates.map((asset) => {
+      const reasons = [
+        asset.relativePath.toLocaleLowerCase() ===
+        relativePath.toLocaleLowerCase()
+          ? 'same-path'
+          : null,
+        asset.checksum === checksum ? 'same-content' : null,
+        asset.originalName.localeCompare(originalName, undefined, {
+          sensitivity: 'accent',
+        }) === 0
+          ? 'same-name'
+          : null,
+        asset.size === size ? 'same-size' : null,
+        asset.mimeType === dto.mimeType ? 'same-type' : null,
+        capturedAt && asset.capturedAt?.getTime() === capturedAt.getTime()
+          ? 'same-date'
+          : null,
+        dto.width &&
+        dto.height &&
+        asset.width === dto.width &&
+        asset.height === dto.height
+          ? 'same-dimensions'
+          : null,
+      ].filter((reason): reason is string => Boolean(reason));
+      return {
+        ...this.serializeAsset(asset),
+        reasons,
+        exact: asset.checksum === checksum,
+      };
+    });
+    const pathMatch = serialized.find((asset) =>
+      asset.reasons.includes('same-path'),
+    );
+    return {
+      relativePath,
+      duplicate: serialized.length > 0,
+      pathMatch: pathMatch || null,
+      candidates: serialized,
+      suggestedPath: serialized.length
+        ? await this.availableCopyPath(relativePath)
+        : relativePath,
+    };
+  }
+
+  async checkFolder(dto: CheckMomentFolderDto) {
+    const name = this.cleanName(dto.name);
+    const parentId = dto.parentId || null;
+    if (parentId) await this.folder(parentId);
+    const [existing, siblings] = await Promise.all([
+      this.prisma.momentCategory.findFirst({
+        where: {
+          parentId,
+          trashedAt: null,
+          name: { equals: name, mode: 'insensitive' },
+        },
+        include: {
+          _count: {
+            select: {
+              assets: { where: { trashedAt: null } },
+              children: { where: { trashedAt: null } },
+            },
+          },
+        },
+      }),
+      this.prisma.momentCategory.findMany({
+        where: { parentId, trashedAt: null },
+        select: { name: true },
+      }),
+    ]);
+    const names = new Set(
+      siblings.map((folder) => folder.name.toLocaleLowerCase()),
+    );
+    let suggestedName = name;
+    if (existing) {
+      for (let copy = 1; copy <= 10_000; copy += 1) {
+        const suffix = copy === 1 ? ' (副本)' : ` (副本 ${copy})`;
+        const candidate = `${name}${suffix}`;
+        if (!names.has(candidate.toLocaleLowerCase())) {
+          suggestedName = candidate;
+          break;
+        }
+      }
+    }
+    return {
+      duplicate: Boolean(existing),
+      existing,
+      suggestedName,
+    };
+  }
+
+  async cancelUpload(objectKey: string, actor: string) {
+    if (!objectKey.startsWith('moment/vault/'))
+      throw new BadRequestException('上传对象无效');
+    const referenced = await this.prisma.momentAsset.findUnique({
+      where: { objectKey },
+      select: { id: true },
+    });
+    if (referenced)
+      return { deleted: false, referenced: true, assetId: referenced.id };
+    await this.storage.deleteObject(objectKey);
+    await this.audit(actor, 'UPLOAD_CANCELLED', undefined, { objectKey });
+    return { deleted: true, referenced: false };
+  }
+
   async createUploadUrl(dto: CreateUploadUrlDto) {
     const relativePath = this.cleanPath(dto.relativePath);
     const existing = await this.prisma.momentAsset.findFirst({
       where: {
-        relativePath,
+        relativePath: { equals: relativePath, mode: 'insensitive' },
         checksum: dto.checksum.toLowerCase(),
         status: 'READY',
         trashedAt: null,
@@ -566,7 +812,75 @@ export class MomentService {
     return parentId;
   }
 
-  async completeSync(dto: CompleteSyncDto, actor: string) {
+  private xmpDate(value?: string) {
+    if (!value) return undefined;
+    const normalized = value.replace(
+      /^(\d{4}):(\d{2}):(\d{2})/,
+      '$1-$2-$3',
+    );
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  private async readXmp(objectKey: string, size: bigint) {
+    if (size > 10n * 1024n * 1024n)
+      throw new BadRequestException('XMP 文件不能超过 10 MB');
+    const object = await this.storage.getObject(objectKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of object.stream)
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    return parseMomentXmp(Buffer.concat(chunks).toString('utf8'));
+  }
+
+  private async sidecarFor(
+    categoryId: string | null,
+    originalName: string,
+  ): Promise<MomentXmpMetadata | undefined> {
+    const siblings = await this.prisma.momentAsset.findMany({
+      where: { categoryId, trashedAt: null, xmpMetadata: { not: Prisma.JsonNull } },
+      select: { originalName: true, xmpMetadata: true },
+    });
+    const stem = momentStem(originalName);
+    const sidecar = siblings.find(
+      (item) =>
+        item.originalName.toLocaleLowerCase().endsWith('.xmp') &&
+        momentStem(item.originalName) === stem,
+    );
+    return sidecar?.xmpMetadata as MomentXmpMetadata | undefined;
+  }
+
+  private async applySidecarToMedia(
+    categoryId: string | null,
+    sidecarName: string,
+    metadata: MomentXmpMetadata,
+  ) {
+    const siblings = await this.prisma.momentAsset.findMany({
+      where: { categoryId, trashedAt: null },
+      select: { id: true, originalName: true, mimeType: true },
+    });
+    const stem = momentStem(sidecarName);
+    const media = siblings.filter(
+      (item) =>
+        (item.mimeType.startsWith('image/') || item.mimeType.startsWith('video/')) &&
+        momentStem(item.originalName) === stem,
+    );
+    if (!media.length) return;
+    const capturedAt = this.xmpDate(metadata.capturedAt);
+    await this.prisma.momentAsset.updateMany({
+      where: { id: { in: media.map((item) => item.id) } },
+      data: {
+        xmpMetadata: metadata as Prisma.InputJsonValue,
+        metadataText: momentMetadataText(metadata),
+        ...(capturedAt ? { capturedAt } : {}),
+      },
+    });
+  }
+
+  async completeSync(
+    dto: CompleteSyncDto,
+    actor: string,
+    defaultConflictAction: 'replace' | 'reject' = 'replace',
+  ) {
     const relativePath = this.cleanPath(dto.relativePath);
     const size = BigInt(dto.size);
     try {
@@ -577,19 +891,45 @@ export class MomentService {
     }
     const parts = relativePath.split('/');
     const originalName = parts.pop()!;
-    const categoryId = await this.ensureFolderPath(parts);
     const checksum = dto.checksum.toLowerCase();
     const exact = await this.prisma.momentAsset.findFirst({
-      where: { relativePath, checksum, trashedAt: null },
+      where: {
+        relativePath: { equals: relativePath, mode: 'insensitive' },
+        checksum,
+        trashedAt: null,
+      },
     });
     if (exact) {
       if (exact.objectKey !== dto.objectKey)
         await this.storage.deleteObject(dto.objectKey);
       return { ...this.serializeAsset(exact), verified: true };
     }
+    const categoryId = await this.ensureFolderPath(parts);
+    const isXmp = originalName.toLocaleLowerCase().endsWith('.xmp');
+    let parsedXmp: MomentXmpMetadata | undefined;
+    try {
+      parsedXmp = isXmp
+        ? await this.readXmp(dto.objectKey, size)
+        : await this.sidecarFor(categoryId, originalName);
+    } catch (error) {
+      await this.storage.deleteObject(dto.objectKey).catch(() => undefined);
+      throw error;
+    }
+    const metadataText = parsedXmp ? momentMetadataText(parsedXmp) : '';
+    const metadataCapturedAt = this.xmpDate(parsedXmp?.capturedAt);
     const replaced = await this.prisma.momentAsset.findFirst({
-      where: { relativePath, trashedAt: null },
+      where: {
+        relativePath: { equals: relativePath, mode: 'insensitive' },
+        trashedAt: null,
+      },
     });
+    if (
+      replaced &&
+      (dto.conflictAction || defaultConflictAction) !== 'replace'
+    ) {
+      await this.storage.deleteObject(dto.objectKey).catch(() => undefined);
+      throw new ConflictException('上传期间出现同路径文件，请重新选择处理方式');
+    }
     const asset = replaced
       ? await this.prisma.momentAsset.update({
           where: { id: replaced.id },
@@ -601,9 +941,13 @@ export class MomentService {
             size,
             categoryId,
             status: 'READY',
-            capturedAt: dto.capturedAt ? new Date(dto.capturedAt) : null,
+            capturedAt:
+              metadataCapturedAt ||
+              (dto.capturedAt ? new Date(dto.capturedAt) : null),
             width: dto.width,
             height: dto.height,
+            xmpMetadata: parsedXmp as Prisma.InputJsonValue | undefined,
+            metadataText,
           },
         })
       : await this.prisma.momentAsset.create({
@@ -615,9 +959,13 @@ export class MomentService {
             mimeType: dto.mimeType,
             size,
             categoryId,
-            capturedAt: dto.capturedAt ? new Date(dto.capturedAt) : null,
+            capturedAt:
+              metadataCapturedAt ||
+              (dto.capturedAt ? new Date(dto.capturedAt) : null),
             width: dto.width,
             height: dto.height,
+            xmpMetadata: parsedXmp as Prisma.InputJsonValue | undefined,
+            metadataText,
             tags: [],
           },
         });
@@ -628,7 +976,47 @@ export class MomentService {
       verified: true,
       replaced: Boolean(replaced),
     });
+    if (isXmp && parsedXmp)
+      await this.applySidecarToMedia(categoryId, originalName, parsedXmp);
     return { ...this.serializeAsset(asset), verified: true };
+  }
+
+  async reindexXmp(actor: string) {
+    const sidecars = await this.prisma.momentAsset.findMany({
+      where: {
+        originalName: { endsWith: '.xmp', mode: 'insensitive' },
+        status: 'READY',
+        trashedAt: null,
+      },
+    });
+    let indexed = 0;
+    let failed = 0;
+    for (const sidecar of sidecars) {
+      try {
+        const metadata = await this.readXmp(sidecar.objectKey, sidecar.size);
+        await this.prisma.momentAsset.update({
+          where: { id: sidecar.id },
+          data: {
+            xmpMetadata: metadata as Prisma.InputJsonValue,
+            metadataText: momentMetadataText(metadata),
+          },
+        });
+        await this.applySidecarToMedia(
+          sidecar.categoryId,
+          sidecar.originalName,
+          metadata,
+        );
+        indexed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    await this.audit(actor, 'XMP_REINDEXED', undefined, {
+      indexed,
+      failed,
+      total: sidecars.length,
+    });
+    return { indexed, failed, total: sidecars.length };
   }
 
   private audit(

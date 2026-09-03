@@ -13,6 +13,9 @@ function fileRecord(entry, previous) {
     checksum: null,
     objectKey: null,
     verified: false,
+    resolution: null,
+    resolvedPath: null,
+    deleteAssetId: null,
   };
 
   if (
@@ -56,6 +59,10 @@ export function reconcileUploadCache(previous, context, entries) {
     version: 1,
     destinationPath,
     sourceFolder,
+    targetFolder:
+      context.targetFolder || previous?.targetFolder || sourceFolder,
+    folderAction:
+      context.folderAction || previous?.folderAction || null,
     files,
     updatedAt: new Date().toISOString(),
   };
@@ -77,7 +84,10 @@ export function updateUploadCacheFile(cache, path, changes) {
 
 export function uploadCacheComplete(cache) {
   const files = Object.values(cache.files);
-  return files.length > 0 && files.every((file) => file.verified);
+  return (
+    files.length > 0 &&
+    files.every((file) => file.verified || file.resolution === "skip")
+  );
 }
 
 export function loadUploadCache(storage, destinationPath, sourceFolder) {

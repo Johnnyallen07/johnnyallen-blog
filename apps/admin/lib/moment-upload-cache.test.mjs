@@ -108,3 +108,15 @@ test("persists unfinished progress and removes it after every file is verified",
   removeUploadCache(storage, "", "相册");
   assert.equal(loadUploadCache(storage, "", "相册"), null);
 });
+
+test("treats an explicit skip decision as completed work", () => {
+  let cache = reconcileUploadCache(
+    null,
+    { destinationPath: "", sourceFolder: "相册" },
+    [entry("相册/a.jpg")],
+  );
+  cache = updateUploadCacheFile(cache, "相册/a.jpg", {
+    resolution: "skip",
+  });
+  assert.equal(uploadCacheComplete(cache), true);
+});

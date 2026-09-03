@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Camera,
   Check,
   ChevronRight,
   Copy,
@@ -17,12 +18,16 @@ import {
   HardDrive,
   Image as ImageIcon,
   KeyRound,
+  MapPin,
   MoreHorizontal,
+  Move,
   Pencil,
   RefreshCw,
   RotateCcw,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
   Smartphone,
   Trash2,
   Upload,
@@ -33,6 +38,13 @@ import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { fetchClient } from "@/lib/api";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   listUploadCaches,
   loadUploadCache,
   reconcileUploadCache,
@@ -41,6 +53,12 @@ import {
   updateUploadCacheFile,
   uploadCacheComplete,
 } from "@/lib/moment-upload-cache";
+import {
+  UploadConflictDialog,
+  type UploadConflict,
+  type UploadConflictCandidate,
+  type UploadConflictResolution,
+} from "./upload-conflict-dialog";
 
 type FolderItem = {
   id: string;
@@ -62,12 +80,22 @@ type Asset = {
   size: string;
   updatedAt: string;
   trashedAt?: string | null;
+  xmpMetadata?: XmpMetadata | null;
 };
+type XmpMetadata = {
+  make?: string; model?: string; lens?: string; focalLength?: string;
+  aperture?: string; shutterSpeed?: string; iso?: string; rating?: string;
+  label?: string; creator?: string; description?: string; keywords?: string[];
+  city?: string; state?: string; country?: string; location?: string;
+  gpsLatitude?: string; gpsLongitude?: string; capturedAt?: string;
+};
+type SearchFacets = { cameras: string[]; lenses: string[]; locations: string[]; keywords: string[] };
 type BrowserData = {
   folderId: string | null;
   breadcrumbs: { id: string; name: string }[];
   folders: FolderItem[];
   assets: Asset[];
+  searchFacets?: SearchFacets;
 };
 type TrustedDevice = {
   id: string;
@@ -96,7 +124,25 @@ type FileSystemHandleLike =
 type LocalVerified = { path: string; name: string };
 type UndoAction = { label: string; run: () => Promise<void> };
 type UploadEntry = { file: File; path: string };
-type UploadCacheContext = { destinationPath: string; sourceFolder: string };
+type UploadCacheContext = {
+  destinationPath: string;
+  sourceFolder: string;
+  targetFolder?: string;
+  folderAction?: "replace" | "keep" | null;
+};
+type UploadCheckResult = {
+  duplicate: boolean;
+  pathMatch: UploadConflictCandidate | null;
+  candidates: UploadConflictCandidate[];
+  suggestedPath: string;
+};
+type MoveTarget = { kind: "folder"; item: FolderItem } | { kind: "asset"; item: Asset };
+type RenameTarget = { kind: "folder" | "asset"; id: string; value: string };
+type FolderCheckResult = {
+  duplicate: boolean;
+  existing: (FolderItem & { _count?: { assets: number; children: number } }) | null;
+  suggestedName: string;
+};
 
 async function momentFetch(path: string, options: RequestInit = {}) {
   const response = await fetch(`/api/moment${path}`, {
@@ -120,9 +166,64 @@ function formatBytes(value: string | number) {
   return `${(size / 1024 ** 3).toFixed(1)} GB`;
 }
 
+function xmpSummary(metadata?: XmpMetadata | null) {
+  if (!metadata) return "";
+  return [
+    metadata.model || metadata.make,
+    metadata.lens,
+    metadata.focalLength ? `${metadata.focalLength} mm` : "",
+    metadata.aperture ? `ƒ/${metadata.aperture}` : "",
+    metadata.shutterSpeed ? `${metadata.shutterSpeed} s` : "",
+    metadata.iso ? `ISO ${metadata.iso}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function folderOptions(folders: FolderItem[]) {
+  const byParent = new Map<string | null, FolderItem[]>();
+  for (const folder of folders) {
+    const key = folder.parentId || null;
+    byParent.set(key, [...(byParent.get(key) || []), folder]);
+  }
+  const result: { id: string; label: string }[] = [];
+  const visit = (parentId: string | null, prefix = "", seen = new Set<string>()) => {
+    for (const folder of byParent.get(parentId) || []) {
+      if (seen.has(folder.id)) continue;
+      const label = prefix ? `${prefix} / ${folder.name}` : folder.name;
+      result.push({ id: folder.id, label });
+      visit(folder.id, label, new Set([...seen, folder.id]));
+    }
+  };
+  visit(null);
+  return result;
+}
+
+function isFolderInside(candidateId: string, ancestorId: string, folders: FolderItem[]) {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  let current = byId.get(candidateId);
+  const seen = new Set<string>();
+  while (current && !seen.has(current.id)) {
+    if (current.id === ancestorId) return true;
+    seen.add(current.id);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return false;
+}
+
 async function checksum(file: File) {
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function imageDimensions(file: File) {
+  if (!file.type.startsWith("image/") || typeof createImageBitmap !== "function") return {};
+  try {
+    const bitmap = await createImageBitmap(file);
+    const dimensions = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return dimensions;
+  } catch {
+    return {};
+  }
 }
 
 async function collectDirectory(handle: DirectoryHandle, prefix = ""): Promise<{ file: File; path: string }[]> {
@@ -161,6 +262,12 @@ export default function MomentAdminPage() {
   const [syncTokens, setSyncTokens] = useState<SyncToken[]>([]);
   const [newTokenLabel, setNewTokenLabel] = useState("Johnny’s MacBook");
   const [revealedToken, setRevealedToken] = useState("");
+  const [uploadConflict, setUploadConflict] = useState<UploadConflict | null>(null);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [allFolders, setAllFolders] = useState<FolderItem[]>([]);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const uploadConflictResolver = useRef<((resolution: UploadConflictResolution) => void) | null>(null);
 
   useEffect(() => {
     folderInput.current?.setAttribute("webkitdirectory", "");
@@ -258,11 +365,35 @@ export default function MomentAdminPage() {
     return (error as Error & { status?: number }).status;
   }
 
+  function chooseUploadConflict(conflict: UploadConflict) {
+    return new Promise<UploadConflictResolution>((resolve) => {
+      uploadConflictResolver.current = resolve;
+      setUploadConflict(conflict);
+    });
+  }
+
+  function resolveUploadConflict(resolution: UploadConflictResolution) {
+    uploadConflictResolver.current?.(resolution);
+    uploadConflictResolver.current = null;
+    setUploadConflict(null);
+  }
+
+  async function deleteReplacedAsset(assetId: string | null) {
+    if (!assetId) return;
+    try {
+      await momentFetch(`/admin/assets/${assetId}/permanent`, { method: "DELETE" });
+    } catch (error) {
+      if (requestStatus(error) !== 404) throw error;
+    }
+  }
+
   async function uploadFiles(entries: UploadEntry[], localPaths?: string[], cacheContext?: UploadCacheContext) {
     if (entries.length === 0) return;
     setBusy(true);
     const verified: LocalVerified[] = [];
     let skipped = 0;
+    let resumed = 0;
+    let batchAction: Exclude<UploadConflictResolution["action"], "cancel"> | null = null;
     let cache = cacheContext
       ? reconcileUploadCache(
           loadUploadCache(window.localStorage, cacheContext.destinationPath, cacheContext.sourceFolder),
@@ -282,12 +413,21 @@ export default function MomentAdminPage() {
       for (let index = 0; index < entries.length; index += 1) {
         const entry = entries[index]!;
         const base = cacheContext?.destinationPath ?? currentPath();
-        const relativePath = [base, entry.path].filter(Boolean).join("/");
-        setUploadStatus(`正在校验并上传 ${index + 1}/${entries.length}：${entry.path}`);
         let cachedFile = cache?.files[entry.path];
+        if (cachedFile?.resolution === "skip") {
+          skipped += 1;
+          setUploadStatus(`按上次选择跳过 ${index + 1}/${entries.length}：${entry.path}`);
+          continue;
+        }
+        let relativePath = cachedFile?.resolvedPath || [base, entry.path].filter(Boolean).join("/");
+        let deleteAssetId = cachedFile?.deleteAssetId || null;
+        let allowReplace = cachedFile?.resolution === "replace";
+        setUploadStatus(`正在校验并上传 ${index + 1}/${entries.length}：${entry.path}`);
         const hash = cachedFile?.checksum || await checksum(entry.file);
         const mimeType = entry.file.type || "application/octet-stream";
-        const payload = { relativePath, checksum: hash, mimeType, size: String(entry.file.size) };
+        const capturedAt = new Date(entry.file.lastModified).toISOString();
+        const dimensions = await imageDimensions(entry.file);
+        let payload = { relativePath, checksum: hash, mimeType, size: String(entry.file.size), ...dimensions };
         updateCache(entry.path, { checksum: hash });
         cachedFile = cache?.files[entry.path];
         let init;
@@ -296,11 +436,62 @@ export default function MomentAdminPage() {
           setUploadStatus(`正在确认上次进度 ${index + 1}/${entries.length}：${entry.path}`);
           init = await momentFetch("/admin/upload-url", { method: "POST", body: JSON.stringify(payload) });
           if (init.exists && init.verified) {
-            skipped += 1;
+            await deleteReplacedAsset(deleteAssetId);
+            updateCache(entry.path, { deleteAssetId: null });
+            resumed += 1;
             if (localPaths?.[index]) verified.push({ path: localPaths[index]!, name: entry.file.name });
             continue;
           }
           updateCache(entry.path, { verified: false });
+        }
+
+        if (!cachedFile?.resolution) {
+          const conflict = await momentFetch("/admin/upload-check", {
+            method: "POST",
+            body: JSON.stringify({ ...payload, capturedAt }),
+          }) as UploadCheckResult;
+          if (conflict.duplicate) {
+            const primary = conflict.pathMatch || conflict.candidates[0]!;
+            const resolution = cacheContext?.folderAction === "replace" && conflict.pathMatch
+              ? { action: "replace" as const, applyToAll: false, existingId: conflict.pathMatch.id }
+              : batchAction
+                ? { action: batchAction, applyToAll: true, existingId: primary.id }
+                : await chooseUploadConflict({
+                    kind: "file",
+                    incoming: { file: entry.file, path: relativePath, checksum: hash, ...dimensions },
+                    candidates: conflict.candidates,
+                    initialCandidateId: primary.id,
+                  });
+            if (resolution.action === "cancel") {
+              const error = new Error("上传已暂停，当前进度已保留");
+              error.name = "AbortError";
+              throw error;
+            }
+            if (resolution.applyToAll) batchAction = resolution.action;
+            if (resolution.action === "skip") {
+              if (cachedFile?.objectKey) {
+                await momentFetch("/admin/upload-cancel", {
+                  method: "POST",
+                  body: JSON.stringify({ objectKey: cachedFile.objectKey }),
+                });
+              }
+              updateCache(entry.path, { resolution: "skip", resolvedPath: relativePath, objectKey: null });
+              skipped += 1;
+              continue;
+            }
+            if (resolution.action === "keep") relativePath = conflict.suggestedPath;
+            const selected = conflict.candidates.find((candidate) => candidate.id === resolution.existingId) || primary;
+            deleteAssetId = resolution.action === "replace" && selected.relativePath.toLocaleLowerCase() !== relativePath.toLocaleLowerCase()
+              ? selected.id
+              : null;
+            allowReplace = resolution.action === "replace";
+            updateCache(entry.path, {
+              resolution: resolution.action,
+              resolvedPath: relativePath,
+              deleteAssetId,
+            });
+            payload = { ...payload, relativePath };
+          }
         }
 
         if (cachedFile?.objectKey) {
@@ -308,13 +499,18 @@ export default function MomentAdminPage() {
           try {
             const completed = await momentFetch("/admin/complete", {
               method: "POST",
-              body: JSON.stringify({ ...payload, objectKey: cachedFile.objectKey, capturedAt: new Date(entry.file.lastModified).toISOString() }),
+              body: JSON.stringify({ ...payload, objectKey: cachedFile.objectKey, capturedAt, conflictAction: allowReplace ? "replace" : "reject" }),
             });
             if (!completed.verified) throw new Error(`${entry.path} 未通过完整性校验`);
-            updateCache(entry.path, { verified: true });
+            await deleteReplacedAsset(deleteAssetId);
+            updateCache(entry.path, { verified: true, deleteAssetId: null });
             if (localPaths?.[index]) verified.push({ path: localPaths[index]!, name: entry.file.name });
             continue;
           } catch (error) {
+            if (requestStatus(error) === 409) {
+              updateCache(entry.path, { objectKey: null, verified: false, resolution: null, resolvedPath: null, deleteAssetId: null });
+              throw error;
+            }
             if (requestStatus(error) !== 404) throw error;
             updateCache(entry.path, { objectKey: null, verified: false });
           }
@@ -326,10 +522,19 @@ export default function MomentAdminPage() {
           const upload = await fetch(init.uploadUrl, { method: "PUT", headers: init.requiredHeaders, body: entry.file });
           if (!upload.ok) throw new Error(`上传 ${entry.path} 失败`);
           updateCache(entry.path, { objectKey: init.objectKey });
-          const completed = await momentFetch("/admin/complete", { method: "POST", body: JSON.stringify({ ...payload, objectKey: init.objectKey, capturedAt: new Date(entry.file.lastModified).toISOString() }) });
+          let completed;
+          try {
+            completed = await momentFetch("/admin/complete", { method: "POST", body: JSON.stringify({ ...payload, objectKey: init.objectKey, capturedAt, conflictAction: allowReplace ? "replace" : "reject" }) });
+          } catch (error) {
+            if (requestStatus(error) === 409) {
+              updateCache(entry.path, { objectKey: null, verified: false, resolution: null, resolvedPath: null, deleteAssetId: null });
+            }
+            throw error;
+          }
           if (!completed.verified) throw new Error(`${entry.path} 未通过完整性校验`);
         }
-        updateCache(entry.path, { verified: true });
+        await deleteReplacedAsset(deleteAssetId);
+        updateCache(entry.path, { verified: true, deleteAssetId: null });
         if (localPaths?.[index]) verified.push({ path: localPaths[index]!, name: entry.file.name });
       }
       if (cache && uploadCacheComplete(cache)) {
@@ -338,15 +543,57 @@ export default function MomentAdminPage() {
       }
       setVerifiedLocal(verified);
       setUploadStatus("");
-      toast.success(`${entries.length} 个文件已确认${skipped ? `，从缓存跳过 ${skipped} 个` : ""}`);
+      toast.success(`已处理 ${entries.length} 个文件：确认 ${entries.length - skipped} 个，跳过 ${skipped} 个${resumed ? `，其中续传 ${resumed} 个` : ""}`);
       await loadBrowser();
     } catch (error) {
       setPendingUploadCount(listUploadCaches(window.localStorage).length);
-      toast.error((error as Error).message);
+      if ((error as Error).name === "AbortError") toast.info((error as Error).message);
+      else toast.error((error as Error).message);
     } finally {
       setBusy(false);
       setUploadStatus("");
     }
+  }
+
+  async function uploadDirectory(entries: { file: File; path: string }[], sourceFolder: string, localPaths?: string[]) {
+    if (entries.length === 0) return;
+    const destinationPath = currentPath();
+    const previous = loadUploadCache(window.localStorage, destinationPath, sourceFolder);
+    let targetFolder = previous?.targetFolder || sourceFolder;
+    let folderAction = previous?.folderAction || null;
+    if (!previous?.targetFolder) {
+      const folderCheck = await momentFetch("/admin/folder-check", {
+        method: "POST",
+        body: JSON.stringify({ name: sourceFolder, parentId: browser.folderId }),
+      }) as FolderCheckResult;
+      if (folderCheck.duplicate && folderCheck.existing) {
+        const existing = folderCheck.existing;
+        const resolution = await chooseUploadConflict({
+          kind: "folder",
+          incomingName: sourceFolder,
+          incomingCount: entries.length,
+          existing: {
+            id: existing.id,
+            name: existing.name,
+            count: (existing._count?.assets || 0) + (existing._count?.children || 0),
+          },
+        });
+        if (resolution.action === "skip") {
+          toast.info(`已跳过文件夹“${sourceFolder}”`);
+          return;
+        }
+        if (resolution.action === "cancel") return;
+        folderAction = resolution.action;
+        if (resolution.action === "keep") {
+          targetFolder = folderCheck.suggestedName;
+        }
+      }
+    }
+    await uploadFiles(
+      entries.map((entry) => ({ ...entry, path: `${targetFolder}/${entry.path}` })),
+      localPaths,
+      { destinationPath, sourceFolder, targetFolder, folderAction },
+    );
   }
 
   async function openDirectory() {
@@ -359,13 +606,8 @@ export default function MomentAdminPage() {
       const handle = await picker({ mode: "readwrite" });
       const permission = await handle.requestPermission({ mode: "readwrite" });
       const entries = await collectDirectory(handle);
-      const destinationPath = currentPath();
       setDirectoryHandle(permission === "granted" ? handle : null);
-      await uploadFiles(
-        entries.map((item) => ({ file: item.file, path: `${handle.name}/${item.path}` })),
-        entries.map((item) => item.path),
-        { destinationPath, sourceFolder: handle.name },
-      );
+      await uploadDirectory(entries, handle.name, entries.map((item) => item.path));
     } catch (error) {
       if ((error as DOMException).name !== "AbortError") toast.error((error as Error).message);
     }
@@ -411,18 +653,72 @@ export default function MomentAdminPage() {
     await uploadFiles([{ file: new globalThis.File([content], name, { type: "text/plain" }), path: name }]);
   }
 
-  async function renameFolder(folder: FolderItem) {
-    const name = prompt("重命名文件夹", folder.name);
-    if (!name || name === folder.name) return;
-    await momentFetch(`/admin/categories/${folder.id}`, { method: "PATCH", body: JSON.stringify({ name }) });
-    await loadBrowser();
+  function beginRename(kind: "folder" | "asset", item: FolderItem | Asset) {
+    setRenameTarget({
+      kind,
+      id: item.id,
+      value: "name" in item ? item.name : item.originalName,
+    });
   }
 
-  async function renameAsset(asset: Asset) {
-    const name = prompt("重命名文件", asset.originalName);
-    if (!name || name === asset.originalName) return;
-    await momentFetch(`/admin/assets/${asset.id}`, { method: "PATCH", body: JSON.stringify({ originalName: name }) });
-    await loadBrowser();
+  async function finishRename() {
+    if (!renameTarget) return;
+    const item = renameTarget.kind === "folder"
+      ? browser.folders.find((folder) => folder.id === renameTarget.id)
+      : browser.assets.find((asset) => asset.id === renameTarget.id);
+    const previous = item && ("name" in item ? item.name : item.originalName);
+    const value = renameTarget.value.trim();
+    setRenameTarget(null);
+    if (!value || value === previous) return;
+    try {
+      const path = renameTarget.kind === "folder"
+        ? `/admin/categories/${renameTarget.id}`
+        : `/admin/assets/${renameTarget.id}`;
+      const body = renameTarget.kind === "folder" ? { name: value } : { originalName: value };
+      await momentFetch(path, { method: "PATCH", body: JSON.stringify(body) });
+      toast.success("已重命名");
+      await loadBrowser();
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  }
+
+  async function openMove(target: MoveTarget) {
+    try {
+      setAllFolders(await momentFetch("/admin/categories"));
+      setMoveTarget(target);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  }
+
+  async function moveItem(folderId: string | null) {
+    if (!moveTarget) return;
+    try {
+      const path = moveTarget.kind === "folder"
+        ? `/admin/categories/${moveTarget.item.id}`
+        : `/admin/assets/${moveTarget.item.id}`;
+      const body = moveTarget.kind === "folder" ? { parentId: folderId } : { categoryId: folderId };
+      await momentFetch(path, { method: "PATCH", body: JSON.stringify(body) });
+      setMoveTarget(null);
+      toast.success(`已移动${moveTarget.kind === "folder" ? "文件夹" : "文件"}`);
+      await loadBrowser();
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  }
+
+  async function reindexXmp() {
+    setBusy(true);
+    try {
+      const result = await momentFetch("/admin/reindex-xmp", { method: "POST", body: "{}" });
+      toast.success(`已索引 ${result.indexed}/${result.total} 个 XMP 文件${result.failed ? `，${result.failed} 个失败` : ""}`);
+      await loadBrowser();
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function trashItem(kind: "folder" | "asset", item: FolderItem | Asset) {
@@ -504,6 +800,15 @@ export default function MomentAdminPage() {
   if (setupEnabled === null) return <div className="grid min-h-screen place-items-center text-gray-500"><RefreshCw className="h-6 w-6 animate-spin" /></div>;
 
   const canPreview = (mime: string) => mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/") || mime === "application/pdf" || mime.startsWith("text/");
+  const facets = browser.searchFacets || { cameras: [], lenses: [], locations: [], keywords: [] };
+  const searchableFacets = [
+    { label: "相机", icon: Camera, values: facets.cameras },
+    { label: "镜头", icon: SlidersHorizontal, values: facets.lenses },
+    { label: "地点", icon: MapPin, values: facets.locations },
+    { label: "关键词", icon: Sparkles, values: facets.keywords },
+  ].filter((group) => group.values.length > 0);
+  const movingFolderId = moveTarget?.kind === "folder" ? moveTarget.item.id : "";
+  const moveFolders = folderOptions(allFolders).filter((folder) => !movingFolderId || !isFolderInside(folder.id, movingFolderId, allFolders));
 
   return (
     <main className="min-h-screen bg-[#f4f4f1] px-4 py-7 sm:px-8">
@@ -544,9 +849,25 @@ export default function MomentAdminPage() {
                   <button onClick={() => fileInput.current?.click()} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-sm"><Upload className="h-4 w-4" />上传文件</button>
                   <button onClick={() => void openDirectory()} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-sm"><FolderInput className="h-4 w-4" />从电脑上传文件夹</button>
                   <button onClick={() => void createTextFile()} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-sm"><FilePlus2 className="h-4 w-4" />新建文件</button>
+                  <button disabled={busy} onClick={() => void reindexXmp()} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-sm disabled:opacity-50" title="读取已有 XMP sidecar 并关联同名照片"><Sparkles className="h-4 w-4 text-violet-600" />索引 XMP</button>
                   {verifiedLocal.length > 0 && directoryHandle && <button onClick={() => void deleteVerifiedLocalFiles()} className="flex h-10 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 text-sm text-red-700"><Trash2 className="h-4 w-4" />删除本地已验证文件 ({verifiedLocal.length})</button>}
                 </div>
-                <div className="flex gap-2"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称或路径" className="h-10 w-full rounded-xl border pl-9 pr-3 text-sm lg:w-56" /></div><button onClick={() => { setTrash((value) => !value); setSearch(""); }} className={`grid h-10 w-10 place-items-center rounded-xl border ${trash ? "bg-red-50 text-red-600" : ""}`} title="回收站"><Trash2 className="h-4 w-4" /></button></div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input value={search} onChange={(event) => setSearch(event.target.value)} onFocus={() => setSearchFocused(true)} onBlur={() => window.setTimeout(() => setSearchFocused(false), 150)} placeholder="搜索照片、相机、镜头、地点…" className="h-10 w-full rounded-xl border pl-9 pr-3 text-sm lg:w-80" />
+                    {searchFocused && searchableFacets.length > 0 && !trash && (
+                      <div className="absolute right-0 top-12 z-40 w-[min(32rem,90vw)] rounded-2xl border bg-white p-4 shadow-2xl">
+                        <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-gray-500"><Sparkles className="h-3.5 w-3.5 text-violet-600" />按照片 metadata 搜索</div>
+                        <div className="space-y-3">
+                          {searchableFacets.map((group) => <div key={group.label} className="grid grid-cols-[72px_1fr] gap-2"><span className="flex items-center gap-1.5 pt-1 text-xs text-gray-400"><group.icon className="h-3.5 w-3.5" />{group.label}</span><div className="flex flex-wrap gap-1.5">{group.values.slice(0, 8).map((value) => <button key={value} onMouseDown={(event) => event.preventDefault()} onClick={() => { setSearch(value); setSearchFocused(false); }} className="max-w-48 truncate rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700">{value}</button>)}</div></div>)}
+                        </div>
+                        <p className="mt-3 border-t pt-3 text-[11px] text-gray-400">也支持标题、描述、路径、标签、作者、ISO、光圈与快门参数</p>
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => { setTrash((value) => !value); setSearch(""); }} className={`grid h-10 w-10 place-items-center rounded-xl border ${trash ? "bg-red-50 text-red-600" : ""}`} title="回收站"><Trash2 className="h-4 w-4" /></button>
+                </div>
               </div>
 
               <div className="flex min-h-12 items-center gap-1 border-b bg-gray-50/70 px-4 text-sm">
@@ -560,13 +881,13 @@ export default function MomentAdminPage() {
               {undo && <div className="flex items-center justify-between border-b bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>{undo.label}</span><button onClick={async () => { await undo.run(); setUndo(null); }} className="flex items-center gap-1 font-semibold"><RotateCcw className="h-4 w-4" />撤销</button></div>}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b text-xs text-gray-500"><tr><th className="px-4 py-3 font-medium">名称</th><th className="px-4 py-3 font-medium">位置 / 类型</th><th className="px-4 py-3 font-medium">大小</th><th className="px-4 py-3 font-medium">可见性</th><th className="w-16 px-4 py-3" /></tr></thead><tbody>
-                  {browser.folders.map((folder) => <tr key={folder.id} className="border-b last:border-0 hover:bg-gray-50"><td className="px-4 py-3"><button disabled={trash} onDoubleClick={() => void loadBrowser(folder.id)} onClick={() => !trash && void loadBrowser(folder.id)} className="flex items-center gap-3 font-medium"><Folder className="h-5 w-5 fill-amber-100 text-amber-600" />{folder.name}</button></td><td className="px-4 py-3 text-gray-500">文件夹 · {(folder._count?.assets || 0) + (folder._count?.children || 0)} 项</td><td className="px-4 py-3 text-gray-400">—</td><td className="px-4 py-3 text-gray-400">继承文件设置</td><td className="px-4 py-3"><div className="flex justify-end gap-2">{trash ? <><button onClick={() => void restoreOrDelete("folder", folder, false)} title="恢复"><RotateCcw className="h-4 w-4" /></button><button onClick={() => void restoreOrDelete("folder", folder, true)} title="永久删除" className="text-red-600"><Trash2 className="h-4 w-4" /></button></> : <><button onClick={() => void downloadFolder(folder)} title="下载文件夹"><Download className="h-4 w-4" /></button><button onClick={() => void renameFolder(folder)} title="重命名"><Pencil className="h-4 w-4" /></button><button onClick={() => void trashItem("folder", folder)} title="移到回收站"><Trash2 className="h-4 w-4 text-gray-400" /></button></>}</div></td></tr>)}
-                  {browser.assets.map((asset) => <tr key={asset.id} className="border-b last:border-0 hover:bg-gray-50"><td className="px-4 py-3"><button disabled={!canPreview(asset.mimeType) || trash} onClick={() => void previewAsset(asset)} className="flex items-center gap-3 font-medium">{asset.mimeType.startsWith("image/") ? <ImageIcon className="h-5 w-5 text-emerald-600" /> : asset.mimeType.startsWith("video/") ? <Video className="h-5 w-5 text-purple-600" /> : <File className="h-5 w-5 text-blue-600" />}<span>{asset.originalName}</span></button></td><td className="max-w-xs truncate px-4 py-3 text-gray-500">{asset.relativePath}</td><td className="px-4 py-3 text-gray-500">{formatBytes(asset.size)}</td><td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${asset.visibility === "PUBLIC" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>{asset.visibility === "PUBLIC" ? "公开展示" : "仅自己"}</span></td><td className="px-4 py-3"><div className="flex justify-end gap-2">{trash ? <><button onClick={() => void restoreOrDelete("asset", asset, false)} title="恢复"><RotateCcw className="h-4 w-4" /></button><button onClick={() => void restoreOrDelete("asset", asset, true)} title="永久删除" className="text-red-600"><Trash2 className="h-4 w-4" /></button></> : <><button onClick={() => void downloadAsset(asset)} title="下载"><Download className="h-4 w-4" /></button>{canPreview(asset.mimeType) && <button onClick={() => void previewAsset(asset)} title="预览"><Eye className="h-4 w-4" /></button>}<button onClick={() => void renameAsset(asset)} title="重命名"><Pencil className="h-4 w-4" /></button><button onClick={() => setSelected({ ...asset })} title="配置"><MoreHorizontal className="h-4 w-4" /></button><button onClick={() => void trashItem("asset", asset)} title="移到回收站"><Trash2 className="h-4 w-4 text-gray-400" /></button></>}</div></td></tr>)}
+                  {browser.folders.map((folder) => <tr key={folder.id} className="border-b last:border-0 hover:bg-gray-50"><td className="px-4 py-3"><div className="flex items-center gap-3 font-medium"><Folder className="h-5 w-5 shrink-0 fill-amber-100 text-amber-600" />{renameTarget?.kind === "folder" && renameTarget.id === folder.id ? <input autoFocus value={renameTarget.value} onChange={(event) => setRenameTarget({ ...renameTarget, value: event.target.value })} onBlur={() => void finishRename()} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenameTarget(null); }} className="h-8 min-w-52 rounded-lg border border-blue-400 bg-white px-2 outline-none ring-2 ring-blue-100" /> : <button disabled={trash} onClick={() => !trash && void loadBrowser(folder.id)}>{folder.name}</button>}</div></td><td className="px-4 py-3 text-gray-500">文件夹 · {(folder._count?.assets || 0) + (folder._count?.children || 0)} 项</td><td className="px-4 py-3 text-gray-400">—</td><td className="px-4 py-3 text-gray-400">继承文件设置</td><td className="px-4 py-3"><div className="flex justify-end gap-3">{trash ? <><button onClick={() => void restoreOrDelete("folder", folder, false)} title="恢复"><RotateCcw className="h-4 w-4" /></button><button onClick={() => void restoreOrDelete("folder", folder, true)} title="永久删除" className="text-red-600"><Trash2 className="h-4 w-4" /></button></> : <DropdownMenu><DropdownMenuTrigger asChild><button className="grid h-8 w-8 place-items-center rounded-lg hover:bg-gray-100" title="更多操作"><MoreHorizontal className="h-4 w-4" /></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-44"><DropdownMenuItem onClick={() => void downloadFolder(folder)}><Download />下载文件夹</DropdownMenuItem><DropdownMenuItem onClick={() => beginRename("folder", folder)}><Pencil />重命名</DropdownMenuItem><DropdownMenuItem onClick={() => void openMove({ kind: "folder", item: folder })}><Move />移动到…</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onClick={() => void trashItem("folder", folder)}><Trash2 />移到回收站</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}</div></td></tr>)}
+                  {browser.assets.map((asset) => <tr key={asset.id} className="border-b last:border-0 hover:bg-gray-50"><td className="px-4 py-3"><div className="flex items-center gap-3 font-medium">{asset.mimeType.startsWith("image/") ? <ImageIcon className="h-5 w-5 shrink-0 text-emerald-600" /> : asset.mimeType.startsWith("video/") ? <Video className="h-5 w-5 shrink-0 text-purple-600" /> : <File className="h-5 w-5 shrink-0 text-blue-600" />}{renameTarget?.kind === "asset" && renameTarget.id === asset.id ? <input autoFocus value={renameTarget.value} onChange={(event) => setRenameTarget({ ...renameTarget, value: event.target.value })} onBlur={() => void finishRename()} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenameTarget(null); }} className="h-8 min-w-52 rounded-lg border border-blue-400 bg-white px-2 outline-none ring-2 ring-blue-100" /> : <button disabled={trash} onDoubleClick={(event) => { event.preventDefault(); beginRename("asset", asset); }} title="双击重命名">{asset.originalName}</button>}</div></td><td className="max-w-md px-4 py-3 text-gray-500"><p className="max-w-md truncate">{asset.relativePath}</p>{asset.xmpMetadata && <p className="mt-1 flex max-w-md items-center gap-1 truncate text-[11px] text-violet-600"><Camera className="h-3 w-3 shrink-0" />{xmpSummary(asset.xmpMetadata) || "已关联 XMP metadata"}</p>}</td><td className="px-4 py-3 text-gray-500">{formatBytes(asset.size)}</td><td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${asset.visibility === "PUBLIC" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>{asset.visibility === "PUBLIC" ? "公开展示" : "仅自己"}</span></td><td className="px-4 py-3"><div className="flex justify-end gap-3">{trash ? <><button onClick={() => void restoreOrDelete("asset", asset, false)} title="恢复"><RotateCcw className="h-4 w-4" /></button><button onClick={() => void restoreOrDelete("asset", asset, true)} title="永久删除" className="text-red-600"><Trash2 className="h-4 w-4" /></button></> : <><button onClick={() => void downloadAsset(asset)} title="下载"><Download className="h-4 w-4" /></button>{canPreview(asset.mimeType) && <button onClick={() => void previewAsset(asset)} title="预览"><Eye className="h-4 w-4" /></button>}<DropdownMenu><DropdownMenuTrigger asChild><button className="grid h-8 w-8 place-items-center rounded-lg hover:bg-gray-100" title="更多操作"><MoreHorizontal className="h-4 w-4" /></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-44"><DropdownMenuItem onClick={() => setSelected({ ...asset })}><SlidersHorizontal />展示配置</DropdownMenuItem><DropdownMenuItem onClick={() => beginRename("asset", asset)}><Pencil />重命名</DropdownMenuItem><DropdownMenuItem onClick={() => void openMove({ kind: "asset", item: asset })}><Move />移动到…</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onClick={() => void trashItem("asset", asset)}><Trash2 />移到回收站</DropdownMenuItem></DropdownMenuContent></DropdownMenu></>}</div></td></tr>)}
                 </tbody></table>
                 {browser.folders.length + browser.assets.length === 0 && <div className="grid min-h-52 place-items-center text-sm text-gray-400">{trash ? "回收站为空" : "当前文件夹为空，可以上传文件或文件夹"}</div>}
               </div>
               <input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); void uploadFiles(files.map((file) => ({ file, path: file.name }))); event.target.value = ""; }} />
-              <input ref={folderInput} type="file" multiple className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); const firstPath = files[0]?.webkitRelativePath || files[0]?.name || ""; const sourceFolder = firstPath.split("/")[0] || "folder"; const destinationPath = currentPath(); setDirectoryHandle(null); setVerifiedLocal([]); void uploadFiles(files.map((file) => ({ file, path: file.webkitRelativePath || file.name })), undefined, { destinationPath, sourceFolder }); event.target.value = ""; }} />
+              <input ref={folderInput} type="file" multiple className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); const firstPath = files[0]?.webkitRelativePath || files[0]?.name || ""; const sourceFolder = firstPath.split("/")[0] || "folder"; setDirectoryHandle(null); setVerifiedLocal([]); void uploadDirectory(files.map((file) => { const path = file.webkitRelativePath || file.name; return { file, path: path.split("/").slice(1).join("/") || file.name }; }), sourceFolder); event.target.value = ""; }} />
             </section>
 
             <section className="grid gap-6 lg:grid-cols-2">
@@ -579,9 +900,11 @@ export default function MomentAdminPage() {
         )}
       </div>
 
+      {uploadConflict && <UploadConflictDialog key={uploadConflict.kind === "file" ? `${uploadConflict.incoming.path}:${uploadConflict.incoming.checksum}` : uploadConflict.incomingName} conflict={uploadConflict} onResolve={resolveUploadConflict} />}
+      {moveTarget && <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-5" onMouseDown={(event) => event.target === event.currentTarget && setMoveTarget(null)}><div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"><div className="border-b p-5"><h2 className="text-lg font-semibold">移动“{moveTarget.kind === "folder" ? moveTarget.item.name : moveTarget.item.originalName}”</h2><p className="mt-1 text-sm text-gray-500">选择目标文件夹；移动文件夹时会同步更新内部文件的路径。</p></div><div className="max-h-[55vh] overflow-y-auto p-3"><button onClick={() => void moveItem(null)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-gray-100"><HardDrive className="h-4 w-4 text-gray-500" />Moment 根目录</button>{moveFolders.map((folder) => <button key={folder.id} onClick={() => void moveItem(folder.id)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-gray-100"><Folder className="h-4 w-4 fill-amber-100 text-amber-600" /><span className="truncate">{folder.label}</span></button>)}</div><div className="flex justify-end border-t p-4"><button onClick={() => setMoveTarget(null)} className="rounded-xl border px-4 py-2 text-sm">取消</button></div></div></div>}
       {preview && <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 p-4" onMouseDown={(event) => event.target === event.currentTarget && setPreview(null)}><div className="relative max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl bg-white p-3"><button onClick={() => setPreview(null)} className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full bg-black/60 text-white"><X className="h-4 w-4" /></button>{preview.asset.mimeType.startsWith("image/") ? <img src={preview.url} alt={preview.asset.originalName} className="mx-auto max-h-[86vh] rounded-xl object-contain" /> : preview.asset.mimeType.startsWith("video/") ? <video src={preview.url} controls autoPlay className="max-h-[86vh] w-full rounded-xl bg-black" /> : preview.asset.mimeType.startsWith("audio/") ? <audio src={preview.url} controls autoPlay className="my-16 w-full" /> : <iframe src={preview.url} title={preview.asset.originalName} className="h-[82vh] w-full rounded-xl" />}</div></div>}
 
-      {selected && <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-5" onMouseDown={(event) => event.target === event.currentTarget && setSelected(null)}><form onSubmit={saveAsset} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-2xl"><h2 className="text-xl font-semibold">文件展示配置</h2><input value={selected.title || ""} onChange={(event) => setSelected({ ...selected, title: event.target.value })} placeholder="展示标题" className="h-10 w-full rounded-xl border px-3 text-sm" /><textarea value={selected.description || ""} onChange={(event) => setSelected({ ...selected, description: event.target.value })} placeholder="描述" className="min-h-24 w-full rounded-xl border p-3 text-sm" /><select value={selected.visibility} onChange={(event) => setSelected({ ...selected, visibility: event.target.value as "PUBLIC" | "PRIVATE" })} className="h-10 w-full rounded-xl border px-3 text-sm"><option value="PRIVATE">仅自己</option><option value="PUBLIC">公开展示</option></select><input value={selected.tags.join(", ")} onChange={(event) => setSelected({ ...selected, tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" className="h-10 w-full rounded-xl border px-3 text-sm" /><div className="flex justify-end gap-2"><button type="button" onClick={() => setSelected(null)} className="rounded-xl border px-4 py-2 text-sm">取消</button><button className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">保存</button></div></form></div>}
+      {selected && <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-5" onMouseDown={(event) => event.target === event.currentTarget && setSelected(null)}><form onSubmit={saveAsset} className="max-h-[90vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"><div><h2 className="text-xl font-semibold">文件展示配置</h2><p className="mt-1 truncate text-xs text-gray-400">{selected.originalName}</p></div><input value={selected.title || ""} onChange={(event) => setSelected({ ...selected, title: event.target.value })} placeholder="展示标题" className="h-10 w-full rounded-xl border px-3 text-sm" /><textarea value={selected.description || ""} onChange={(event) => setSelected({ ...selected, description: event.target.value })} placeholder="描述" className="min-h-24 w-full rounded-xl border p-3 text-sm" /><select value={selected.visibility} onChange={(event) => setSelected({ ...selected, visibility: event.target.value as "PUBLIC" | "PRIVATE" })} className="h-10 w-full rounded-xl border px-3 text-sm"><option value="PRIVATE">仅自己</option><option value="PUBLIC">公开展示</option></select><input value={selected.tags.join(", ")} onChange={(event) => setSelected({ ...selected, tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" className="h-10 w-full rounded-xl border px-3 text-sm" />{selected.xmpMetadata && <XmpMetadataPanel metadata={selected.xmpMetadata} />}<div className="flex justify-end gap-2"><button type="button" onClick={() => setSelected(null)} className="rounded-xl border px-4 py-2 text-sm">取消</button><button className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">保存</button></div></form></div>}
     </main>
   );
 }
@@ -590,4 +913,17 @@ function DeviceList({ items, onRevoke }: { items: TrustedDevice[]; onRevoke: (id
   const active = items.filter((item) => !item.revokedAt && new Date(item.expiresAt) > new Date());
   if (!active.length) return <p className="rounded-xl bg-gray-50 px-4 py-5 text-center text-sm text-gray-400">暂无可信设备</p>;
   return <div className="space-y-2">{active.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-4 py-3"><div className="min-w-0"><p className="font-medium">{item.deviceLabel}</p><p className="mt-1 truncate text-xs text-gray-400">最近使用 {new Date(item.lastUsedAt).toLocaleString("zh-CN")} · 到期 {new Date(item.expiresAt).toLocaleString("zh-CN")}</p></div><button onClick={() => void onRevoke(item.id)} className="shrink-0 text-xs font-medium text-red-600">撤销</button></div>)}</div>;
+}
+
+function XmpMetadataPanel({ metadata }: { metadata: XmpMetadata }) {
+  const rows = [
+    ["相机", [metadata.make, metadata.model].filter(Boolean).join(" ")],
+    ["镜头", metadata.lens],
+    ["拍摄参数", [metadata.focalLength && `${metadata.focalLength} mm`, metadata.aperture && `ƒ/${metadata.aperture}`, metadata.shutterSpeed && `${metadata.shutterSpeed} s`, metadata.iso && `ISO ${metadata.iso}`].filter(Boolean).join(" · ")],
+    ["地点", [metadata.location, metadata.city, metadata.state, metadata.country].filter(Boolean).join(" · ")],
+    ["作者", metadata.creator],
+    ["评分 / 标签", [metadata.rating && `${metadata.rating} 星`, metadata.label].filter(Boolean).join(" · ")],
+    ["拍摄时间", metadata.capturedAt],
+  ].filter((row) => row[1]);
+  return <section className="rounded-xl border border-violet-100 bg-violet-50/50 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-violet-800"><Camera className="h-4 w-4" />XMP metadata</h3><dl className="grid gap-2 text-xs">{rows.map(([label, value]) => <div key={label as string} className="grid grid-cols-[84px_1fr] gap-3"><dt className="text-gray-400">{label}</dt><dd className="break-words text-gray-700">{value}</dd></div>)}</dl>{metadata.keywords?.length ? <div className="mt-3 flex flex-wrap gap-1">{metadata.keywords.map((keyword) => <span key={keyword} className="rounded-full bg-white px-2 py-1 text-[11px] text-violet-700">{keyword}</span>)}</div> : null}</section>;
 }
