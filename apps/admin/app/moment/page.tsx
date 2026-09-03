@@ -32,6 +32,15 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { fetchClient } from "@/lib/api";
+import {
+  listUploadCaches,
+  loadUploadCache,
+  reconcileUploadCache,
+  removeUploadCache,
+  saveUploadCache,
+  updateUploadCacheFile,
+  uploadCacheComplete,
+} from "@/lib/moment-upload-cache";
 
 type FolderItem = {
   id: string;
@@ -86,6 +95,8 @@ type FileSystemHandleLike =
   | ({ kind: "directory" } & DirectoryHandle);
 type LocalVerified = { path: string; name: string };
 type UndoAction = { label: string; run: () => Promise<void> };
+type UploadEntry = { file: File; path: string };
+type UploadCacheContext = { destinationPath: string; sourceFolder: string };
 
 async function momentFetch(path: string, options: RequestInit = {}) {
   const response = await fetch(`/api/moment${path}`, {
@@ -93,7 +104,11 @@ async function momentFetch(path: string, options: RequestInit = {}) {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) {
+    const error = new Error(body.message || "请求失败") as Error & { status: number };
+    error.status = response.status;
+    throw error;
+  }
   return body;
 }
 
@@ -135,6 +150,7 @@ export default function MomentAdminPage() {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [pendingUploadCount, setPendingUploadCount] = useState(0);
   const [verifiedLocal, setVerifiedLocal] = useState<LocalVerified[]>([]);
   const [directoryHandle, setDirectoryHandle] = useState<DirectoryHandle | null>(null);
   const [preview, setPreview] = useState<{ asset: Asset; url: string } | null>(null);
@@ -148,6 +164,7 @@ export default function MomentAdminPage() {
 
   useEffect(() => {
     folderInput.current?.setAttribute("webkitdirectory", "");
+    setPendingUploadCount(listUploadCaches(window.localStorage).length);
     void fetchClient("/moment/auth/setup/status")
       .then((value) => setSetupEnabled(value.enabled))
       .catch((error) => toast.error(error.message));
@@ -237,32 +254,94 @@ export default function MomentAdminPage() {
     return browser.breadcrumbs.map((item) => item.name).join("/");
   }
 
-  async function uploadFiles(entries: { file: File; path: string }[], localPaths?: string[]) {
+  function requestStatus(error: unknown) {
+    return (error as Error & { status?: number }).status;
+  }
+
+  async function uploadFiles(entries: UploadEntry[], localPaths?: string[], cacheContext?: UploadCacheContext) {
+    if (entries.length === 0) return;
     setBusy(true);
     const verified: LocalVerified[] = [];
+    let skipped = 0;
+    let cache = cacheContext
+      ? reconcileUploadCache(
+          loadUploadCache(window.localStorage, cacheContext.destinationPath, cacheContext.sourceFolder),
+          cacheContext,
+          entries,
+        )
+      : null;
+    if (cache) saveUploadCache(window.localStorage, cache);
+
+    const updateCache = (path: string, changes: Record<string, unknown>) => {
+      if (!cache) return;
+      cache = updateUploadCacheFile(cache, path, changes);
+      saveUploadCache(window.localStorage, cache);
+    };
+
     try {
       for (let index = 0; index < entries.length; index += 1) {
         const entry = entries[index]!;
-        const base = currentPath();
+        const base = cacheContext?.destinationPath ?? currentPath();
         const relativePath = [base, entry.path].filter(Boolean).join("/");
         setUploadStatus(`正在校验并上传 ${index + 1}/${entries.length}：${entry.path}`);
-        const hash = await checksum(entry.file);
+        let cachedFile = cache?.files[entry.path];
+        const hash = cachedFile?.checksum || await checksum(entry.file);
         const mimeType = entry.file.type || "application/octet-stream";
         const payload = { relativePath, checksum: hash, mimeType, size: String(entry.file.size) };
-        const init = await momentFetch("/admin/upload-url", { method: "POST", body: JSON.stringify(payload) });
+        updateCache(entry.path, { checksum: hash });
+        cachedFile = cache?.files[entry.path];
+        let init;
+
+        if (cachedFile?.verified) {
+          setUploadStatus(`正在确认上次进度 ${index + 1}/${entries.length}：${entry.path}`);
+          init = await momentFetch("/admin/upload-url", { method: "POST", body: JSON.stringify(payload) });
+          if (init.exists && init.verified) {
+            skipped += 1;
+            if (localPaths?.[index]) verified.push({ path: localPaths[index]!, name: entry.file.name });
+            continue;
+          }
+          updateCache(entry.path, { verified: false });
+        }
+
+        if (cachedFile?.objectKey) {
+          setUploadStatus(`正在恢复并确认 ${index + 1}/${entries.length}：${entry.path}`);
+          try {
+            const completed = await momentFetch("/admin/complete", {
+              method: "POST",
+              body: JSON.stringify({ ...payload, objectKey: cachedFile.objectKey, capturedAt: new Date(entry.file.lastModified).toISOString() }),
+            });
+            if (!completed.verified) throw new Error(`${entry.path} 未通过完整性校验`);
+            updateCache(entry.path, { verified: true });
+            if (localPaths?.[index]) verified.push({ path: localPaths[index]!, name: entry.file.name });
+            continue;
+          } catch (error) {
+            if (requestStatus(error) !== 404) throw error;
+            updateCache(entry.path, { objectKey: null, verified: false });
+          }
+        }
+
+        init ??= await momentFetch("/admin/upload-url", { method: "POST", body: JSON.stringify(payload) });
+        if (init.exists && !init.verified) throw new Error(`${entry.path} 未通过完整性校验`);
         if (!init.exists) {
           const upload = await fetch(init.uploadUrl, { method: "PUT", headers: init.requiredHeaders, body: entry.file });
           if (!upload.ok) throw new Error(`上传 ${entry.path} 失败`);
+          updateCache(entry.path, { objectKey: init.objectKey });
           const completed = await momentFetch("/admin/complete", { method: "POST", body: JSON.stringify({ ...payload, objectKey: init.objectKey, capturedAt: new Date(entry.file.lastModified).toISOString() }) });
           if (!completed.verified) throw new Error(`${entry.path} 未通过完整性校验`);
         }
+        updateCache(entry.path, { verified: true });
         if (localPaths?.[index]) verified.push({ path: localPaths[index]!, name: entry.file.name });
+      }
+      if (cache && uploadCacheComplete(cache)) {
+        removeUploadCache(window.localStorage, cache.destinationPath, cache.sourceFolder);
+        setPendingUploadCount(listUploadCaches(window.localStorage).length);
       }
       setVerifiedLocal(verified);
       setUploadStatus("");
-      toast.success(`${entries.length} 个文件已上传并通过 SHA-256 校验`);
+      toast.success(`${entries.length} 个文件已确认${skipped ? `，从缓存跳过 ${skipped} 个` : ""}`);
       await loadBrowser();
     } catch (error) {
+      setPendingUploadCount(listUploadCaches(window.localStorage).length);
       toast.error((error as Error).message);
     } finally {
       setBusy(false);
@@ -280,10 +359,12 @@ export default function MomentAdminPage() {
       const handle = await picker({ mode: "readwrite" });
       const permission = await handle.requestPermission({ mode: "readwrite" });
       const entries = await collectDirectory(handle);
+      const destinationPath = currentPath();
       setDirectoryHandle(permission === "granted" ? handle : null);
       await uploadFiles(
         entries.map((item) => ({ file: item.file, path: `${handle.name}/${item.path}` })),
         entries.map((item) => item.path),
+        { destinationPath, sourceFolder: handle.name },
       );
     } catch (error) {
       if ((error as DOMException).name !== "AbortError") toast.error((error as Error).message);
@@ -475,6 +556,7 @@ export default function MomentAdminPage() {
               </div>
 
               {uploadStatus && <div className="border-b bg-blue-50 px-4 py-3 text-sm text-blue-700">{uploadStatus}</div>}
+              {!uploadStatus && pendingUploadCount > 0 && <div className="border-b bg-amber-50 px-4 py-3 text-sm text-amber-800">检测到 {pendingUploadCount} 个未完成的文件夹上传；重新选择相同文件夹会自动续传并跳过已确认文件。</div>}
               {undo && <div className="flex items-center justify-between border-b bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>{undo.label}</span><button onClick={async () => { await undo.run(); setUndo(null); }} className="flex items-center gap-1 font-semibold"><RotateCcw className="h-4 w-4" />撤销</button></div>}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b text-xs text-gray-500"><tr><th className="px-4 py-3 font-medium">名称</th><th className="px-4 py-3 font-medium">位置 / 类型</th><th className="px-4 py-3 font-medium">大小</th><th className="px-4 py-3 font-medium">可见性</th><th className="w-16 px-4 py-3" /></tr></thead><tbody>
@@ -484,7 +566,7 @@ export default function MomentAdminPage() {
                 {browser.folders.length + browser.assets.length === 0 && <div className="grid min-h-52 place-items-center text-sm text-gray-400">{trash ? "回收站为空" : "当前文件夹为空，可以上传文件或文件夹"}</div>}
               </div>
               <input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); void uploadFiles(files.map((file) => ({ file, path: file.name }))); event.target.value = ""; }} />
-              <input ref={folderInput} type="file" multiple className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); setDirectoryHandle(null); setVerifiedLocal([]); void uploadFiles(files.map((file) => ({ file, path: file.webkitRelativePath || file.name }))); event.target.value = ""; }} />
+              <input ref={folderInput} type="file" multiple className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); const firstPath = files[0]?.webkitRelativePath || files[0]?.name || ""; const sourceFolder = firstPath.split("/")[0] || "folder"; const destinationPath = currentPath(); setDirectoryHandle(null); setVerifiedLocal([]); void uploadFiles(files.map((file) => ({ file, path: file.webkitRelativePath || file.name })), undefined, { destinationPath, sourceFolder }); event.target.value = ""; }} />
             </section>
 
             <section className="grid gap-6 lg:grid-cols-2">

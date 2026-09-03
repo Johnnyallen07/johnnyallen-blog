@@ -44,6 +44,9 @@ Moment 是 `moment.johnnyallen.blog` 上的只读私人资料库。照片和备�
 
 5. 登录 `admin.johnnyallen.blog/moment`，扫描二维码绑定 TOTP，并离线保存一次性恢复码。
 6. 公开页面不展示私人入口；需要首次解锁时直接访问 `moment.johnnyallen.blog/login`。
+
+管理员上传文件夹时，浏览器会按“目标目录 + 本地文件夹”缓存上传清单及每个文件的校验状态。网络中断后重新选择同一文件夹即可续传：已确认文件会直接跳过，已写入 COS 但尚未确认的文件会先补做确认。仅当清单中的全部文件均通过服务端 SHA-256 校验后，对应缓存才会被删除。
+
 7. 添加分类。分类 slug 可与 Mac 同步目录的第一级文件夹同名，例如 `family/IMG_001.HEIC` 会尝试归入 slug 为 `family` 的分类。
 8. 创建 Mac 同步密钥。密钥只显示一次，可随时从 Admin 撤销。
 
