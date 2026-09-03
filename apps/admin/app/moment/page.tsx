@@ -452,7 +452,7 @@ export default function MomentAdminPage() {
           }) as UploadCheckResult;
           if (conflict.duplicate) {
             const primary = conflict.pathMatch || conflict.candidates[0]!;
-            const resolution = cacheContext?.folderAction === "replace" && conflict.pathMatch
+            const resolution: UploadConflictResolution = cacheContext?.folderAction === "replace" && conflict.pathMatch
               ? { action: "replace" as const, applyToAll: false, existingId: conflict.pathMatch.id }
               : batchAction
                 ? { action: batchAction, applyToAll: true, existingId: primary.id }
