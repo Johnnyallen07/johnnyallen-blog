@@ -1,5 +1,9 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  proxyRequestHeaders,
+  proxyResponseHeaders,
+} from "@/lib/server/proxy-headers";
 
 function apiUrl() {
   return process.env.API_SERVER_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -59,9 +63,7 @@ async function handler(request: NextRequest, context: { params: Promise<{ path: 
 
   const target = new URL(`${apiUrl()}/moment/${joined}`);
   target.search = request.nextUrl.search;
-  const headers = new Headers(request.headers);
-  headers.delete("cookie");
-  headers.delete("host");
+  const headers = proxyRequestHeaders(request.headers);
   headers.set("Authorization", `Bearer ${session}`);
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
   let response = await fetch(target, { method: request.method, headers, body, redirect: "manual", cache: "no-store" });
@@ -74,9 +76,7 @@ async function handler(request: NextRequest, context: { params: Promise<{ path: 
       response = await fetch(target, { method: request.method, headers, body, redirect: "manual", cache: "no-store" });
     }
   }
-  const outgoing = new Headers(response.headers);
-  outgoing.delete("content-encoding");
-  outgoing.delete("content-length");
+  const outgoing = proxyResponseHeaders(response.headers);
   const result = new NextResponse(response.body, { status: response.status, headers: outgoing });
   if (renewed && session) result.cookies.set("moment_admin_session", session, { httpOnly: true, secure, sameSite: "strict", path: "/", maxAge: 2 * 60 * 60 });
   return result;

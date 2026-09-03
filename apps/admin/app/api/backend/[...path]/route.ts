@@ -1,5 +1,9 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  proxyRequestHeaders,
+  proxyResponseHeaders,
+} from "@/lib/server/proxy-headers";
 
 function apiUrl() {
   return process.env.API_SERVER_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -34,9 +38,7 @@ async function proxy(
   if (!token) return NextResponse.json({ message: "登录已过期" }, { status: 401 });
   const target = new URL(`${apiUrl()}/${path.join("/")}`);
   target.search = request.nextUrl.search;
-  const headers = new Headers(request.headers);
-  headers.delete("cookie");
-  headers.delete("host");
+  const headers = proxyRequestHeaders(request.headers);
   headers.set("Authorization", `Bearer ${token}`);
   const body = request.method === "GET" || request.method === "HEAD"
     ? undefined
@@ -57,9 +59,7 @@ async function proxy(
       response = await fetch(target, { method: request.method, headers, body, redirect: "manual", cache: "no-store" });
     }
   }
-  const outgoing = new Headers(response.headers);
-  outgoing.delete("content-encoding");
-  outgoing.delete("content-length");
+  const outgoing = proxyResponseHeaders(response.headers);
   const result = new NextResponse(response.body, { status: response.status, headers: outgoing });
   if (renewed) result.cookies.set("auth_token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 2 * 60 * 60 });
   return result;
