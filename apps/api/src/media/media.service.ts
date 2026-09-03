@@ -64,12 +64,11 @@ export class MediaService {
     });
   }
 
-  private getObjectAsync(params: Parameters<COS['getObject']>[0]): Promise<{
-    Body: Readable | Buffer;
-    headers?: { 'content-type'?: string };
+  private headObjectAsync(params: Parameters<COS['headObject']>[0]): Promise<{
+    headers?: Record<string, string | undefined>;
   }> {
     return new Promise((resolve, reject) => {
-      void this.cos.getObject(params, (err: unknown, data: unknown) => {
+      this.cos.headObject(params, (err: unknown, data: unknown) => {
         if (err)
           reject(
             err instanceof Error
@@ -78,13 +77,7 @@ export class MediaService {
                   (err as { message?: string }).message ?? 'Unknown error',
                 ),
           );
-        else
-          resolve(
-            data as {
-              Body: Readable | Buffer;
-              headers?: { 'content-type'?: string };
-            },
-          );
+        else resolve(data as { headers?: Record<string, string | undefined> });
       });
     });
   }
@@ -305,24 +298,44 @@ export class MediaService {
     });
   }
 
-  async getMedia(key: string) {
+  async getMediaMetadata(key: string) {
     try {
-      const data = await this.getObjectAsync({
+      const data = await this.headObjectAsync({
         Bucket: this.getBucket(),
         Region: this.getRegion(),
         Key: key,
       });
-      const body = data.Body;
-      const stream =
-        body instanceof Buffer ? Readable.from(body) : (body as Readable);
+      const contentLength = Number(data.headers?.['content-length']);
       return {
-        stream,
         contentType:
           data.headers?.['content-type'] || 'application/octet-stream',
+        contentLength:
+          Number.isSafeInteger(contentLength) && contentLength >= 0
+            ? contentLength
+            : 0,
+        etag: data.headers?.etag,
+        lastModified: data.headers?.['last-modified'],
       };
     } catch (error) {
-      console.error('Error getting object from COS:', error);
+      console.error('Error getting COS object metadata:', error);
       throw new NotFoundException('File not found');
     }
+  }
+
+  getMediaStream(key: string, range?: string): Readable {
+    return this.cos.getObjectStream({
+      Bucket: this.getBucket(),
+      Region: this.getRegion(),
+      Key: key,
+      Range: range,
+    }) as Readable;
+  }
+
+  async getMedia(key: string, range?: string) {
+    const metadata = await this.getMediaMetadata(key);
+    return {
+      ...metadata,
+      stream: this.getMediaStream(key, range),
+    };
   }
 }

@@ -10,8 +10,12 @@ import {
     getRetryResumeTime,
     getStablePlaybackTime,
     hasBufferedDataAhead,
+    getBufferedEndAtTime,
+    getBufferedAheadSeconds,
+    shouldRestartBufferRequest,
     hasCompleteMediaMetadata,
     getRecoveryDelayMs,
+    calculatePlaybackClockTime,
     isTimeWithinRanges,
     calculateThroughputKbps,
     shouldShowBufferStatus,
@@ -102,6 +106,26 @@ test("resume waits until the current position has playable data ahead", () => {
     assert.equal(hasBufferedDataAhead(ranges, 29.8, 0.5, 30), true);
 });
 
+test("buffer health follows the range containing the playback position", () => {
+    const ranges = makeRanges([[0, 12], [20, 35]]);
+
+    assert.equal(getBufferedEndAtTime(ranges, 10), 12);
+    assert.equal(getBufferedAheadSeconds(ranges, 10), 2);
+    assert.equal(getBufferedEndAtTime(ranges, 25), 35);
+    assert.equal(getBufferedAheadSeconds(ranges, 25), 10);
+    assert.equal(getBufferedEndAtTime(ranges, 15), null);
+    assert.equal(getBufferedAheadSeconds(ranges, 15), 0);
+});
+
+test("buffer request restarts only after an online wait has genuinely stalled", () => {
+    assert.equal(shouldRestartBufferRequest(true, 0, 2500, true), true);
+    assert.equal(shouldRestartBufferRequest(true, 1, 5000, true), false);
+    assert.equal(shouldRestartBufferRequest(false, 0, 5000, true), false);
+    assert.equal(shouldRestartBufferRequest(true, 0, 5000, false), false);
+    assert.equal(shouldRestartBufferRequest(true, 0, 2499, true), false);
+    assert.equal(shouldRestartBufferRequest(true, 1, 2500, true, 2500, 2), true);
+});
+
 test("metadata is complete only with a usable duration", () => {
     assert.equal(hasCompleteMediaMetadata(0, 180), false);
     assert.equal(hasCompleteMediaMetadata(1, Number.NaN), false);
@@ -114,4 +138,11 @@ test("recovery delay backs off but stays bounded", () => {
     assert.equal(getRecoveryDelayMs(2), 2000);
     assert.equal(getRecoveryDelayMs(5), 15000);
     assert.equal(getRecoveryDelayMs(30), 15000);
+});
+
+test("playback clock advances only while running and never depends on media loading", () => {
+    assert.equal(calculatePlaybackClockTime(42, null, 50_000), 42);
+    assert.equal(calculatePlaybackClockTime(42, 10_000, 12_500), 44.5);
+    assert.equal(calculatePlaybackClockTime(42, 10_000, 12_500, 2), 47);
+    assert.equal(calculatePlaybackClockTime(59, 10_000, 12_500, 1, 60), 60);
 });
