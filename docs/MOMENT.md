@@ -51,6 +51,10 @@ Moment 是 `moment.johnnyallen.blog` 上的只读私人资料库。照片和备�
 
 图片上传还会读取浏览器可识别的像素尺寸辅助相似文件判断；XMP sidecar 会关联到同目录同名照片或视频，并用于后台 metadata 搜索与筛选。
 
+后台文件浏览器默认把同目录、同名 stem 的照片/视频与 `.xmp`、`.aae`、`.dop`、`.pp3` sidecar 合并为一个展示单元，也可以切换为原始 metadata 文件视图。列表和缩略图视图都使用服务端分页，每页最多 20 个主文件；前端只预取下一页的轻量清单，缩略图进入视口附近后才请求。照片缩略图和预览通过 COS 图片处理转换为最长边 600px/2048px 的短时签名 WebP，原始文件仅在下载时传输，因此 HEIC/常见 RAW 即使 MIME 缺失也可以进入照片浏览流程。
+
+文件夹上传使用 COS Multipart Upload。浏览器会把上传任务、`uploadId`、分片大小和已完成分片编号保存在本地，并把 File System Access 文件夹句柄保存在 IndexedDB。刷新、关闭标签页或短暂断网后，会先与 COS 的实际分片列表对账，再从最后一个完整分片继续；不会把整个大文件从头上传。上传界面提供总字节/文件进度、当前分片、速度、预计剩余时间、暂停、继续和取消操作。浏览器不支持持久文件夹句柄或权限失效时，需要重新选择同一个文件夹，但已完成的云端分片仍会复用。
+
 7. 添加分类。分类 slug 可与 Mac 同步目录的第一级文件夹同名，例如 `family/IMG_001.HEIC` 会尝试归入 slug 为 `family` 的分类。
 8. 创建 Mac 同步密钥。密钥只显示一次，可随时从 Admin 撤销。
 
@@ -78,6 +82,7 @@ security delete-generic-password -s johnny-moment-sync
 ## 运维建议
 
 - COS 主账号密钥不应长期用于生产。推荐创建仅允许目标桶所需操作的 CAM 子账号，并限制到 `moment/vault/*` 与现有博客前缀。
+- 为 COS 桶配置 `AbortIncompleteMultipartUpload` 生命周期规则（建议 7 天），作为浏览器未能主动取消时的最终孤儿分片回收保障。
 - 数据库与 COS 应分别备份；定期做恢复演练，而不仅是确认备份任务成功。
 - 每月检查 `MomentAuditLog`、同步密钥最近使用时间以及异常认证失败。
 - CDN、Nginx 和日志系统不得记录 Authorization、Cookie、同步 token 或预签名 URL。

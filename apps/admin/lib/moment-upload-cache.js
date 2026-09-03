@@ -12,6 +12,10 @@ function fileRecord(entry, previous) {
     mimeType: entry.file.type || "application/octet-stream",
     checksum: null,
     objectKey: null,
+    uploadId: null,
+    partSize: null,
+    completedParts: [],
+    multipartCompleted: false,
     verified: false,
     resolution: null,
     resolvedPath: null,
@@ -59,8 +63,14 @@ export function reconcileUploadCache(previous, context, entries) {
     version: 1,
     destinationPath,
     sourceFolder,
+    destinationFolderId:
+      context.destinationFolderId ?? previous?.destinationFolderId ?? null,
+    inputKind: context.inputKind ?? previous?.inputKind ?? "folder",
+    displayName: context.displayName ?? previous?.displayName ?? sourceFolder,
+    hasPersistentHandle:
+      context.hasPersistentHandle ?? previous?.hasPersistentHandle ?? false,
     targetFolder:
-      context.targetFolder || previous?.targetFolder || sourceFolder,
+      context.targetFolder ?? previous?.targetFolder ?? sourceFolder,
     folderAction:
       context.folderAction || previous?.folderAction || null,
     files,
@@ -88,6 +98,37 @@ export function uploadCacheComplete(cache) {
     files.length > 0 &&
     files.every((file) => file.verified || file.resolution === "skip")
   );
+}
+
+export function uploadCacheProgress(cache) {
+  const files = Object.values(cache.files || {});
+  let uploadedBytes = 0;
+  let completedFiles = 0;
+  for (const file of files) {
+    const size = Number(file.size) || 0;
+    if (file.verified || file.resolution === "skip" || file.multipartCompleted) {
+      uploadedBytes += size;
+      if (file.verified || file.resolution === "skip") completedFiles += 1;
+      continue;
+    }
+    const partSize = Number(file.partSize) || 0;
+    for (const partNumber of new Set(file.completedParts || [])) {
+      const offset = (Number(partNumber) - 1) * partSize;
+      if (partSize > 0 && offset >= 0 && offset < size) {
+        uploadedBytes += Math.min(partSize, size - offset);
+      }
+    }
+  }
+  const totalBytes = files.reduce(
+    (total, file) => total + (Number(file.size) || 0),
+    0,
+  );
+  return {
+    uploadedBytes: Math.min(uploadedBytes, totalBytes),
+    totalBytes,
+    completedFiles,
+    totalFiles: files.length,
+  };
 }
 
 export function loadUploadCache(storage, destinationPath, sourceFolder) {

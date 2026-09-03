@@ -63,10 +63,16 @@ export class UpdateMomentAssetDto {
 export class MomentBrowserQueryDto {
   @IsOptional() @IsString() folderId?: string;
   @IsOptional() @IsString() @MaxLength(120) q?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 20;
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   trash = false;
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  includeSidecars = false;
 }
 
 export class MoveMomentAssetDto {
@@ -115,6 +121,30 @@ export class CheckMomentFolderDto {
 
 export class CancelMomentUploadDto {
   @IsString() @IsNotEmpty() @MaxLength(1024) objectKey: string;
+}
+
+export class MomentMultipartSessionDto {
+  @IsString() @IsNotEmpty() @MaxLength(1024) objectKey: string;
+  @IsString() @IsNotEmpty() @MaxLength(2048) uploadId: string;
+}
+
+export class MomentMultipartPartDto extends MomentMultipartSessionDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  partNumber: number;
+}
+
+export class CompleteMomentMultipartDto extends MomentMultipartSessionDto {
+  @Transform(({ value }) => String(value))
+  @Matches(/^\d{1,20}$/)
+  size: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1024 * 1024)
+  partSize: number;
 }
 
 export class CompleteSyncDto extends CreateUploadUrlDto {

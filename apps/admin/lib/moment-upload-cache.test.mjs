@@ -9,6 +9,7 @@ import {
   saveUploadCache,
   updateUploadCacheFile,
   uploadCacheComplete,
+  uploadCacheProgress,
   uploadCacheKey,
 } from "./moment-upload-cache.js";
 
@@ -119,4 +120,23 @@ test("treats an explicit skip decision as completed work", () => {
     resolution: "skip",
   });
   assert.equal(uploadCacheComplete(cache), true);
+});
+
+test("reports byte progress from durable multipart checkpoints", () => {
+  let cache = reconcileUploadCache(
+    null,
+    { destinationPath: "", sourceFolder: "相册" },
+    [entry("相册/a.jpg", 20), entry("相册/b.jpg", 5)],
+  );
+  cache = updateUploadCacheFile(cache, "相册/a.jpg", {
+    partSize: 8,
+    completedParts: [1, 2],
+  });
+  cache = updateUploadCacheFile(cache, "相册/b.jpg", { verified: true });
+  assert.deepEqual(uploadCacheProgress(cache), {
+    uploadedBytes: 21,
+    totalBytes: 25,
+    completedFiles: 1,
+    totalFiles: 2,
+  });
 });

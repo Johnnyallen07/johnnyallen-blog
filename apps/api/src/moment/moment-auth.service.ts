@@ -150,6 +150,7 @@ export class MomentAuthService {
     rememberDevice = true,
     userAgent?: string,
     ip?: string,
+    existingTrustedToken?: string,
   ) {
     const loginActor = `login:${sha256(username.trim().toLowerCase()).slice(0, 20)}`;
     const recentPasswordFailures = await this.prisma.momentAuditLog.count({
@@ -232,8 +233,16 @@ export class MomentAuthService {
       ip,
     );
     const trustedDevice = rememberDevice
-      ? await this.createTrustedDevice(user.id, userAgent, ip)
+      ? await this.createTrustedDevice(
+          user.id,
+          userAgent,
+          ip,
+          existingTrustedToken,
+        )
       : null;
+    if (!rememberDevice && existingTrustedToken) {
+      await this.revokeTrustedToken(existingTrustedToken, ip);
+    }
     return {
       token: await this.createAccessToken(
         user.id,
@@ -388,21 +397,51 @@ export class MomentAuthService {
     userId: string,
     userAgent?: string,
     ip?: string,
+    existingTrustedToken?: string,
   ) {
     const identity = deviceIdentity(userAgent);
     const secret = randomToken(32);
-    const device = await this.prisma.momentTrustedDevice.create({
-      data: {
-        userId,
-        tokenHash: sha256(secret),
-        deviceLabel: identity.label,
-        deviceSignature: identity.signature,
-        lastIp: ip,
-        expiresAt: new Date(Date.now() + TRUSTED_DEVICE_TTL_MS),
-      },
-      select: { id: true },
-    });
-    await this.audit(`user:${userId}`, 'TRUSTED_DEVICE_CREATED', ip);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + TRUSTED_DEVICE_TTL_MS);
+    const [existingId, existingSecret, ...extra] =
+      existingTrustedToken?.split('.') ?? [];
+    const existing =
+      existingId && existingSecret && extra.length === 0
+        ? await this.prisma.momentTrustedDevice.findUnique({
+            where: { id: existingId },
+          })
+        : null;
+    const canRotate = Boolean(
+      existing &&
+      !existing.revokedAt &&
+      existing.userId === userId &&
+      existing.deviceSignature === identity.signature &&
+      verifySha256(existingSecret!, existing.tokenHash),
+    );
+    const data = {
+      tokenHash: sha256(secret),
+      deviceLabel: identity.label,
+      deviceSignature: identity.signature,
+      lastIp: ip,
+      lastUsedAt: now,
+      expiresAt,
+      revokedAt: null,
+    };
+    const device = canRotate
+      ? await this.prisma.momentTrustedDevice.update({
+          where: { id: existing!.id },
+          data,
+          select: { id: true },
+        })
+      : await this.prisma.momentTrustedDevice.create({
+          data: { userId, ...data },
+          select: { id: true },
+        });
+    await this.audit(
+      `user:${userId}`,
+      canRotate ? 'TRUSTED_DEVICE_ROTATED' : 'TRUSTED_DEVICE_CREATED',
+      ip,
+    );
     return { id: device.id, token: `${device.id}.${secret}` };
   }
 

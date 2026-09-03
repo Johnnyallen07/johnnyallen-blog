@@ -66,6 +66,93 @@ export class MomentStorageService {
     });
   }
 
+  async createMultipartUpload(
+    objectKey: string,
+    mimeType: string,
+    checksum: string,
+  ) {
+    const result = await this.cos.multipartInit({
+      Bucket: this.bucket(),
+      Region: this.region(),
+      Key: objectKey,
+      ContentType: mimeType,
+      'x-cos-meta-sha256': checksum.toLowerCase(),
+    });
+    return result.UploadId;
+  }
+
+  createMultipartPartUrl(
+    objectKey: string,
+    uploadId: string,
+    partNumber: number,
+  ) {
+    return this.cos.getObjectUrl({
+      Bucket: this.bucket(),
+      Region: this.region(),
+      Key: objectKey,
+      Method: 'PUT',
+      Sign: true,
+      Expires: 900,
+      Query: {
+        uploadId,
+        partNumber: String(partNumber),
+      },
+    });
+  }
+
+  async multipartParts(objectKey: string, uploadId: string) {
+    const parts: { partNumber: number; etag: string; size: number }[] = [];
+    let marker: string | undefined;
+    do {
+      const result = await this.cos.multipartListPart({
+        Bucket: this.bucket(),
+        Region: this.region(),
+        Key: objectKey,
+        UploadId: uploadId,
+        MaxParts: 1000,
+        ...(marker ? { PartNumberMarker: marker } : {}),
+      });
+      parts.push(
+        ...(result.Part || []).map((part) => ({
+          partNumber: Number(part.PartNumber),
+          etag: part.ETag,
+          size: Number(part.Size),
+        })),
+      );
+      marker =
+        result.IsTruncated === 'true'
+          ? String(result.NextPartNumberMarker)
+          : undefined;
+    } while (marker);
+    return parts.sort((left, right) => left.partNumber - right.partNumber);
+  }
+
+  async completeMultipartUpload(
+    objectKey: string,
+    uploadId: string,
+    parts: { partNumber: number; etag: string }[],
+  ) {
+    await this.cos.multipartComplete({
+      Bucket: this.bucket(),
+      Region: this.region(),
+      Key: objectKey,
+      UploadId: uploadId,
+      Parts: parts.map((part) => ({
+        PartNumber: part.partNumber,
+        ETag: part.etag,
+      })),
+    });
+  }
+
+  async abortMultipartUpload(objectKey: string, uploadId: string) {
+    await this.cos.multipartAbort({
+      Bucket: this.bucket(),
+      Region: this.region(),
+      Key: objectKey,
+      UploadId: uploadId,
+    });
+  }
+
   async createDownloadUrl(
     objectKey: string,
     fileName: string,
@@ -98,6 +185,34 @@ export class MomentStorageService {
     });
   }
 
+  async createImagePreviewUrl(objectKey: string, maxEdge: 600 | 2048) {
+    if (!objectKey.startsWith('moment/vault/'))
+      throw new NotFoundException('文件不存在');
+    return new Promise<string>((resolve, reject) => {
+      this.cos.getObjectUrl(
+        {
+          Bucket: this.bucket(),
+          Region: this.region(),
+          Key: objectKey,
+          Method: 'GET',
+          Sign: true,
+          Expires: 300,
+          Query: {
+            [`imageMogr2/thumbnail/${maxEdge}x${maxEdge}>/format/webp`]: '',
+          },
+        },
+        (error, data) =>
+          error || !data?.Url
+            ? reject(
+                error instanceof Error
+                  ? error
+                  : new Error(error?.message || '图片预览签名失败'),
+              )
+            : resolve(data.Url),
+      );
+    });
+  }
+
   async assertObject(objectKey: string, expectedSize: bigint) {
     if (!objectKey.startsWith('moment/vault/'))
       throw new NotFoundException('文件不存在');
@@ -121,6 +236,20 @@ export class MomentStorageService {
     const actual = data.headers?.['content-length'];
     if (actual && BigInt(actual) !== expectedSize) {
       throw new NotFoundException('COS 文件大小与同步记录不一致');
+    }
+  }
+
+  async objectExists(objectKey: string) {
+    if (!objectKey.startsWith('moment/vault/')) return false;
+    try {
+      await this.cos.headObject({
+        Bucket: this.bucket(),
+        Region: this.region(),
+        Key: objectKey,
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 

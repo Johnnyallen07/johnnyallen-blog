@@ -19,6 +19,7 @@ import {
   CancelMomentUploadDto,
   CheckMomentFolderDto,
   CheckMomentUploadDto,
+  CompleteMomentMultipartDto,
   CompleteSyncDto,
   CreateMomentCategoryDto,
   CreateSyncTokenDto,
@@ -26,6 +27,8 @@ import {
   MomentBrowserQueryDto,
   MomentCatalogQueryDto,
   MomentLoginDto,
+  MomentMultipartPartDto,
+  MomentMultipartSessionDto,
   TotpCodeDto,
   UpdateMomentAssetDto,
   UpdateMomentCategoryDto,
@@ -51,7 +54,11 @@ export class MomentController {
 
   @Post('auth/login')
   @UseGuards(MomentLoginGatewayGuard)
-  login(@Body() dto: MomentLoginDto, @Req() req: Request) {
+  login(
+    @Body() dto: MomentLoginDto,
+    @Headers('x-moment-trusted-token') trustedToken: string | undefined,
+    @Req() req: Request,
+  ) {
     return this.auth.login(
       dto.username,
       dto.password,
@@ -59,6 +66,7 @@ export class MomentController {
       dto.rememberDevice,
       req.get('user-agent'),
       req.ip,
+      trustedToken,
     );
   }
 
@@ -238,8 +246,18 @@ export class MomentController {
 
   @Get('admin/assets/:id/url')
   @UseGuards(MomentAdminGuard)
-  assetUrl(@Param('id') id: string, @Query('download') download?: string) {
-    return this.moment.assetUrl(id, download === '1');
+  assetUrl(
+    @Param('id') id: string,
+    @Query('download') download?: string,
+    @Query('thumbnail') thumbnail?: string,
+    @Query('preview') preview?: string,
+  ) {
+    return this.moment.assetUrl(
+      id,
+      download === '1',
+      thumbnail === '1',
+      preview === '1',
+    );
   }
 
   @Post('admin/reindex-xmp')
@@ -252,6 +270,42 @@ export class MomentController {
   @UseGuards(MomentAdminGuard)
   adminUploadUrl(@Body() dto: CreateUploadUrlDto) {
     return this.moment.createUploadUrl(dto);
+  }
+
+  @Post('admin/multipart/start')
+  @UseGuards(MomentAdminGuard)
+  startMultipart(@Body() dto: CreateUploadUrlDto, @Req() req: MomentRequest) {
+    return this.moment.startMultipartUpload(dto, req.momentActor!);
+  }
+
+  @Post('admin/multipart/part-url')
+  @UseGuards(MomentAdminGuard)
+  multipartPartUrl(@Body() dto: MomentMultipartPartDto) {
+    return this.moment.multipartPartUrl(dto);
+  }
+
+  @Post('admin/multipart/parts')
+  @UseGuards(MomentAdminGuard)
+  multipartParts(@Body() dto: MomentMultipartSessionDto) {
+    return this.moment.multipartParts(dto);
+  }
+
+  @Post('admin/multipart/complete')
+  @UseGuards(MomentAdminGuard)
+  completeMultipart(
+    @Body() dto: CompleteMomentMultipartDto,
+    @Req() req: MomentRequest,
+  ) {
+    return this.moment.completeMultipartUpload(dto, req.momentActor!);
+  }
+
+  @Post('admin/multipart/abort')
+  @UseGuards(MomentAdminGuard)
+  abortMultipart(
+    @Body() dto: MomentMultipartSessionDto,
+    @Req() req: MomentRequest,
+  ) {
+    return this.moment.abortMultipartUpload(dto, req.momentActor!);
   }
 
   @Post('admin/upload-check')

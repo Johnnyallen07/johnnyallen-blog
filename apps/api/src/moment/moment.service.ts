@@ -9,12 +9,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CheckMomentFolderDto,
   CheckMomentUploadDto,
+  CompleteMomentMultipartDto,
   CompleteSyncDto,
   CreateMomentCategoryDto,
   CreateSyncTokenDto,
   CreateUploadUrlDto,
   MomentBrowserQueryDto,
   MomentCatalogQueryDto,
+  MomentMultipartPartDto,
+  MomentMultipartSessionDto,
   UpdateMomentAssetDto,
   UpdateMomentCategoryDto,
 } from './dto/moment.dto';
@@ -26,6 +29,66 @@ import {
   momentStem,
   parseMomentXmp,
 } from './moment-xmp';
+
+const MOMENT_IMAGE_EXTENSIONS = new Set([
+  'avif',
+  'bmp',
+  'cr2',
+  'cr3',
+  'dng',
+  'gif',
+  'heic',
+  'heif',
+  'jpeg',
+  'jpg',
+  'nef',
+  'orf',
+  'pef',
+  'png',
+  'raf',
+  'raw',
+  'rw2',
+  'tif',
+  'tiff',
+  'webp',
+]);
+const MOMENT_VIDEO_EXTENSIONS = new Set([
+  '3gp',
+  'avi',
+  'm4v',
+  'mkv',
+  'mov',
+  'mp4',
+  'mpeg',
+  'mpg',
+  'webm',
+]);
+const MOMENT_SIDECAR_EXTENSIONS = ['xmp', 'aae', 'dop', 'pp3'] as const;
+
+function momentExtension(name: string) {
+  return name.split('.').pop()?.toLocaleLowerCase() || '';
+}
+
+function isMomentMedia(name: string, mimeType: string) {
+  const extension = momentExtension(name);
+  return (
+    mimeType.startsWith('image/') ||
+    mimeType.startsWith('video/') ||
+    MOMENT_IMAGE_EXTENSIONS.has(extension) ||
+    MOMENT_VIDEO_EXTENSIONS.has(extension)
+  );
+}
+
+function isMomentImage(name: string, mimeType: string) {
+  return (
+    mimeType.startsWith('image/') ||
+    MOMENT_IMAGE_EXTENSIONS.has(momentExtension(name))
+  );
+}
+
+function momentSidecarStem(name: string) {
+  return momentStem(name);
+}
 
 @Injectable()
 export class MomentService {
@@ -59,23 +122,31 @@ export class MomentService {
     assets: { xmpMetadata: Prisma.JsonValue | null; tags: string[] }[],
   ) {
     const values = (field: keyof MomentXmpMetadata) =>
-      [...new Set(assets.flatMap((asset) => {
-        const metadata = asset.xmpMetadata as MomentXmpMetadata | null;
-        const value = metadata?.[field];
-        return Array.isArray(value) ? value : value ? [value] : [];
-      }))].slice(0, 12);
+      [
+        ...new Set(
+          assets.flatMap((asset) => {
+            const metadata = asset.xmpMetadata as MomentXmpMetadata | null;
+            const value = metadata?.[field];
+            return Array.isArray(value) ? value : value ? [value] : [];
+          }),
+        ),
+      ].slice(0, 12);
     return {
       cameras: values('model'),
       lenses: values('lens'),
-      locations: [...new Set([
-        ...values('location'),
-        ...values('city'),
-        ...values('country'),
-      ])].slice(0, 12),
-      keywords: [...new Set([
-        ...values('keywords'),
-        ...assets.flatMap((asset) => asset.tags),
-      ])].slice(0, 16),
+      locations: [
+        ...new Set([
+          ...values('location'),
+          ...values('city'),
+          ...values('country'),
+        ]),
+      ].slice(0, 12),
+      keywords: [
+        ...new Set([
+          ...values('keywords'),
+          ...assets.flatMap((asset) => asset.tags),
+        ]),
+      ].slice(0, 16),
     };
   }
 
@@ -107,33 +178,34 @@ export class MomentService {
       ];
     }
     const skip = (query.page - 1) * query.limit;
-    const [items, total, categories, facetAssets] = await this.prisma.$transaction([
-      this.prisma.momentAsset.findMany({
-        where,
-        include: { category: true },
-        orderBy: [
-          { featured: 'desc' },
-          { capturedAt: 'desc' },
-          { createdAt: 'desc' },
-        ],
-        skip,
-        take: query.limit,
-      }),
-      this.prisma.momentAsset.count({ where }),
-      this.prisma.momentCategory.findMany({
-        where: { trashedAt: null },
-        orderBy: [{ order: 'asc' }, { name: 'asc' }],
-      }),
-      this.prisma.momentAsset.findMany({
-        where: {
-          status: 'READY',
-          trashedAt: null,
-          ...(access === 'public' ? { visibility: 'PUBLIC' as const } : {}),
-        },
-        select: { xmpMetadata: true, tags: true },
-        take: 1000,
-      }),
-    ]);
+    const [items, total, categories, facetAssets] =
+      await this.prisma.$transaction([
+        this.prisma.momentAsset.findMany({
+          where,
+          include: { category: true },
+          orderBy: [
+            { featured: 'desc' },
+            { capturedAt: 'desc' },
+            { createdAt: 'desc' },
+          ],
+          skip,
+          take: query.limit,
+        }),
+        this.prisma.momentAsset.count({ where }),
+        this.prisma.momentCategory.findMany({
+          where: { trashedAt: null },
+          orderBy: [{ order: 'asc' }, { name: 'asc' }],
+        }),
+        this.prisma.momentAsset.findMany({
+          where: {
+            status: 'READY',
+            trashedAt: null,
+            ...(access === 'public' ? { visibility: 'PUBLIC' as const } : {}),
+          },
+          select: { xmpMetadata: true, tags: true },
+          take: 1000,
+        }),
+      ]);
     return {
       items: items.map((item) => this.serializeAsset(item)),
       categories,
@@ -356,7 +428,7 @@ export class MomentService {
     const folderWhere: Prisma.MomentCategoryWhereInput = query.q?.trim()
       ? { trashedAt, name: { contains: query.q.trim(), mode: 'insensitive' } }
       : { parentId: folderId, trashedAt };
-    const assetWhere: Prisma.MomentAssetWhereInput = query.q?.trim()
+    const rawAssetWhere: Prisma.MomentAssetWhereInput = query.q?.trim()
       ? {
           trashedAt,
           OR: [
@@ -369,7 +441,23 @@ export class MomentService {
           ],
         }
       : { categoryId: folderId, trashedAt };
-    const [folders, assets, facetAssets] = await Promise.all([
+    const assetWhere: Prisma.MomentAssetWhereInput = query.includeSidecars
+      ? rawAssetWhere
+      : {
+          AND: [
+            rawAssetWhere,
+            {
+              NOT: MOMENT_SIDECAR_EXTENSIONS.map((extension) => ({
+                originalName: {
+                  endsWith: `.${extension}`,
+                  mode: 'insensitive',
+                },
+              })),
+            },
+          ],
+        };
+    const skip = (query.page - 1) * query.limit;
+    const [folders, assets, total, facetAssets] = await Promise.all([
       this.prisma.momentCategory.findMany({
         where: folderWhere,
         include: { _count: { select: { assets: true, children: true } } },
@@ -378,13 +466,63 @@ export class MomentService {
       this.prisma.momentAsset.findMany({
         where: assetWhere,
         orderBy: { originalName: 'asc' },
+        skip,
+        take: query.limit,
       }),
+      this.prisma.momentAsset.count({ where: assetWhere }),
       this.prisma.momentAsset.findMany({
         where: { status: 'READY', trashedAt: null },
         select: { xmpMetadata: true, tags: true },
         take: 1000,
       }),
     ]);
+    const sidecarKeys = [
+      ...new Map(
+        assets
+          .filter((asset) => isMomentMedia(asset.originalName, asset.mimeType))
+          .map((asset) => {
+            const key = `${asset.categoryId || ''}:${momentStem(asset.originalName)}`;
+            return [
+              key,
+              MOMENT_SIDECAR_EXTENSIONS.map((extension) => ({
+                categoryId: asset.categoryId,
+                originalName: {
+                  equals: `${momentStem(asset.originalName)}.${extension}`,
+                  mode: 'insensitive' as const,
+                },
+                trashedAt,
+              })),
+            ] as const;
+          }),
+      ).values(),
+    ].flat();
+    const sidecars =
+      query.includeSidecars || !sidecarKeys.length
+        ? []
+        : await this.prisma.momentAsset.findMany({
+            where: { OR: sidecarKeys },
+            select: {
+              id: true,
+              categoryId: true,
+              originalName: true,
+              relativePath: true,
+              mimeType: true,
+              size: true,
+              updatedAt: true,
+              xmpMetadata: true,
+            },
+          });
+    const sidecarsByStem = new Map<
+      string,
+      ReturnType<typeof this.serializeAsset>[]
+    >();
+    for (const sidecar of sidecars) {
+      const key = `${sidecar.categoryId || ''}:${momentSidecarStem(sidecar.originalName)}`;
+      sidecarsByStem.set(key, [
+        ...(sidecarsByStem.get(key) || []),
+        this.serializeAsset(sidecar),
+      ]);
+    }
     const breadcrumbs: Pick<MomentCategory, 'id' | 'name'>[] = [];
     if (folderId) {
       const all = await this.prisma.momentCategory.findMany();
@@ -399,7 +537,22 @@ export class MomentService {
       folderId,
       breadcrumbs,
       folders,
-      assets: assets.map((item) => this.serializeAsset(item)),
+      assets: assets.map((item) => {
+        const sidecars =
+          sidecarsByStem.get(
+            `${item.categoryId || ''}:${momentStem(item.originalName)}`,
+          ) || [];
+        return {
+          ...this.serializeAsset(item),
+          sidecar: sidecars[0] || null,
+          sidecars,
+        };
+      }),
+      total,
+      page: query.page,
+      limit: query.limit,
+      pages: Math.max(1, Math.ceil(total / query.limit)),
+      includeSidecars: query.includeSidecars,
       searchFacets: this.searchFacets(facetAssets),
     };
   }
@@ -489,17 +642,29 @@ export class MomentService {
     return { deleted: true };
   }
 
-  async assetUrl(id: string, download = false) {
+  async assetUrl(
+    id: string,
+    download = false,
+    thumbnail = false,
+    preview = false,
+  ) {
     const asset = await this.prisma.momentAsset.findFirst({
       where: { id, trashedAt: null },
     });
     if (!asset) throw new NotFoundException('文件不存在');
     return {
-      url: await this.storage.createDownloadUrl(
-        asset.objectKey,
-        asset.originalName,
-        download,
-      ),
+      url:
+        (thumbnail || preview) &&
+        isMomentImage(asset.originalName, asset.mimeType)
+          ? await this.storage.createImagePreviewUrl(
+              asset.objectKey,
+              thumbnail ? 600 : 2048,
+            )
+          : await this.storage.createDownloadUrl(
+              asset.objectKey,
+              asset.originalName,
+              download,
+            ),
       expiresIn: 300,
     };
   }
@@ -762,6 +927,146 @@ export class MomentService {
     return { deleted: true, referenced: false };
   }
 
+  private multipartPartSize(size: bigint) {
+    const minimum = 8n * 1024n * 1024n;
+    const mib = 1024n * 1024n;
+    const required = (size + 9_999n) / 10_000n;
+    const rounded = ((required + mib - 1n) / mib) * mib;
+    const partSize = rounded > minimum ? rounded : minimum;
+    if (partSize > 5n * 1024n * 1024n * 1024n)
+      throw new BadRequestException('文件超出分片上传支持的最大大小');
+    return Number(partSize);
+  }
+
+  async startMultipartUpload(dto: CreateUploadUrlDto, actor: string) {
+    const relativePath = this.cleanPath(dto.relativePath);
+    const checksum = dto.checksum.toLowerCase();
+    const existing = await this.prisma.momentAsset.findFirst({
+      where: {
+        relativePath: { equals: relativePath, mode: 'insensitive' },
+        checksum,
+        status: 'READY',
+        trashedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing) return { exists: true, assetId: existing.id, verified: true };
+    const partSize = this.multipartPartSize(BigInt(dto.size));
+    const objectKey = this.storage.createObjectKey(relativePath);
+    const uploadId = await this.storage.createMultipartUpload(
+      objectKey,
+      dto.mimeType,
+      checksum,
+    );
+    try {
+      await this.audit(actor, 'MULTIPART_UPLOAD_STARTED', undefined, {
+        objectKey,
+        uploadId,
+        relativePath,
+        partSize,
+      });
+    } catch (error) {
+      await this.storage
+        .abortMultipartUpload(objectKey, uploadId)
+        .catch(() => undefined);
+      throw error;
+    }
+    return { exists: false, objectKey, uploadId, partSize };
+  }
+
+  async multipartPartUrl(dto: MomentMultipartPartDto) {
+    if (!dto.objectKey.startsWith('moment/vault/'))
+      throw new BadRequestException('上传对象无效');
+    return {
+      url: this.storage.createMultipartPartUrl(
+        dto.objectKey,
+        dto.uploadId,
+        dto.partNumber,
+      ),
+      expiresIn: 900,
+    };
+  }
+
+  async multipartParts(dto: MomentMultipartSessionDto) {
+    if (!dto.objectKey.startsWith('moment/vault/'))
+      throw new BadRequestException('上传对象无效');
+    try {
+      return {
+        completed: false,
+        parts: await this.storage.multipartParts(dto.objectKey, dto.uploadId),
+      };
+    } catch (error) {
+      if (await this.storage.objectExists(dto.objectKey))
+        return { completed: true, parts: [] };
+      throw error;
+    }
+  }
+
+  async completeMultipartUpload(
+    dto: CompleteMomentMultipartDto,
+    actor: string,
+  ) {
+    if (!dto.objectKey.startsWith('moment/vault/'))
+      throw new BadRequestException('上传对象无效');
+    const expectedSize = BigInt(dto.size);
+    const parts = await this.storage.multipartParts(
+      dto.objectKey,
+      dto.uploadId,
+    );
+    const expectedPartCount = Number(
+      (expectedSize + BigInt(dto.partSize) - 1n) / BigInt(dto.partSize),
+    );
+    if (!parts.length || parts.length !== expectedPartCount)
+      throw new BadRequestException('分片尚未全部上传');
+    let uploadedSize = 0n;
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index]!;
+      const expectedPartNumber = index + 1;
+      const expectedPartSize =
+        index === parts.length - 1
+          ? expectedSize - BigInt(dto.partSize) * BigInt(index)
+          : BigInt(dto.partSize);
+      if (
+        part.partNumber !== expectedPartNumber ||
+        BigInt(part.size) !== expectedPartSize
+      )
+        throw new BadRequestException('分片清单不连续或大小不匹配');
+      uploadedSize += BigInt(part.size);
+    }
+    if (uploadedSize !== expectedSize)
+      throw new BadRequestException('分片总大小与文件不一致');
+    await this.storage.completeMultipartUpload(
+      dto.objectKey,
+      dto.uploadId,
+      parts,
+    );
+    await this.audit(actor, 'MULTIPART_UPLOAD_COMPLETED', undefined, {
+      objectKey: dto.objectKey,
+      parts: parts.length,
+    });
+    return { completed: true, objectKey: dto.objectKey };
+  }
+
+  async abortMultipartUpload(dto: MomentMultipartSessionDto, actor: string) {
+    if (!dto.objectKey.startsWith('moment/vault/'))
+      throw new BadRequestException('上传对象无效');
+    await this.storage
+      .abortMultipartUpload(dto.objectKey, dto.uploadId)
+      .catch(() => undefined);
+    const referenced = await this.prisma.momentAsset.findUnique({
+      where: { objectKey: dto.objectKey },
+      select: { id: true },
+    });
+    if (!referenced && (await this.storage.objectExists(dto.objectKey))) {
+      await this.storage.deleteObject(dto.objectKey).catch(() => undefined);
+    }
+    await this.audit(actor, 'MULTIPART_UPLOAD_ABORTED', undefined, {
+      objectKey: dto.objectKey,
+      ...(referenced ? { preservedAssetId: referenced.id } : {}),
+    });
+    return { aborted: true };
+  }
+
   async createUploadUrl(dto: CreateUploadUrlDto) {
     const relativePath = this.cleanPath(dto.relativePath);
     const existing = await this.prisma.momentAsset.findFirst({
@@ -814,10 +1119,7 @@ export class MomentService {
 
   private xmpDate(value?: string) {
     if (!value) return undefined;
-    const normalized = value.replace(
-      /^(\d{4}):(\d{2}):(\d{2})/,
-      '$1-$2-$3',
-    );
+    const normalized = value.replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3');
     const date = new Date(normalized);
     return Number.isNaN(date.getTime()) ? undefined : date;
   }
@@ -837,7 +1139,11 @@ export class MomentService {
     originalName: string,
   ): Promise<MomentXmpMetadata | undefined> {
     const siblings = await this.prisma.momentAsset.findMany({
-      where: { categoryId, trashedAt: null, xmpMetadata: { not: Prisma.JsonNull } },
+      where: {
+        categoryId,
+        trashedAt: null,
+        xmpMetadata: { not: Prisma.JsonNull },
+      },
       select: { originalName: true, xmpMetadata: true },
     });
     const stem = momentStem(originalName);
@@ -861,7 +1167,8 @@ export class MomentService {
     const stem = momentStem(sidecarName);
     const media = siblings.filter(
       (item) =>
-        (item.mimeType.startsWith('image/') || item.mimeType.startsWith('video/')) &&
+        (item.mimeType.startsWith('image/') ||
+          item.mimeType.startsWith('video/')) &&
         momentStem(item.originalName) === stem,
     );
     if (!media.length) return;
