@@ -20,6 +20,7 @@ import {
     Plus,
     RefreshCw,
     Save,
+    Scissors,
     Sparkles,
     Upload,
     X,
@@ -45,7 +46,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { fetchClient } from "@/lib/api";
+import { ApiError, fetchClient } from "@/lib/api";
+import { requestYoutubeCookieSync } from "@/lib/youtube-cookie-sync";
+import SplitDialog from "../split-dialog";
+import type { ComponentProps } from "react";
+type SavedTrack = NonNullable<ComponentProps<typeof SplitDialog>["track"]>;
 
 interface SidebarEntity {
     id: string;
@@ -54,12 +59,13 @@ interface SidebarEntity {
 }
 
 interface TaskProgress {
-    status: "fetching_info" | "downloading" | "converting" | "done" | "error";
+    status: "queued" | "fetching_info" | "downloading" | "converting" | "done" | "error";
     progress: number;
     title: string;
     error?: string;
     fileSize?: number;
     duration?: number;
+    savedTrack?: SavedTrack;
 }
 
 interface MetadataSuggestion {
@@ -115,6 +121,8 @@ interface QueueItem {
     suggestionStatus: SuggestionStatus;
     suggestionError: string;
     metadata: EditableMetadata;
+    editedFields?: string[];
+    savedTrack?: SavedTrack;
 }
 
 const EMPTY_METADATA: EditableMetadata = {
@@ -136,6 +144,7 @@ const REVIEW_LABELS: Record<string, string> = {
 };
 
 const DL_STATUS_LABELS: Record<string, string> = {
+    queued: "等待下载器检查与下载...",
     fetching_info: "获取视频信息...",
     downloading: "下载音频中...",
     converting: "转换为 MP3...",
@@ -144,7 +153,11 @@ const DL_STATUS_LABELS: Record<string, string> = {
 };
 
 function isYoutubeUrl(url: string): boolean {
-    return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url.trim());
+    try {
+        const parsed = new URL(url.trim());
+        return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password && !parsed.port
+            && ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"].includes(parsed.hostname);
+    } catch { return false; }
 }
 
 function formatDuration(seconds: number): string {
@@ -169,6 +182,12 @@ function formatDate(value?: string | null): string {
 export default function YoutubeDownloadPage() {
     const router = useRouter();
     const [urlInput, setUrlInput] = useState("");
+    const [inputError, setInputError] = useState("");
+    const [restored, setRestored] = useState(false);
+    const [splitTrack, setSplitTrack] = useState<SavedTrack | null>(null);
+    const [extensionAvailable, setExtensionAvailable] = useState(false);
+    const [runtime, setRuntime] = useState<{ version: string | null; autoUpdate: boolean; issue?: string; updating?: boolean } | null>(null);
+    const [updatingRuntime, setUpdatingRuntime] = useState(false);
     const [queue, setQueue] = useState<QueueItem[]>([]);
     const pollingTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
     const isProcessing = useRef(false);
@@ -178,6 +197,7 @@ export default function YoutubeDownloadPage() {
     const [categories, setCategories] = useState<SidebarEntity[]>([]);
     const [seriesList, setSeriesList] = useState<SidebarEntity[]>([]);
     const [musicians, setMusicians] = useState<string[]>([]);
+    const [libraryError, setLibraryError] = useState("");
     const categoriesRef = useRef<SidebarEntity[]>([]);
     const seriesListRef = useRef<SidebarEntity[]>([]);
 
@@ -197,6 +217,7 @@ export default function YoutubeDownloadPage() {
     }, [seriesList]);
 
     const fetchDropdowns = useCallback(async () => {
+        setLibraryError("");
         try {
             const [cats, series, knownMusicians] = await Promise.all([
                 fetchClient("/music-categories"),
@@ -207,7 +228,7 @@ export default function YoutubeDownloadPage() {
             setSeriesList(Array.isArray(series) ? series : []);
             setMusicians(Array.isArray(knownMusicians) ? knownMusicians : []);
         } catch {
-            // 元数据建议仍可运行，失败时允许用户手工填写。
+            setLibraryError("音乐分类或词表加载失败，请重试后选择分类。");
         }
     }, []);
 
@@ -224,6 +245,70 @@ export default function YoutubeDownloadPage() {
     }, []);
 
     useEffect(() => {
+        requestYoutubeCookieSync("ping").then(() => setExtensionAvailable(true)).catch(() => setExtensionAvailable(false));
+        fetchClient("/music/youtube-runtime").then(setRuntime).catch(() => undefined);
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+        const restore = async () => {
+            try {
+                const saved = JSON.parse(sessionStorage.getItem("youtube-import-queue") || "[]") as QueueItem[];
+                if (!Array.isArray(saved)) return;
+                const recovered = await Promise.all(saved.slice(0, 100).filter((item) => item.id && item.metadata && isYoutubeUrl(item.url)).map(async (item): Promise<QueueItem> => {
+                    if (item.status === "saved") return item;
+                    if (!item.taskId) return { ...item, status: "queued" };
+                    try {
+                        const progress = await fetchClient(`/music/youtube-download/${item.taskId}`, { signal: AbortSignal.timeout(15000) }) as TaskProgress;
+                        if (progress.savedTrack) return { ...item, status: "saved", savedTrack: progress.savedTrack, statusLabel: "已保存", error: "" };
+                        if (progress.status === "error") return { ...item, status: "error", failureStage: "download", error: progress.error || "下载失败" };
+                        return { ...item, status: progress.status === "done" ? "downloaded" : "downloading", suggestionStatus: item.suggestionStatus === "loading" ? "idle" : item.suggestionStatus, statusLabel: progress.status === "done" ? "等待审核" : "继续处理", error: "" };
+                    } catch (error) {
+                        return { ...item, status: "error", failureStage: error instanceof ApiError && error.status === 404 ? "download" : item.status === "uploading" ? "save" : "download", error: "暂时无法恢复任务。服务重启或任务过期时需重新下载，填写的信息已保留。" };
+                    }
+                }));
+                if (active) setQueue(recovered);
+            } catch { /* Ignore incompatible or unavailable session storage. */ }
+            finally { if (active) setRestored(true); }
+        };
+        void restore();
+        return () => { active = false; };
+    }, []);
+
+    useEffect(() => {
+        if (!restored) return;
+        try { sessionStorage.setItem("youtube-import-queue", JSON.stringify(queue)); } catch { /* Storage may be disabled. */ }
+    }, [queue, restored]);
+
+    const syncBrowserCookies = async () => {
+        setIsUpdatingCookie(true);
+        setCookieStatus(null);
+        try {
+            await requestYoutubeCookieSync("sync");
+            await fetchCookieSummary();
+            setCookieStatus({ type: "success", message: "已同步浏览器会话，可以重试失败的下载。" });
+        } catch (error) {
+            setCookieStatus({ type: "error", message: error instanceof Error ? error.message : "同步失败" });
+        } finally { setIsUpdatingCookie(false); }
+    };
+
+    const updateRuntime = async () => {
+        setUpdatingRuntime(true);
+        try { await fetchClient("/music/youtube-runtime/update", { method: "POST" }); }
+        catch (error) { setUpdatingRuntime(false); setCookieStatus({ type: "error", message: error instanceof Error ? error.message : "更新失败" }); }
+    };
+
+    useEffect(() => {
+        if (!cookieDialogOpen) return;
+        const timer = setInterval(() => {
+            fetchClient("/music/youtube-runtime").then((value) => {
+                setRuntime(value); setUpdatingRuntime(Boolean(value.updating));
+            }).catch(() => setUpdatingRuntime(false));
+        }, 3000);
+        return () => clearInterval(timer);
+    }, [cookieDialogOpen]);
+
+    useEffect(() => {
         fetchDropdowns();
         fetchCookieSummary();
     }, [fetchDropdowns, fetchCookieSummary]);
@@ -235,6 +320,7 @@ export default function YoutubeDownloadPage() {
 
     const readCookieFile = async (file: File) => {
         setCookieStatus(null);
+        if (file.size > 1024 * 1024) { setCookieStatus({ type: "error", message: "Cookie 文件不能超过 1 MB" }); return; }
         setCookieFileName(file.name);
         setCookieText(await file.text());
     };
@@ -297,11 +383,15 @@ export default function YoutubeDownloadPage() {
         const urls = urlInput
             .split(/[\n\r]+/)
             .map((url) => url.trim())
-            .filter((url) => url && isYoutubeUrl(url));
+            .filter(Boolean);
+        const invalid = urls.filter((url) => !isYoutubeUrl(url));
+        if (invalid.length) { setInputError(`有 ${invalid.length} 个链接不是有效的 YouTube 地址，请修改后重试。`); return; }
         if (urls.length === 0) return;
+        if (queue.length + urls.length > 100) { setInputError("每个导入队列最多保留 100 项，请移除已完成项后继续。"); return; }
+        setInputError("");
 
         const existingUrls = new Set(queue.map((item) => item.url));
-        const newItems: QueueItem[] = urls
+        const newItems: QueueItem[] = [...new Set(urls)]
             .filter((url) => !existingUrls.has(url))
             .map((url) => ({
                 id: crypto.randomUUID(),
@@ -318,7 +408,7 @@ export default function YoutubeDownloadPage() {
                 suggestionError: "",
                 metadata: { ...EMPTY_METADATA, needsReview: [] },
             }));
-        if (newItems.length === 0) return;
+        if (newItems.length === 0) { setInputError("这些链接已在队列中。"); return; }
         setQueue((current) => [...current, ...newItems]);
         setUrlInput("");
     };
@@ -339,6 +429,7 @@ export default function YoutubeDownloadPage() {
             ? {
                 ...item,
                 title,
+                editedFields: [...new Set([...(item.editedFields || []), "title"])],
                 metadata: {
                     ...item.metadata,
                     needsReview: item.metadata.needsReview.filter((field) => field !== "title"),
@@ -352,6 +443,7 @@ export default function YoutubeDownloadPage() {
         setQueue((current) => current.map((item) => item.id === id
             ? {
                 ...item,
+                editedFields: [...new Set([...(item.editedFields || []), field])],
                 metadata: {
                     ...item.metadata,
                     [field]: value,
@@ -378,18 +470,18 @@ export default function YoutubeDownloadPage() {
 
             const categoryId = categoriesRef.current.find((item) => item.name === suggestion.category)?.id || "";
             const seriesId = seriesListRef.current.find((item) => item.name === suggestion.series)?.id || "";
-            setQueue((current) => current.map((item) => item.id === itemId
+            setQueue((current) => current.map((item) => item.id === itemId && item.taskId === taskId && !["saved", "uploading"].includes(item.status)
                 ? {
                     ...item,
-                    title: suggestion.title || item.title,
+                    title: item.editedFields?.includes("title") ? item.title : suggestion.title || item.title,
                     suggestionStatus: "ready",
                     suggestionError: "",
                     statusLabel: "等待审核",
                     metadata: {
-                        musician: suggestion.musician,
-                        performer: suggestion.performer,
-                        categoryId,
-                        seriesId,
+                        musician: item.editedFields?.includes("musician") ? item.metadata.musician : suggestion.musician,
+                        performer: item.editedFields?.includes("performer") ? item.metadata.performer : suggestion.performer,
+                        categoryId: item.editedFields?.includes("categoryId") ? item.metadata.categoryId : categoryId,
+                        seriesId: item.editedFields?.includes("seriesId") ? item.metadata.seriesId : seriesId,
                         confidence: suggestion.confidence,
                         reason: suggestion.reason,
                         needsReview: suggestion.needsReview,
@@ -402,7 +494,7 @@ export default function YoutubeDownloadPage() {
                     : [...current, suggestion.musician].sort());
             }
         } catch (error) {
-            setQueue((current) => current.map((item) => item.id === itemId
+            setQueue((current) => current.map((item) => item.id === itemId && item.taskId === taskId && !["saved", "uploading"].includes(item.status)
                 ? {
                     ...item,
                     suggestionStatus: "error",
@@ -449,7 +541,7 @@ export default function YoutubeDownloadPage() {
             ? { ...entry, status: "uploading", statusLabel: "上传到云端并保存...", error: "" }
             : entry));
         try {
-            await fetchClient(`/music/youtube-upload/${item.taskId}/save`, {
+            const savedTrack = await fetchClient(`/music/youtube-upload/${item.taskId}/save`, {
                 method: "POST",
                 body: JSON.stringify({
                     title: item.title.trim(),
@@ -460,7 +552,7 @@ export default function YoutubeDownloadPage() {
                 }),
             });
             setQueue((current) => current.map((entry) => entry.id === item.id
-                ? { ...entry, status: "saved", statusLabel: "已审核并保存", failureStage: undefined }
+                ? { ...entry, savedTrack, status: "saved", statusLabel: "已审核并保存", failureStage: undefined }
                 : entry));
         } catch (error) {
             setQueue((current) => current.map((entry) => entry.id === item.id
@@ -468,7 +560,7 @@ export default function YoutubeDownloadPage() {
                     ...entry,
                     status: "error",
                     statusLabel: "保存失败",
-                    failureStage: "save",
+                    failureStage: error instanceof ApiError && error.status === 404 ? "download" : "save",
                     error: error instanceof Error ? error.message : "上传/保存失败",
                 }
                 : entry));
@@ -483,93 +575,80 @@ export default function YoutubeDownloadPage() {
     };
 
     const processQueue = useCallback(async () => {
-        if (isProcessing.current) return;
+        if (isProcessing.current || !restored) return;
         const nextItem = queue.find((item) => item.status === "queued");
         if (!nextItem) return;
         isProcessing.current = true;
-
+        setQueue((current) => current.map((item) => item.id === nextItem.id
+            ? { ...item, status: "downloading", statusLabel: "准备下载..." } : item));
         try {
             const data = await fetchClient("/music/youtube-download", {
-                method: "POST",
-                body: JSON.stringify({ url: nextItem.url }),
+                method: "POST", body: JSON.stringify({ url: nextItem.url }), signal: AbortSignal.timeout(15000),
             });
-            const taskId = data.taskId as string;
             setQueue((current) => current.map((item) => item.id === nextItem.id
-                ? { ...item, taskId, status: "downloading", statusLabel: "获取视频信息...", progress: 0 }
-                : item));
-
-            const timer = setInterval(async () => {
-                try {
-                    const progress = await fetchClient(`/music/youtube-download/${taskId}`) as TaskProgress;
-                    setQueue((current) => current.map((item) => {
-                        if (item.id !== nextItem.id) return item;
-                        if (progress.status === "done") {
-                            clearInterval(timer);
-                            pollingTimers.current.delete(nextItem.id);
-                            isProcessing.current = false;
-                            return {
-                                ...item,
-                                status: "downloaded",
-                                progress: 100,
-                                statusLabel: item.suggestionStatus === "ready"
-                                    ? "等待审核"
-                                    : item.suggestionStatus === "error"
-                                        ? "请手工填写或重试 AI"
-                                        : "AI 正在整理音乐信息...",
-                                title: item.title || progress.title,
-                                fileSize: progress.fileSize ?? 0,
-                                duration: progress.duration ?? 0,
-                            };
-                        }
-                        if (progress.status === "error") {
-                            clearInterval(timer);
-                            pollingTimers.current.delete(nextItem.id);
-                            isProcessing.current = false;
-                            return {
-                                ...item,
-                                status: "error",
-                                failureStage: "download",
-                                progress: 0,
-                                statusLabel: "下载失败",
-                                error: progress.error || "下载失败",
-                            };
-                        }
-                        return {
-                            ...item,
-                            progress: progress.progress,
-                            statusLabel: DL_STATUS_LABELS[progress.status] || "处理中...",
-                            title: progress.title || item.title,
-                        };
-                    }));
-                } catch {
-                    // 短暂轮询错误，下次继续。
-                }
-            }, 800);
-            pollingTimers.current.set(nextItem.id, timer);
+                ? { ...item, taskId: data.taskId, status: "downloading", statusLabel: "等待下载器检查...", progress: 0 } : item));
         } catch (error) {
             setQueue((current) => current.map((item) => item.id === nextItem.id
-                ? {
-                    ...item,
-                    status: "error",
-                    failureStage: "download",
-                    error: error instanceof Error ? error.message : "启动下载失败",
-                    statusLabel: "失败",
-                }
-                : item));
-            isProcessing.current = false;
-        }
-    }, [queue]);
+                ? { ...item, status: "error", failureStage: "download", error: error instanceof Error ? error.message : "启动下载失败", statusLabel: "失败" } : item));
+        } finally { isProcessing.current = false; }
+    }, [queue, restored]);
 
     useEffect(() => {
-        const hasQueued = queue.some((item) => item.status === "queued");
-        const hasActive = queue.some((item) => item.status === "downloading");
-        if (hasQueued && !hasActive && !isProcessing.current) processQueue();
+        for (const item of queue) {
+            if (item.status !== "downloading" || !item.taskId || pollingTimers.current.has(item.id)) continue;
+            let polling = false;
+            let failures = 0;
+            const timer = setInterval(async () => {
+                if (polling) return;
+                polling = true;
+                try {
+                    const progress = await fetchClient(`/music/youtube-download/${item.taskId}`, { signal: AbortSignal.timeout(10000) }) as TaskProgress;
+                    failures = 0;
+                    if (["done", "error"].includes(progress.status)) {
+                        clearInterval(timer);
+                        pollingTimers.current.delete(item.id);
+                    }
+                    setQueue((current) => current.map((entry) => {
+                        if (entry.id !== item.id || entry.taskId !== item.taskId) return entry;
+                        if (progress.savedTrack) return { ...entry, status: "saved", savedTrack: progress.savedTrack, statusLabel: "已保存" };
+                        if (progress.status === "error") return { ...entry, status: "error", failureStage: "download", statusLabel: "下载失败", error: progress.error || "下载失败" };
+                        return { ...entry, title: entry.title || progress.title, progress: progress.progress,
+                            status: progress.status === "done" ? "downloaded" : "downloading",
+                            statusLabel: progress.status === "done" ? "可试听、填写信息并保存" : DL_STATUS_LABELS[progress.status] || "处理中…",
+                            fileSize: progress.fileSize ?? entry.fileSize, duration: progress.duration ?? entry.duration };
+                    }));
+                } catch (error) {
+                    failures += 1;
+                    if ((error instanceof ApiError && error.status === 404) || failures >= 5) {
+                        clearInterval(timer);
+                        pollingTimers.current.delete(item.id);
+                        setQueue((current) => current.map((entry) => entry.id === item.id
+                            ? { ...entry, status: "error", failureStage: "download", statusLabel: "任务连接中断", error: "任务已过期或连接中断，请重试。已填写的信息会保留。" } : entry));
+                    }
+                } finally { polling = false; }
+            }, 1500);
+            pollingTimers.current.set(item.id, timer);
+        }
+        if (!queue.some((item) => item.status === "downloading")) void processQueue();
     }, [queue, processQueue]);
 
-    const retryItem = (item: QueueItem) => {
+    const retryItem = async (item: QueueItem) => {
         if (item.failureStage === "save") {
             uploadAndSaveItem({ ...item, status: "downloaded" });
             return;
+        }
+        // A transient polling failure should resume the existing task, never duplicate it.
+        if (item.taskId) {
+            try {
+                const progress = await fetchClient(`/music/youtube-download/${item.taskId}`) as TaskProgress;
+                if (progress.status !== "error") {
+                    setQueue((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: progress.savedTrack ? "saved" : "downloading", savedTrack: progress.savedTrack, error: "", suggestionStatus: entry.suggestionStatus === "loading" ? "idle" : entry.suggestionStatus } : entry));
+                    return;
+                }
+                await fetchClient(`/music/youtube-download/${item.taskId}`, { method: "DELETE" });
+            } catch (error) {
+                if (!(error instanceof ApiError && error.status === 404)) return;
+            }
         }
         setQueue((current) => current.map((entry) => entry.id === item.id
             ? {
@@ -587,6 +666,7 @@ export default function YoutubeDownloadPage() {
 
     const savedCount = queue.filter((item) => item.status === "saved").length;
     const errorCount = queue.filter((item) => item.status === "error").length;
+    const failedDownloads = queue.filter((item) => item.status === "error" && item.failureStage === "download");
     const readyToSave = queue.filter((item) => item.status === "downloaded" && itemIsComplete(item)).length;
     const allDone = queue.length > 0 && savedCount === queue.length;
     const overallProgress = queue.length > 0
@@ -613,6 +693,7 @@ export default function YoutubeDownloadPage() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-amber-50/60 via-orange-50/40 to-yellow-50/60">
+            <SplitDialog open={Boolean(splitTrack)} onOpenChange={(open) => { if (!open) setSplitTrack(null); }} track={splitTrack} preserveOriginal onComplete={() => setSplitTrack(null)} />
             <datalist id="known-musicians">
                 {musicians.map((name) => <option key={name} value={name} />)}
             </datalist>
@@ -632,7 +713,8 @@ export default function YoutubeDownloadPage() {
                         )}
                         <Dialog open={cookieDialogOpen} onOpenChange={(open) => {
                             setCookieDialogOpen(open);
-                            if (open) fetchCookieSummary();
+                            if (open) { fetchCookieSummary(); requestYoutubeCookieSync("ping").then(() => setExtensionAvailable(true)).catch(() => setExtensionAvailable(false)); }
+                            else { setCookieText(""); setCookieFileName(""); }
                         }}>
                             <DialogTrigger asChild>
                                 <Button variant="outline" size="sm">
@@ -655,7 +737,7 @@ export default function YoutubeDownloadPage() {
                                                 <p className="mt-1 text-xs text-gray-600">
                                                     {cookieSummary?.issue || (cookieSummary?.configured
                                                         ? `${cookieSummary.activeYoutubeCookies ?? 0}/${cookieSummary.youtubeCookies ?? 0} 条相关 Cookie 当前未过期`
-                                                        : "上传浏览器导出的 Netscape cookies.txt 后即可使用")}
+                                                        : "同步浏览器会话，或手动上传 cookies.txt")}
                                                 </p>
                                             </div>
                                             <RefreshCw className="h-4 w-4 text-gray-400" />
@@ -668,6 +750,19 @@ export default function YoutubeDownloadPage() {
                                         )}
                                     </div>
 
+                                    <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-3">
+                                        <p className="text-sm font-medium">从当前浏览器一键同步</p>
+                                        <p className="text-xs text-gray-600">先在同一浏览器打开 YouTube 完成验证，然后同步。Cookie 包含登录凭据；同步只读取 YouTube 域名，不上传其他网站数据。</p>
+                                        <Button onClick={syncBrowserCookies} disabled={isUpdatingCookie || !extensionAvailable}>
+                                            {isUpdatingCookie ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}从浏览器同步
+                                        </Button>
+                                        {!extensionAvailable && <p className="text-xs text-gray-600"><a className="underline" href="/youtube-cookie-sync.zip" download>下载同步扩展</a>，解压后在 Chrome / Edge 扩展管理中开启开发者模式，选择「加载已解压的扩展程序」，然后刷新此页面。</p>}
+                                        <p className="text-xs text-gray-500">未过期不代表会话有效。同步无法自动完成 YouTube 人机验证，服务器出口 IP 也可能影响下载。</p>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                                        <div className="text-xs text-gray-600"><p>下载器：{runtime?.version || "未知"}</p><p>{runtime?.autoUpdate ? "下载前自动检查更新，每天最多一次" : "当前环境由系统管理下载器版本"}</p>{runtime?.issue && <p className="text-amber-700">{runtime.issue}</p>}</div>
+                                        <Button size="sm" variant="outline" onClick={updateRuntime} disabled={updatingRuntime || !runtime?.autoUpdate}>{updatingRuntime ? "等待更新…" : "更新下载器"}</Button>
+                                    </div>
                                     <div
                                         onDragOver={(event) => { event.preventDefault(); setIsCookieDragging(true); }}
                                         onDragLeave={() => setIsCookieDragging(false)}
@@ -706,7 +801,7 @@ export default function YoutubeDownloadPage() {
                                     <Button variant="outline" onClick={() => setCookieDialogOpen(false)} disabled={isUpdatingCookie}>关闭</Button>
                                     <Button onClick={updateYoutubeCookies} disabled={!cookieText.trim() || isUpdatingCookie} className="bg-red-600 hover:bg-red-700">
                                         {isUpdatingCookie ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Upload className="mr-1 h-4 w-4" />}
-                                        验证并保存
+                                        检查格式并保存
                                     </Button>
                                 </DialogFooter>
                             </DialogContent>
@@ -721,36 +816,39 @@ export default function YoutubeDownloadPage() {
                         <Youtube className="h-8 w-8 text-white" />
                     </div>
                     <h1 className="text-3xl font-bold text-gray-900">YouTube 音乐入库</h1>
-                    <p className="mt-2 text-gray-500">粘贴链接 → AI 检索并填写 → 人工审核 → 确认后上传保存</p>
+                    <p className="mt-2 text-gray-500">粘贴链接，试听并核对信息后保存；AI 辅助填写，保存后可选剪辑。</p>
                 </div>
 
                 <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
                     <div className="mb-4 flex items-center justify-between">
                         <h2 className="flex items-center gap-2 text-lg font-semibold">
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-xs font-bold text-red-600">1</span>
                             添加 YouTube 链接
                         </h2>
                         <span className="text-xs text-gray-400">每行一个，可批量粘贴</span>
                     </div>
                     <Textarea placeholder={"https://www.youtube.com/watch?v=...\nhttps://youtu.be/..."} value={urlInput} onChange={(event) => setUrlInput(event.target.value)} rows={3} className="resize-none" />
-                    <Button onClick={addUrls} disabled={!urlInput.trim()} className="mt-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700">
+                    {inputError && <p role="alert" className="mt-2 text-sm text-red-600">{inputError}</p>}
+                    <Button onClick={addUrls} disabled={!urlInput.trim() || !restored} className="mt-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700">
                         <Plus className="mr-1 h-4 w-4" /> 添加并开始处理
                     </Button>
                 </div>
 
+                {libraryError && <div role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{libraryError}<Button size="sm" variant="ghost" onClick={fetchDropdowns}>重新加载</Button></div>}
                 {queue.length > 0 && (
                     <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                             <div>
                                 <h2 className="flex items-center gap-2 text-lg font-semibold">
-                                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-600">2</span>
-                                    审核 AI 填写的信息
+                                    试听并确认音乐信息
                                 </h2>
-                                <p className="ml-8 mt-1 text-xs text-gray-400">紫色标记表示 AI 建议已就绪；只有点击确认后才会入库。</p>
+                                <p className="ml-8 mt-1 text-xs text-gray-400">AI 建议可修改，手工填写后也可直接保存。队列在当前标签页刷新后恢复，临时下载保留最多一天。</p>
                             </div>
+                            <div className="flex flex-wrap gap-2">
+                            {failedDownloads.length > 0 && <Button variant="outline" onClick={async () => { for (const item of failedDownloads) await retryItem(item); }}>重试失败下载 ({failedDownloads.length})</Button>}
                             <Button onClick={saveAllReviewed} disabled={readyToSave === 0}>
                                 <Save className="mr-1 h-4 w-4" /> 确认保存全部完整项 ({readyToSave})
                             </Button>
+                            </div>
                         </div>
 
                         <div className="mb-5 border-b border-gray-100 pb-4">
@@ -780,7 +878,8 @@ export default function YoutubeDownloadPage() {
                                                     <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${item.progress}%` }} />
                                                 </div>
                                             )}
-                                            {item.error && <p className="mt-2 text-xs text-red-500">{item.error}</p>}
+                                            {item.error && <p role="alert" className="mt-2 text-xs text-red-500">{item.error}</p>}
+                                            {item.failureStage === "download" && item.error && <Button size="sm" variant="outline" className="mt-2" onClick={() => setCookieDialogOpen(true)}>检查 Cookie 与下载器</Button>}
                                         </div>
                                         <div className="flex shrink-0 items-center gap-1">
                                             {item.status === "error" && <Button variant="ghost" size="sm" onClick={() => retryItem(item)}>重试</Button>}
@@ -793,8 +892,15 @@ export default function YoutubeDownloadPage() {
                                         </div>
                                     </div>
 
-                                    {item.status === "downloaded" && (
+                                    {item.status === "saved" && item.savedTrack && <div className="ml-8 mt-3 flex items-center gap-3">
+                                        <Button variant="outline" size="sm" onClick={() => setSplitTrack(item.savedTrack!)}><Scissors className="mr-2 h-4 w-4" />剪辑（可选）</Button>
+                                        <span className="text-xs text-gray-500">已保存完整音频，可随时继续导入或离开。</span>
+                                    </div>}
+
+                                    {(item.status === "downloaded" || (item.status === "error" && item.failureStage === "save")) && (
                                         <div className="ml-8 mt-4 border-t border-violet-100 pt-4">
+                                            {item.taskId && item.status === "downloaded" && <audio controls preload="none" className="mb-4 w-full" src={`/api/backend/music/youtube-preview/${item.taskId}`} aria-label={`试听 ${item.title}`} />}
+                                            <p className="mb-3 text-xs text-gray-500">默认保存完整音频。需要去掉片头或拆分乐章时，保存后点击「剪辑（可选）」。</p>
                                             {item.suggestionStatus === "loading" && <div className="mb-4 flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700"><Loader2 className="h-4 w-4 animate-spin" /> AI 正在检索音乐库并整理信息…</div>}
                                             {item.suggestionStatus === "error" && <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">AI 补全失败：{item.suggestionError}。可手工填写或点击右上角重试。</div>}
                                             {item.suggestionStatus === "ready" && (
@@ -838,7 +944,7 @@ export default function YoutubeDownloadPage() {
                                             </div>
                                             <div className="mt-4 flex items-center justify-between gap-3">
                                                 <p className="text-xs text-gray-400">请试听或核对来源后再确认；保存后仍可在音乐管理中编辑。</p>
-                                                <Button onClick={() => uploadAndSaveItem(item)} disabled={!itemIsComplete(item) || item.suggestionStatus === "loading"}>
+                                                <Button onClick={() => uploadAndSaveItem(item)} disabled={!itemIsComplete(item)}>
                                                     <Save className="mr-1 h-4 w-4" /> 确认并保存
                                                 </Button>
                                             </div>

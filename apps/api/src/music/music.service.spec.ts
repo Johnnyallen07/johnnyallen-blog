@@ -58,3 +58,211 @@ describe('MusicService YouTube cookies', () => {
     );
   });
 });
+
+describe('YouTube task lifecycle', () => {
+  const uploaded = {
+    title: 'Source',
+    fileKey: 'music/test.mp3',
+    fileUrl: 'https://example.test/test.mp3',
+    fileSize: 1000,
+    duration: 12,
+  };
+  const metadata = {
+    title: 'Reviewed',
+    musician: 'Bach',
+    performer: 'Pianist',
+    category: 'Classical',
+  };
+  const track = { id: 'track', ...metadata, ...uploaded };
+  const createService = () => {
+    const prisma = {
+      musicTrack: {
+        aggregate: jest.fn().mockResolvedValue({ _max: { order: 0 } }),
+        upsert: jest.fn().mockResolvedValue(track),
+      },
+    };
+    const service = new MusicService(prisma as never, {} as never, {} as never);
+    service['ytTasks'].set('task', {
+      status: 'done',
+      progress: 100,
+      title: 'Source',
+      expiresAt: Date.now() + 60_000,
+    });
+    return { service, prisma };
+  };
+
+  it.each([
+    'https://example.com/a',
+    'http://127.0.0.1/a',
+    'https://youtube.com.evil.test/watch?v=jNQXAC9IVRw',
+    'https://www.youtube.com/playlist?list=test',
+    'https://user@youtube.com/watch?v=jNQXAC9IVRw',
+  ])('rejects unsupported URL %s before launching a worker', (url) => {
+    const { service } = createService();
+    expect(() => service.startYoutubeDownload(url)).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('normalizes a mobile URL to a single video and ignores playlist parameters', async () => {
+    const { service } = createService();
+    const worker = jest
+      .spyOn(
+        service as unknown as {
+          runYoutubeDownload: (id: string, url: string) => Promise<void>;
+        },
+        'runYoutubeDownload',
+      )
+      .mockResolvedValue();
+    jest.spyOn(service['youtubeRuntime'], 'refresh').mockResolvedValue({
+      version: 'test',
+      autoUpdate: false,
+      checkedAt: null,
+      issue: undefined,
+    });
+    service.startYoutubeDownload(
+      'https://m.youtube.com/watch?v=jNQXAC9IVRw&amp;list=anything',
+    );
+    await service['youtubeQueue'];
+    expect(worker).toHaveBeenCalledWith(
+      'test-uuid',
+      'https://www.youtube.com/watch?v=jNQXAC9IVRw',
+    );
+  });
+
+  it('coalesces concurrent saves and returns the same receipt after response loss', async () => {
+    const { service, prisma } = createService();
+    const upload = jest
+      .spyOn(service, 'uploadTaskToCos')
+      .mockResolvedValue(uploaded);
+    const [first, second] = await Promise.all([
+      service.uploadAndSaveTask('task', metadata),
+      service.uploadAndSaveTask('task', metadata),
+    ]);
+    expect(first).toEqual(second);
+    expect(await service.uploadAndSaveTask('task', metadata)).toEqual(first);
+    expect(prisma.musicTrack.upsert).toHaveBeenCalledTimes(1);
+    expect(
+      (prisma.musicTrack.upsert.mock.calls as unknown[][])[0]?.[0],
+    ).toMatchObject({
+      where: { id: 'task' },
+      update: {},
+      create: { id: 'task', title: 'Reviewed' },
+    });
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(service.getDownloadProgress('task')?.savedTrack).toEqual(first);
+  });
+
+  it('allows a DB save to be retried without losing the uploaded audio', async () => {
+    const { service, prisma } = createService();
+    service['ytTasks'].get('task')!.result = uploaded;
+    prisma.musicTrack.upsert.mockRejectedValueOnce(new Error('DB offline'));
+    await expect(service.uploadAndSaveTask('task', metadata)).rejects.toThrow(
+      'DB offline',
+    );
+    expect(await service.uploadAndSaveTask('task', metadata)).toEqual(track);
+    expect(prisma.musicTrack.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers a successful save after process restart', async () => {
+    const prisma = {
+      musicTrack: { findUnique: jest.fn().mockResolvedValue(track) },
+    };
+    const service = new MusicService(prisma as never, {} as never, {} as never);
+    expect(await service.uploadAndSaveTask('task', metadata)).toEqual(track);
+    expect((await service.getSavedYoutubeTask('task'))?.savedTrack).toEqual(
+      track,
+    );
+  });
+
+  it('does not delete a task while it is downloading', () => {
+    const { service } = createService();
+    service['ytTasks'].get('task')!.status = 'downloading';
+    expect(() => service.cleanupTask('task')).toThrow(BadRequestException);
+    expect(service.getDownloadProgress('task')).not.toBeNull();
+  });
+
+  it('expires finished tasks and rejects preview of missing audio', () => {
+    const { service } = createService();
+    service['ytTasks'].get('task')!.expiresAt = 0;
+    expect(service.getDownloadProgress('task')).toBeNull();
+    expect(() => service.getYoutubePreviewPath('task')).toThrow();
+  });
+
+  it('validates all clip ranges before downloading or starting ffmpeg', async () => {
+    const { service } = createService();
+    jest.spyOn(service, 'findOne').mockResolvedValue({ duration: 12 } as never);
+    await expect(
+      service.splitTrack('track', [
+        { title: 'Clip', startTime: -1, endTime: 10 },
+      ]),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.splitTrack('track', [
+        { title: 'Clip', startTime: 0, endTime: 13 },
+      ]),
+    ).rejects.toThrow(BadRequestException);
+    await expect(service.splitTrack('track', [])).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+});
+
+describe('Cookie refresh concurrency', () => {
+  let directory: string;
+  const previousPath = process.env.YOUTUBE_COOKIES_PATH;
+  beforeEach(async () => {
+    directory = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'yt-refresh-'),
+    );
+    process.env.YOUTUBE_COOKIES_PATH = path.join(directory, 'cookies.txt');
+  });
+  afterEach(async () => {
+    if (previousPath === undefined) delete process.env.YOUTUBE_COOKIES_PATH;
+    else process.env.YOUTUBE_COOKIES_PATH = previousPath;
+    await fs.promises.rm(directory, { recursive: true, force: true });
+  });
+
+  it('never overwrites a newly synchronized browser session with an old download snapshot', async () => {
+    const service = new MusicService({} as never, {} as never, {} as never);
+    const newer = VALID_COOKIES.replace('SID', 'NEW_SESSION');
+    await service.updateYoutubeCookies(VALID_COOKIES);
+    await service.updateYoutubeCookies(newer);
+    await service['persistYoutubeCookies'](
+      VALID_COOKIES.replace('SID', 'ROTATED'),
+      VALID_COOKIES,
+    );
+    expect(
+      await fs.promises.readFile(process.env.YOUTUBE_COOKIES_PATH!, 'utf8'),
+    ).toBe(newer);
+    expect(
+      (await fs.promises.stat(process.env.YOUTUBE_COOKIES_PATH!)).mode & 0o777,
+    ).toBe(0o600);
+  });
+
+  it('persists downloader cookie rotation when the browser session has not changed', async () => {
+    const service = new MusicService({} as never, {} as never, {} as never);
+    const rotated = VALID_COOKIES.replace('SID', 'ROTATED');
+    await service.updateYoutubeCookies(VALID_COOKIES);
+    await service['persistYoutubeCookies'](rotated, VALID_COOKIES);
+    expect(
+      await fs.promises.readFile(process.env.YOUTUBE_COOKIES_PATH!, 'utf8'),
+    ).toBe(rotated);
+  });
+
+  it('rejects invalid cookie expiry and unrelated domains without changing the existing file', async () => {
+    const service = new MusicService({} as never, {} as never, {} as never);
+    await service.updateYoutubeCookies(VALID_COOKIES);
+    await expect(
+      service.updateYoutubeCookies(VALID_COOKIES.replace('1817412473', 'NaN')),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.updateYoutubeCookies(
+        VALID_COOKIES.replace('.youtube.com', '.youtube.com.evil.test'),
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(
+      await fs.promises.readFile(process.env.YOUTUBE_COOKIES_PATH!, 'utf8'),
+    ).toBe(VALID_COOKIES);
+  });
+});

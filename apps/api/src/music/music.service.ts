@@ -4,8 +4,13 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Logger,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import COS from 'cos-nodejs-sdk-v5';
+import { MusicTrack } from '@prisma/client';
+import { YoutubeRuntime } from './youtube-runtime';
+import { SaveYoutubeDto } from './dto/save-youtube.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -25,7 +30,17 @@ import {
 const execFileAsync = promisify(execFile);
 
 @Injectable()
-export class MusicService {
+export class MusicService implements OnModuleInit, OnModuleDestroy {
+  private taskCleanupTimer?: ReturnType<typeof setInterval>;
+
+  onModuleInit() {
+    this.taskCleanupTimer = setInterval(() => this.expireTasks(), 60_000);
+    this.taskCleanupTimer.unref();
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.taskCleanupTimer);
+  }
   private cos: COS;
   private readonly logger = new Logger(MusicService.name);
 
@@ -77,7 +92,7 @@ export class MusicService {
     localPath: string,
     cosKey: string,
   ): Promise<{ key: string; publicUrl: string }> {
-    const fileBuffer = await fs.promises.readFile(localPath);
+    const { size } = await fs.promises.stat(localPath);
 
     await new Promise<void>((resolve, reject) => {
       this.cos.putObject(
@@ -85,8 +100,8 @@ export class MusicService {
           Bucket: this.getBucket(),
           Region: this.getRegion(),
           Key: cosKey,
-          Body: fileBuffer,
-          ContentLength: fileBuffer.length,
+          Body: fs.createReadStream(localPath),
+          ContentLength: size,
         },
         (err: unknown) => {
           if (err) {
@@ -150,7 +165,15 @@ export class MusicService {
   private ytTasks = new Map<
     string,
     {
-      status: 'fetching_info' | 'downloading' | 'converting' | 'done' | 'error';
+      status:
+        | 'queued'
+        | 'fetching_info'
+        | 'downloading'
+        | 'converting'
+        | 'done'
+        | 'error';
+      expiresAt: number;
+      savedTrack?: MusicTrack;
       progress: number; // 0-100
       title: string;
       error?: string;
@@ -168,28 +191,124 @@ export class MusicService {
     }
   >();
 
+  private readonly youtubeRuntime = new YoutubeRuntime();
+  private youtubeQueue: Promise<unknown> = Promise.resolve();
+  private runtimeUpdate: Promise<unknown> | undefined;
+  private cookieWrites: Promise<unknown> = Promise.resolve();
+  private savingTasks = new Map<string, Promise<MusicTrack>>();
+  private uploadingTasks = new Map<
+    string,
+    ReturnType<MusicService['performTaskUpload']>
+  >();
+
+  async getYoutubeRuntimeStatus() {
+    return {
+      ...(await this.youtubeRuntime.status()),
+      updating: Boolean(this.runtimeUpdate),
+    };
+  }
+
+  updateYoutubeRuntime() {
+    if (!this.runtimeUpdate) {
+      const update = this.youtubeQueue.then(() =>
+        this.youtubeRuntime.refresh(true),
+      );
+      this.runtimeUpdate = update
+        .catch(() => undefined)
+        .finally(() => {
+          this.runtimeUpdate = undefined;
+        });
+      this.youtubeQueue = this.runtimeUpdate;
+    }
+    return { queued: true };
+  }
+
+  private expireTasks() {
+    for (const [id, task] of this.ytTasks) {
+      if (
+        task.expiresAt < Date.now() &&
+        ['done', 'error'].includes(task.status) &&
+        !this.savingTasks.has(id) &&
+        !this.uploadingTasks.has(id)
+      )
+        this.cleanupTask(id);
+    }
+  }
+
   /** Start a YouTube download task (returns taskId immediately) */
   startYoutubeDownload(url: string): { taskId: string } {
     // Decode HTML entities (browser may send &amp; instead of &)
     const cleanUrl = url.replace(/&amp;/g, '&').replace(/&#38;/g, '&').trim();
 
+    let parsed: URL;
+    try {
+      parsed = new URL(cleanUrl);
+    } catch {
+      throw new BadRequestException('请输入有效的 YouTube 视频链接');
+    }
+    if (
+      !['https:', 'http:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      ![
+        'youtube.com',
+        'www.youtube.com',
+        'm.youtube.com',
+        'music.youtube.com',
+        'youtu.be',
+      ].includes(parsed.hostname)
+    ) {
+      throw new BadRequestException('只支持 YouTube 视频链接');
+    }
+    const videoId =
+      parsed.hostname === 'youtu.be'
+        ? parsed.pathname.slice(1)
+        : parsed.pathname === '/watch'
+          ? parsed.searchParams.get('v')
+          : /^\/(shorts|live|embed)\/([^/]+)$/.exec(parsed.pathname)?.[2];
+    if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId))
+      throw new BadRequestException('请输入单个视频链接，不支持播放列表');
+    this.expireTasks();
+    if (
+      [...this.ytTasks.values()].filter(
+        (task) => !['done', 'error'].includes(task.status),
+      ).length >= 20
+    ) {
+      throw new BadRequestException('下载队列已满，请稍后重试');
+    }
     const taskId = uuidv4();
     this.ytTasks.set(taskId, {
-      status: 'fetching_info',
+      status: 'queued',
+      expiresAt: Date.now() + 24 * 60 * 60_000,
       progress: 0,
       title: '',
     });
 
     // Run in background (don't await)
-    this.runYoutubeDownload(taskId, cleanUrl).catch((err) => {
-      this.logger.error(`YouTube task ${taskId} failed: ${err}`);
-    });
+    this.youtubeQueue = this.youtubeQueue
+      .then(async () => {
+        await this.youtubeRuntime.refresh();
+        await this.runYoutubeDownload(
+          taskId,
+          `https://www.youtube.com/watch?v=${videoId}`,
+        );
+      })
+      .catch((err) => {
+        this.logger.error(`YouTube task ${taskId} failed: ${err}`);
+        const task = this.ytTasks.get(taskId);
+        if (task) {
+          task.status = 'error';
+          task.error = '下载器初始化失败，请更新下载器后重试';
+        }
+      });
 
     return { taskId };
   }
 
   /** Get current progress for a download task */
   getDownloadProgress(taskId: string) {
+    this.expireTasks();
     const task = this.ytTasks.get(taskId);
     if (!task) return null;
     // Return progress without exposing tempFilePath
@@ -201,7 +320,25 @@ export class MusicService {
       fileSize: task.fileSize,
       duration: task.duration,
       result: task.result,
+      savedTrack: task.savedTrack,
     };
+  }
+
+  async getSavedYoutubeTask(taskId: string) {
+    const savedTrack = await this.prisma.musicTrack.findUnique({
+      where: { id: taskId },
+    });
+    return savedTrack
+      ? { status: 'done', progress: 100, title: savedTrack.title, savedTrack }
+      : null;
+  }
+
+  getYoutubePreviewPath(taskId: string) {
+    this.expireTasks();
+    const task = this.ytTasks.get(taskId);
+    if (!task?.tempFilePath || task.status !== 'done')
+      throw new NotFoundException('试听文件已过期，请重新下载');
+    return task.tempFilePath;
   }
 
   /** 用当前音乐库和固定作曲家词表检索上下文，再让 AI 生成待审核信息。 */
@@ -229,6 +366,14 @@ export class MusicService {
   /** Clean up a completed task from memory and its temp file */
   cleanupTask(taskId: string) {
     const task = this.ytTasks.get(taskId);
+    if (
+      task &&
+      (!['done', 'error'].includes(task.status) ||
+        this.savingTasks.has(taskId) ||
+        this.uploadingTasks.has(taskId))
+    ) {
+      throw new BadRequestException('任务仍在处理中，请完成后再移除');
+    }
     if (task?.tempFilePath) {
       fs.promises.unlink(task.tempFilePath).catch(() => {});
     }
@@ -236,7 +381,17 @@ export class MusicService {
   }
 
   /** Upload a completed download task's temp file to COS (deferred upload) */
-  async uploadTaskToCos(taskId: string): Promise<{
+  uploadTaskToCos(taskId: string) {
+    const existing = this.uploadingTasks.get(taskId);
+    if (existing) return existing;
+    const operation = this.performTaskUpload(taskId).finally(() =>
+      this.uploadingTasks.delete(taskId),
+    );
+    this.uploadingTasks.set(taskId, operation);
+    return operation;
+  }
+
+  private async performTaskUpload(taskId: string): Promise<{
     title: string;
     fileKey: string;
     fileUrl: string;
@@ -281,17 +436,30 @@ export class MusicService {
     return task.result;
   }
 
-  /** Upload to COS + save to DB in one atomic call */
-  async uploadAndSaveTask(
-    taskId: string,
-    meta: {
-      title?: string;
-      musician: string;
-      performer: string;
-      category: string;
-      series?: string;
-    },
-  ) {
+  /** Coalesce double-clicks and retain successful results for safe retries. */
+  async uploadAndSaveTask(taskId: string, meta: SaveYoutubeDto) {
+    const task = this.ytTasks.get(taskId);
+    if (!task) {
+      const saved = await this.prisma.musicTrack.findUnique({
+        where: { id: taskId },
+      });
+      if (saved) return saved;
+      throw new NotFoundException('任务已过期或服务已重启，请重新下载');
+    }
+    if (task.savedTrack) return task.savedTrack;
+    const existing = this.savingTasks.get(taskId);
+    if (existing) return existing;
+    const operation = this.performTaskSave(taskId, meta)
+      .then((track) => {
+        task.savedTrack = track;
+        return track;
+      })
+      .finally(() => this.savingTasks.delete(taskId));
+    this.savingTasks.set(taskId, operation);
+    return operation;
+  }
+
+  private async performTaskSave(taskId: string, meta: SaveYoutubeDto) {
     // Step 1: Upload to COS
     const uploaded = await this.uploadTaskToCos(taskId);
 
@@ -300,8 +468,11 @@ export class MusicService {
     const maxOrder = await this.prisma.musicTrack.aggregate({
       _max: { order: true },
     });
-    const track = await this.prisma.musicTrack.create({
-      data: {
+    const track = await this.prisma.musicTrack.upsert({
+      where: { id: taskId },
+      update: {},
+      create: {
+        id: taskId,
         title,
         musician: meta.musician,
         performer: meta.performer,
@@ -317,8 +488,7 @@ export class MusicService {
 
     this.logger.log(`[${taskId}] Saved to DB: ${track.id} — ${title}`);
 
-    // Cleanup server task
-    this.cleanupTask(taskId);
+    // Retain the receipt until task expiry so a lost HTTP response can be retried.
 
     return track;
   }
@@ -328,10 +498,10 @@ export class MusicService {
     const task = this.ytTasks.get(taskId);
     if (!task) return;
 
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ytdl-'));
-    const outputTemplate = path.join(tmpDir, '%(title)s.%(ext)s');
-
+    let tmpDir: string | undefined;
     try {
+      tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ytdl-'));
+      const outputTemplate = path.join(tmpDir, 'audio.%(ext)s');
       // Check for cookies file (needed on servers where YouTube blocks by IP)
       // Copy to writable temp path since yt-dlp needs to write back updated cookies
       const cookiesSrc = this.getYoutubeCookiesPath();
@@ -347,16 +517,23 @@ export class MusicService {
         );
       }
       let cookiesArgs: string[] = [];
+      let originalCookies: string | undefined;
       if (cookiesStat?.isFile()) {
         const cookiesTmp = path.join(tmpDir, 'cookies.txt');
-        await fs.promises.copyFile(cookiesSrc, cookiesTmp);
+        originalCookies = await fs.promises.readFile(cookiesSrc, 'utf8');
+        await fs.promises.writeFile(cookiesTmp, originalCookies, {
+          mode: 0o600,
+        });
         cookiesArgs = ['--cookies', cookiesTmp];
       }
       const jsRuntimeArgs = [
+        '--ignore-config',
         '--js-runtimes',
         'node',
-        '--remote-components',
-        'ejs:github',
+        '--socket-timeout',
+        '30',
+        '--retries',
+        '3',
       ];
 
       // Step 1: Get video info
@@ -383,7 +560,9 @@ export class MusicService {
         uploader?: string;
         channel?: string;
         tags?: string[];
+        is_live?: boolean;
       };
+      if (info.is_live) throw new Error('直播尚未结束，请使用已发布的视频链接');
       const videoTitle = info.title || 'untitled';
       task.title = videoTitle;
       task.sourceMetadata = {
@@ -408,6 +587,8 @@ export class MusicService {
         const proc = spawn('yt-dlp', [
           ...cookiesArgs,
           ...jsRuntimeArgs,
+          '-f',
+          'bestaudio/best',
           '--extract-audio',
           '--audio-format',
           'mp3',
@@ -441,10 +622,11 @@ export class MusicService {
         });
 
         proc.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
+          stderr = (stderr + data.toString()).slice(-4000);
         });
 
         proc.on('close', (code: number | null) => {
+          clearTimeout(timeout);
           if (code === 0) resolve();
           else
             reject(
@@ -454,10 +636,13 @@ export class MusicService {
             );
         });
 
-        proc.on('error', reject);
+        proc.on('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
 
-        setTimeout(() => {
-          proc.kill('SIGTERM');
+        const timeout = setTimeout(() => {
+          proc.kill('SIGKILL');
           reject(new Error('Download timed out (10 min)'));
         }, 10 * 60_000);
       });
@@ -473,12 +658,27 @@ export class MusicService {
       // Move to a stable temp path (so tmpDir can be cleaned up)
       const stablePath = path.join(os.tmpdir(), `ytdl-${taskId}.mp3`);
       await fs.promises.rename(path.join(tmpDir, mp3File), stablePath);
+      task.tempFilePath = stablePath;
 
       // Step 4: Get duration and file size
       const [duration, fileSize] = await Promise.all([
         this.getAudioDuration(stablePath),
         this.getFileSize(stablePath),
       ]);
+
+      if (!fileSize || !duration) {
+        await this.cleanupFiles(stablePath);
+        throw new Error('下载文件为空或不是可播放音频，请重试');
+      }
+      if (originalCookies) {
+        const rotated = await fs.promises.readFile(
+          path.join(tmpDir, 'cookies.txt'),
+          'utf8',
+        );
+        await this.persistYoutubeCookies(rotated, originalCookies).catch(() =>
+          this.logger.warn('Could not persist refreshed YouTube cookies'),
+        );
+      }
 
       // Done — file stays on disk, no COS upload yet
       task.status = 'done';
@@ -495,16 +695,23 @@ export class MusicService {
       let userMessage = message;
       if (message.includes('Sign in to confirm')) {
         userMessage =
-          '服务器被 YouTube 检测为 bot，需要上传 cookies.txt 到服务器';
+          'YouTube 要求验证浏览器会话，请点击「从浏览器同步」后重试；若仍失败，请在 YouTube 完成验证，并检查服务器出口 IP。';
       } else if (message.includes('No supported JavaScript runtime')) {
-        userMessage = '服务器缺少 JS 运行时 (Deno)，请重新构建 API 镜像';
+        userMessage =
+          '服务器 JS 运行时不受支持，请使用 Node 22 及以上版本重新构建 API 镜像';
       }
-      this.logger.error(`[${taskId}] Failed: ${message}`);
+      if (message.includes('403'))
+        userMessage =
+          'YouTube 拒绝下载：请更新下载器并同步 Cookie 后重试；仍失败时需检查出口 IP 或 PO Token 配置。';
+      this.logger.error(`[${taskId}] YouTube download failed`);
+      if (task.tempFilePath) await this.cleanupFiles(task.tempFilePath);
+      task.tempFilePath = undefined;
       task.status = 'error';
       task.error = userMessage;
     } finally {
       try {
-        await fs.promises.rm(tmpDir, { recursive: true, force: true });
+        if (tmpDir)
+          await fs.promises.rm(tmpDir, { recursive: true, force: true });
       } catch {
         /* ignore */
       }
@@ -545,14 +752,35 @@ export class MusicService {
     };
   }
 
-  async updateYoutubeCookies(cookies: string) {
+  updateYoutubeCookies(cookies: string) {
+    return this.persistYoutubeCookies(cookies);
+  }
+
+  private persistYoutubeCookies(cookies: string, expected?: string) {
+    const write = this.cookieWrites.then(async () => {
+      if (expected !== undefined) {
+        const current = await fs.promises
+          .readFile(this.getYoutubeCookiesPath(), 'utf8')
+          .catch(() => null);
+        if (current !== expected)
+          return { ok: true, ...(await this.getYoutubeCookiesStatus()) };
+      }
+      return this.writeYoutubeCookies(cookies);
+    });
+    this.cookieWrites = write.catch(() => undefined);
+    return write;
+  }
+
+  private async writeYoutubeCookies(cookies: string) {
     if (typeof cookies !== 'string') {
       throw new BadRequestException('请上传 cookies.txt 内容');
     }
 
+    if (Buffer.byteLength(cookies) > 1024 * 1024)
+      throw new BadRequestException('Cookie 文件不能超过 1 MB');
     const normalized = cookies.replace(/\r\n/g, '\n').trimEnd() + '\n';
 
-    if (normalized.length < 100) {
+    if (normalized.length < 30) {
       throw new BadRequestException('cookies.txt 内容太短');
     }
 
@@ -629,6 +857,8 @@ export class MusicService {
       totalCookies += 1;
       const domain = fields[0]?.replace(/^\./, '') || '';
       const expires = Number(fields[4] || 0);
+      if (!Number.isFinite(expires) || expires < 0 || expires > 253402300799)
+        continue;
       const isYoutube =
         domain === 'youtube.com' ||
         domain.endsWith('.youtube.com') ||
@@ -706,6 +936,23 @@ export class MusicService {
     }>
   > {
     const track = await this.findOne(trackId);
+    if (
+      !segments.length ||
+      segments.length > 50 ||
+      segments.some(
+        (segment) =>
+          !segment.title.trim() ||
+          !Number.isFinite(segment.startTime) ||
+          !Number.isFinite(segment.endTime) ||
+          segment.startTime < 0 ||
+          segment.startTime >= segment.endTime ||
+          segment.endTime > track.duration,
+      )
+    ) {
+      throw new BadRequestException(
+        '片段标题不能为空，时间范围必须在音频时长内，最多 50 个片段',
+      );
+    }
     const tmpFiles: string[] = [];
 
     try {
@@ -714,8 +961,15 @@ export class MusicService {
       const sourcePath = await this.downloadFromCos(track.fileKey);
       tmpFiles.push(sourcePath);
 
-      // Step 2: Split all segments in parallel
-      const segmentPromises = segments.map(async (segment) => {
+      // Bound CPU/memory and finish each worker before cleaning its input.
+      const results: Array<{
+        title: string;
+        fileKey: string;
+        fileUrl: string;
+        fileSize: number;
+        duration: number;
+      }> = [];
+      for (const segment of segments) {
         if (segment.startTime >= segment.endTime) {
           throw new BadRequestException(
             `Invalid segment "${segment.title}": startTime (${segment.startTime}) must be < endTime (${segment.endTime})`,
@@ -739,8 +993,10 @@ export class MusicService {
           sourcePath,
           '-t',
           String(duration),
-          '-c',
-          'copy',
+          '-c:a',
+          'libmp3lame',
+          '-q:a',
+          '2',
           '-y',
           outputPath,
         ]);
@@ -757,16 +1013,14 @@ export class MusicService {
           cosKey,
         );
 
-        return {
+        results.push({
           title: segment.title,
           fileKey: key,
           fileUrl: publicUrl,
           fileSize,
           duration: segDuration,
-        };
-      });
-
-      const results = await Promise.all(segmentPromises);
+        });
+      }
 
       return results;
     } catch (error) {

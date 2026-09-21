@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # 独立构建：仅依赖 apps/api，不依赖 monorepo 根目录或 packages/。
 # 构建上下文为 apps/api（docker-compose 中 context: apps/api）。
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN apk add --no-cache openssl
 WORKDIR /app
 
@@ -22,13 +22,14 @@ RUN npx prisma generate && npm run build
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV YTDLP_PYTHON=/opt/yt-dlp/bin/python
 
 # ffmpeg: 音乐分割/音频转码；texlive: LaTeX 编译
 # yt-dlp 更新频繁，Alpine community 包容易滞后导致 YouTube 403；
-# 用 venv 从 PyPI 安装，重建镜像时即可拉取最新 extractor。
+# 用 venv 安装匹配的 extractor/EJS；MusicService 在下载前每天检查更新。
 RUN apk add --no-cache ffmpeg python3 py3-pip texlive \
   && python3 -m venv /opt/yt-dlp \
-  && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
+  && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip "yt-dlp[default]" \
   && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp
 
 # --ignore-scripts 跳过 postinstall（prisma generate），避免 prisma CLI 不存在报错
@@ -46,7 +47,7 @@ COPY --from=builder /app/prisma ./prisma
 # 安全：以非 root 用户运行
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
 # 确保非 root 用户对 prisma 相关目录有读写权限（migrate deploy 需要）
-RUN chown -R 1001:1001 /app/node_modules/.prisma /app/node_modules/@prisma
+RUN chown -R 1001:1001 /app/node_modules/.prisma /app/node_modules/@prisma /opt/yt-dlp
 # 确保 /tmp 可写（ffmpeg 音乐分割需要临时文件）
 RUN mkdir -p /tmp && chmod 1777 /tmp
 # YouTube cookies 由后台页面写入，需要给非 root 运行用户持久可写目录

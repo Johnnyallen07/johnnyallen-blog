@@ -8,9 +8,12 @@ import {
   Headers,
   Param,
   Query,
+  Res,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { SaveYoutubeDto } from './dto/save-youtube.dto';
 import { MusicService } from './music.service';
 import { AuthService } from '../auth/auth.service';
 import { CreateMusicTrackDto } from './dto/create-music-track.dto';
@@ -35,7 +38,11 @@ export class MusicController {
 
   /** 从 YouTube 下载音频为 MP3 — 启动任务 */
   @Post('youtube-download')
-  youtubeDownload(@Body() dto: YoutubeDownloadDto) {
+  async youtubeDownload(
+    @Headers('authorization') authHeader: string | undefined,
+    @Body() dto: YoutubeDownloadDto,
+  ) {
+    await this.requireAdmin(authHeader);
     return this.musicService.startYoutubeDownload(dto.url);
   }
 
@@ -70,8 +77,14 @@ export class MusicController {
 
   /** 轮询下载进度 */
   @Get('youtube-download/:taskId')
-  youtubeDownloadProgress(@Param('taskId') taskId: string) {
-    const progress = this.musicService.getDownloadProgress(taskId);
+  async youtubeDownloadProgress(
+    @Headers('authorization') authHeader: string | undefined,
+    @Param('taskId') taskId: string,
+  ) {
+    await this.requireAdmin(authHeader);
+    const progress =
+      this.musicService.getDownloadProgress(taskId) ||
+      (await this.musicService.getSavedYoutubeTask(taskId));
     if (!progress) {
       throw new NotFoundException('Task not found');
     }
@@ -80,14 +93,22 @@ export class MusicController {
 
   /** 清理已完成的任务 */
   @Delete('youtube-download/:taskId')
-  youtubeDownloadCleanup(@Param('taskId') taskId: string) {
+  async youtubeDownloadCleanup(
+    @Headers('authorization') authHeader: string | undefined,
+    @Param('taskId') taskId: string,
+  ) {
+    await this.requireAdmin(authHeader);
     this.musicService.cleanupTask(taskId);
     return { ok: true };
   }
 
   /** 上传已下载的临时文件到 COS */
   @Post('youtube-upload/:taskId')
-  async youtubeUpload(@Param('taskId') taskId: string) {
+  async youtubeUpload(
+    @Headers('authorization') authHeader: string | undefined,
+    @Param('taskId') taskId: string,
+  ) {
+    await this.requireAdmin(authHeader);
     return this.musicService.uploadTaskToCos(taskId);
   }
 
@@ -95,21 +116,47 @@ export class MusicController {
   @Post('youtube-upload/:taskId/save')
   async youtubeUploadAndSave(
     @Param('taskId') taskId: string,
-    @Body()
-    body: {
-      title?: string;
-      musician: string;
-      performer: string;
-      category: string;
-      series?: string;
-    },
+    @Headers('authorization') authHeader: string | undefined,
+    @Body() body: SaveYoutubeDto,
   ) {
+    await this.requireAdmin(authHeader);
     return this.musicService.uploadAndSaveTask(taskId, body);
+  }
+
+  @Get('youtube-runtime')
+  async youtubeRuntime(
+    @Headers('authorization') authHeader: string | undefined,
+  ) {
+    await this.requireAdmin(authHeader);
+    return this.musicService.getYoutubeRuntimeStatus();
+  }
+
+  @Post('youtube-runtime/update')
+  async updateYoutubeRuntime(
+    @Headers('authorization') authHeader: string | undefined,
+  ) {
+    await this.requireAdmin(authHeader);
+    return this.musicService.updateYoutubeRuntime();
+  }
+
+  @Get('youtube-preview/:taskId')
+  async youtubePreview(
+    @Headers('authorization') authHeader: string | undefined,
+    @Param('taskId') taskId: string,
+    @Res() response: Response,
+  ) {
+    await this.requireAdmin(authHeader);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.sendFile(this.musicService.getYoutubePreviewPath(taskId));
   }
 
   /** 分割音乐文件 */
   @Post('split')
-  async splitTrack(@Body() dto: SplitMusicDto) {
+  async splitTrack(
+    @Headers('authorization') authHeader: string | undefined,
+    @Body() dto: SplitMusicDto,
+  ) {
+    await this.requireAdmin(authHeader);
     return this.musicService.splitTrack(dto.trackId, dto.segments);
   }
 

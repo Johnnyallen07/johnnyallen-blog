@@ -1,3 +1,12 @@
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 /** 服务端用 API_SERVER_URL（Docker 内为 http://api:3001），客户端用 NEXT_PUBLIC_API_URL，避免解析到容器 ID 报 EAI_AGAIN */
 export function getApiBaseUrl(): string {
   if (typeof window === "undefined" && process.env.API_SERVER_URL) {
@@ -28,7 +37,10 @@ export async function fetchClient(endpoint: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.message || `API Error: ${response.statusText}`);
+    throw new ApiError(
+      errorBody.message || `API Error: ${response.statusText}`,
+      response.status,
+    );
   }
 
   // Handle 204 No Content

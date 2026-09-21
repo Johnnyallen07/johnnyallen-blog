@@ -30,6 +30,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
 } from "@/components/ui/dialog";
 import { fetchClient } from "@/lib/api";
 
@@ -63,6 +64,7 @@ interface SplitResult {
 }
 
 interface SaveResult {
+    fileKey?: string;
     title: string;
     status: "replaced" | "created" | "pending" | "error";
     existingId?: string;
@@ -361,11 +363,13 @@ export default function SplitDialog({
     onOpenChange,
     track,
     onComplete,
+    preserveOriginal = false,
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     track: MusicTrack | null;
     onComplete: () => void;
+    preserveOriginal?: boolean;
 }) {
     // Internal track selection (when track prop is null, e.g. toolbar button)
     const [internalTrack, setInternalTrack] = useState<MusicTrack | null>(null);
@@ -431,7 +435,7 @@ export default function SplitDialog({
         if (effectiveTrack && open) {
             const seg: Segment = {
                 id: crypto.randomUUID(),
-                title: effectiveTrack.title,
+                title: preserveOriginal ? `${effectiveTrack.title}（剪辑）` : effectiveTrack.title,
                 startTime: 0,
                 endTime: effectiveTrack.duration,
             };
@@ -443,7 +447,7 @@ export default function SplitDialog({
             setSaveResults([]);
             setErrorMsg("");
         }
-    }, [effectiveTrack, open]);
+    }, [effectiveTrack, open, preserveOriginal]);
 
     /* ── Load audio & decode ── */
     useEffect(() => {
@@ -484,7 +488,7 @@ export default function SplitDialog({
             audioRef.current = null;
             ctx.close().catch(() => { });
         };
-    }, [effectiveTrack, open]);
+    }, [effectiveTrack, open, preserveOriginal]);
 
     const handleClose = (v: boolean) => {
         if (!v) {
@@ -566,21 +570,25 @@ export default function SplitDialog({
     };
 
     const handleSaveAll = async () => {
-        if (!effectiveTrack || splitResults.length === 0) return;
+        if (!effectiveTrack || splitResults.length === 0 || isSaving) return;
         setIsSaving(true);
         const results: SaveResult[] = [];
         try {
             for (const r of splitResults) {
                 try {
-                    const check = await fetchClient(`/music/check-title?title=${encodeURIComponent(r.title)}`);
+                    if (saveResults.some((saved) => saved.fileKey === r.fileKey && saved.status !== "error")) {
+                        results.push(saveResults.find((saved) => saved.fileKey === r.fileKey)!);
+                        continue;
+                    }
+                    const check = preserveOriginal ? { exists: false } : await fetchClient(`/music/check-title?title=${encodeURIComponent(r.title)}`);
                     if (check.exists && check.id) {
                         await fetchClient(`/music/${check.id}`, { method: "PATCH", body: JSON.stringify({ fileKey: r.fileKey, fileUrl: r.fileUrl, fileSize: r.fileSize, duration: r.duration }) });
-                        results.push({ title: r.title, status: "replaced", existingId: check.id });
+                        results.push({ fileKey: r.fileKey, title: r.title, status: "replaced", existingId: check.id });
                     } else {
                         await fetchClient("/music", { method: "POST", body: JSON.stringify({ title: r.title, musician: effectiveTrack.musician, performer: effectiveTrack.performer, category: effectiveTrack.category, series: effectiveTrack.series || undefined, duration: r.duration, fileKey: r.fileKey, fileUrl: r.fileUrl, fileSize: r.fileSize }) });
-                        results.push({ title: r.title, status: "created" });
+                        results.push({ fileKey: r.fileKey, title: r.title, status: "created" });
                     }
-                } catch { results.push({ title: r.title, status: "error" }); }
+                } catch { results.push({ fileKey: r.fileKey, title: r.title, status: "error" }); }
             }
             setSaveResults(results);
             setSaveStatus(results.some((r) => r.status === "error") ? "error" : "done");
@@ -597,6 +605,7 @@ export default function SplitDialog({
                         <Scissors className="h-5 w-5 text-amber-600" />
                         分割音乐
                     </DialogTitle>
+                    <DialogDescription>试听并调整片段的起止时间，确认后保存剪辑结果。</DialogDescription>
                 </DialogHeader>
 
                 {!effectiveTrack ? (
@@ -642,6 +651,7 @@ export default function SplitDialog({
                     </div>
                 ) : (
                     <>
+                        {preserveOriginal && <p className="text-sm text-gray-500">剪辑结果将另存为新曲目，保留完整原音频。关闭即可跳过剪辑。</p>}
                         {/* Track info */}
                         <div className="flex items-center gap-3 p-3 bg-amber-50/50 rounded-lg">
                             <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -735,13 +745,12 @@ export default function SplitDialog({
                                 </Button>
                             </div>
                             <div className="space-y-2">
-                                {segments.map((seg, index) => {
+                                {segments.map((seg) => {
                                     const isActive = seg.id === activeSegmentId;
                                     return (
                                         <div key={seg.id} onClick={() => setActiveSegmentId(seg.id)}
                                             className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isActive ? "border-amber-400 bg-amber-50/30" : "border-gray-100 bg-gray-50 hover:border-gray-200"}`}>
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className={`text-xs font-bold w-5 text-center ${isActive ? "text-amber-600" : "text-gray-400"}`}>{index + 1}</span>
                                                 <Input value={seg.title} onChange={(e) => updateSegment(seg.id, "title", e.target.value)} placeholder="片段标题..." className="h-8 text-sm flex-1" onClick={(e) => e.stopPropagation()} />
                                                 <button onClick={(e) => { e.stopPropagation(); removeSegment(seg.id); }} className="p-1 hover:bg-gray-200 rounded transition-colors">
                                                     <X className="h-3.5 w-3.5 text-gray-400" />
