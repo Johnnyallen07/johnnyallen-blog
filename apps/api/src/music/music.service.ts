@@ -25,6 +25,7 @@ import { I18nService } from '../i18n/i18n.service';
 import {
   MusicMetadataService,
   YoutubeSourceMetadata,
+  YoutubeMetadataSuggestion,
 } from './music-metadata.service';
 
 const execFileAsync = promisify(execFile);
@@ -191,6 +192,16 @@ export class MusicService implements OnModuleInit, OnModuleDestroy {
     }
   >();
 
+  private metadataRequests = new Map<
+    string,
+    Promise<YoutubeMetadataSuggestion>
+  >();
+  private metadataCache = new Map<string, YoutubeMetadataSuggestion>();
+
+  getYoutubeMetadataStatus() {
+    return this.musicMetadata.getStatus();
+  }
+
   private readonly youtubeRuntime = new YoutubeRuntime();
   private youtubeQueue: Promise<unknown> = Promise.resolve();
   private runtimeUpdate: Promise<unknown> | undefined;
@@ -319,6 +330,7 @@ export class MusicService implements OnModuleInit, OnModuleDestroy {
       error: task.error,
       fileSize: task.fileSize,
       duration: task.duration,
+      sourceReady: Boolean(task.sourceMetadata),
       result: task.result,
       savedTrack: task.savedTrack,
     };
@@ -342,25 +354,34 @@ export class MusicService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 用当前音乐库和固定作曲家词表检索上下文，再让 AI 生成待审核信息。 */
-  async suggestYoutubeMetadata(taskIds: string[]) {
-    const sources = taskIds.map((taskId) => {
-      const task = this.ytTasks.get(taskId);
-      if (!task) throw new NotFoundException(`Task not found: ${taskId}`);
-      if (!task.title) {
-        throw new BadRequestException(`Task 尚未取得视频信息: ${taskId}`);
-      }
-      return {
-        taskId,
-        title: task.title,
-        description: task.sourceMetadata?.description,
-        uploader: task.sourceMetadata?.uploader,
-        channel: task.sourceMetadata?.channel,
-        tags: task.sourceMetadata?.tags,
-        duration: task.duration || task.sourceMetadata?.duration,
-      };
-    });
-
-    return { suggestions: await this.musicMetadata.suggest(sources) };
+  async suggestYoutubeMetadata(taskIds: string[], force = false) {
+    const suggestions = await Promise.all(
+      taskIds.map(async (taskId) => {
+        const task = this.ytTasks.get(taskId);
+        if (!task)
+          throw new NotFoundException('下载任务已过期，请重新下载后生成建议');
+        if (!task.sourceMetadata)
+          throw new BadRequestException(
+            '视频来源信息尚未取得，请稍候再生成建议',
+          );
+        const cached = this.metadataCache.get(taskId);
+        if (!force && cached) return cached;
+        const existing = this.metadataRequests.get(taskId);
+        if (existing) return existing;
+        const request = this.musicMetadata
+          .suggest([{ taskId, ...task.sourceMetadata }])
+          .then(([suggestion]) => {
+            if (!suggestion) throw new BadRequestException('AI 未返回音乐信息');
+            if (this.ytTasks.has(taskId))
+              this.metadataCache.set(taskId, suggestion);
+            return suggestion;
+          })
+          .finally(() => this.metadataRequests.delete(taskId));
+        this.metadataRequests.set(taskId, request);
+        return request;
+      }),
+    );
+    return { suggestions };
   }
 
   /** Clean up a completed task from memory and its temp file */
@@ -378,6 +399,7 @@ export class MusicService implements OnModuleInit, OnModuleDestroy {
       fs.promises.unlink(task.tempFilePath).catch(() => {});
     }
     this.ytTasks.delete(taskId);
+    this.metadataCache.delete(taskId);
   }
 
   /** Upload a completed download task's temp file to COS (deferred upload) */

@@ -9,6 +9,11 @@ const IGNORED_PREFIXES = ["/_next", "/favicon.ico", "/api"];
 
 export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
+    const loginUrl = () => {
+        const target = new URL("/login", request.url);
+        if (pathname === "/music/youtube") target.searchParams.set("next", pathname + request.nextUrl.search);
+        return target;
+    };
 
     // 跳过公开路径
     if (PUBLIC_PATHS.includes(pathname)) {
@@ -43,7 +48,7 @@ export async function middleware(request: NextRequest) {
 
     if (!token) {
         const renewed = await refresh().catch(() => null);
-        if (!renewed) return NextResponse.redirect(new URL("/login", request.url));
+        if (!renewed) return NextResponse.redirect(loginUrl());
         token = renewed.token;
         const response = NextResponse.next();
         response.cookies.set("auth_token", token, {
@@ -75,7 +80,7 @@ export async function middleware(request: NextRequest) {
                 });
                 return response;
             }
-            const response = NextResponse.redirect(new URL("/login", request.url));
+            const response = NextResponse.redirect(loginUrl());
             response.cookies.delete("auth_token");
             response.cookies.delete("admin_trusted");
             return response;
@@ -84,7 +89,7 @@ export async function middleware(request: NextRequest) {
         console.error("Auth verification failed:", error);
         // API 不可用时也重定向到登录页
         const response = NextResponse.redirect(
-            new URL("/login", request.url)
+            loginUrl()
         );
         response.cookies.delete("auth_token");
         return response;

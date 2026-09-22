@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>YouTube Cookie</title><link rel="stylesheet" href="popup.css"></head>
+<body><h1>获取 YouTube Cookie</h1><p>在当前 YouTube 页面手动获取。这里不检查后台登录，也不根据 Cookie 数量判断你是否登录 YouTube。</p>
+<label for="destination">填入哪个后台</label><select id="destination"><option value="https://admin.johnnyallen.blog">正式音乐后台</option><option value="http://localhost:3003">本地 localhost:3003</option><option value="http://127.0.0.1:3003">本地 127.0.0.1:3003</option></select>
+<button id="capture">获取并填入后台</button><button id="download" class="secondary">仅下载 cookies.txt</button>
+<p id="status" role="status" aria-live="polite"></p><p class="hint">自动填入后由你确认保存。临时传递只在扩展会话内保留五分钟，不会将 Cookie 放进网址或剪贴板。</p>
+<script src="popup.js"></script></body></html>

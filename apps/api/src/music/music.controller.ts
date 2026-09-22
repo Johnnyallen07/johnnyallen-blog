@@ -65,6 +65,14 @@ export class MusicController {
     return this.musicService.getYoutubeCookiesStatus();
   }
 
+  @Get('youtube-metadata/status')
+  async youtubeMetadataStatus(
+    @Headers('authorization') authHeader: string | undefined,
+  ) {
+    await this.requireAdmin(authHeader);
+    return this.musicService.getYoutubeMetadataStatus();
+  }
+
   /** 检索现有音乐库并由 AI 生成逐条待审核元数据 */
   @Post('youtube-metadata/suggest')
   async suggestYoutubeMetadata(
@@ -72,7 +80,7 @@ export class MusicController {
     @Body() dto: SuggestYoutubeMetadataDto,
   ) {
     await this.requireAdmin(authHeader);
-    return this.musicService.suggestYoutubeMetadata(dto.taskIds);
+    return this.musicService.suggestYoutubeMetadata(dto.taskIds, dto.force);
   }
 
   /** 轮询下载进度 */

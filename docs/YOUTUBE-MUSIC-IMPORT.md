@@ -6,11 +6,19 @@
 
 ## 浏览器 Cookie 同步
 
-音乐导入页的「YouTube Cookie」提供扩展 ZIP 下载。解压后在 Chrome / Edge 扩展管理中启用开发者模式并加载该目录，刷新后台。在同一浏览器打开 YouTube 完成验证，再点击「从浏览器同步」。扩展只读取当前 Cookie store 的 youtube.com Cookie，经已登录后台的同源代理上传，不需要复制管理员 Token，Cookie 值不会进入网页 postMessage 或 React 状态。
+音乐导入页的「YouTube Cookie」提供扩展 v1.1 ZIP 下载。解压后在 Chrome / Edge 扩展管理中启用开发者模式并加载该目录；已有旧版时替换文件并重新加载扩展，刷新 YouTube 和后台。扩展使用工具栏弹窗，在已登录的 YouTube 页面点击「获取并填入后台」，会打开后台 Cookie 窗口并填好内容，再点击「检查格式并保存」。也可在扩展中选择「仅下载 cookies.txt」，再选取文件。
 
-支持的后台地址固定在扩展 manifest.json 和 background.js：正式 admin 子域及 localhost/127.0.0.1:3003。自定义域名需同时修改两处并重新打包。浏览器扩展不能替服务器自动通过人机验证；会话被撤销、服务器出口 IP 限制或 PO Token 要求仍可能导致下载失败。未过期数量只是本地格式检查，不代表 YouTube 已接受该会话。手动 Netscape 文件上传保留为备用方式。
+获取 Cookie 不要求后台登录，也不依据某个 Cookie 名称推断 YouTube 登录状态。后台登录过期时会保留返回地址，登录后继续填入。扩展只读取当前 YouTube 标签页所属 Cookie store 的 youtube.com Cookie；自动填入的临时快照仅存在扩展 session storage 中，五分钟后拒绝使用并在读取时清除，成功填入后立即清除。扩展直接填入可见输入框，不通过网页 postMessage、URL 或剪贴板传递 Cookie。填写内容只在当前弹窗内使用，保存成功后清空，不写入队列缓存。
+
+支持的后台地址固定在扩展 manifest.json、background.js 和 popup.html：正式 admin 子域及 localhost/127.0.0.1:3003。自定义域名需同步修改并重新打包。浏览器扩展不能替服务器自动通过人机验证；会话被撤销、服务器出口 IP 限制或 PO Token 要求仍可能导致下载失败。未过期数量只是本地格式检查，不代表 YouTube 已接受该会话。
 
 Cookie 存储在 Docker 的 youtube_cookies 命名卷中，文件权限为 0600，更新通过原子重命名完成。下载使用独立快照；yt-dlp 写回的 Cookie 仅在原始内容未变化时持久化，不覆盖同时由浏览器同步的新会话。写回不是无限续期，失效时仍须从浏览器重新同步。
+
+## 音乐 AI 配置与重试
+
+音乐信息建议独立使用 DeepSeek，不继承 Gemini 或翻译服务配置。设置 `DEEPSEEK_API_KEY` 即可使用默认的 `deepseek-flash` 和 `https://api.deepseek.com`；也可用 `MUSIC_METADATA_AI_API_KEY`、`MUSIC_METADATA_AI_MODEL`、`MUSIC_METADATA_AI_BASE_URL` 覆盖。修改 Docker 环境配置后需要重新创建 API 容器。密钥只配置在服务端。
+
+页面会显示模型和缺少密钥的原因。来源信息及分类、系列加载完成后才自动请求建议；失败可手工填写或点击 AI 重试。API 使用 JSON 模式，关闭 DeepSeek 思考模式，总请求预算约 45 秒，空内容最多重试一次。密钥无效、余额不足、限流、模型地址错误、超时和无效结构会显示不同错误。同一任务的并发请求合并，成功结果缓存至任务清理；手动重试可重新生成，手工修改的字段始终保留。
 
 ## 下载器运行环境
 

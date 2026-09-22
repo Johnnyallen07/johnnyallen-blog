@@ -266,3 +266,74 @@ describe('Cookie refresh concurrency', () => {
     ).toBe(VALID_COOKIES);
   });
 });
+
+describe('YouTube metadata request lifecycle', () => {
+  const suggestion = {
+    taskId: 'task',
+    title: 'Bach Prelude',
+    musician: 'Bach',
+    performer: 'Pianist',
+    category: '古典',
+    series: null,
+    confidence: 0.9,
+    reason: '来源明确',
+    needsReview: [],
+  };
+  function setup() {
+    const ai = { suggest: jest.fn().mockResolvedValue([suggestion]) };
+    const service = new MusicService({} as never, {} as never, ai as never);
+    service['ytTasks'].set('task', {
+      status: 'done',
+      progress: 100,
+      title: 'Retained editable title',
+      expiresAt: Date.now() + 60_000,
+    });
+    return { service, ai };
+  }
+
+  it('waits for actual source metadata even if a retained title exists', async () => {
+    const { service, ai } = setup();
+    expect(service.getDownloadProgress('task')?.sourceReady).toBe(false);
+    await expect(service.suggestYoutubeMetadata(['task'])).rejects.toThrow(
+      '来源信息尚未取得',
+    );
+    expect(ai.suggest).not.toHaveBeenCalled();
+    service['ytTasks'].get('task')!.sourceMetadata = {
+      title: 'Original YouTube title',
+    };
+    expect(service.getDownloadProgress('task')?.sourceReady).toBe(true);
+    await service.suggestYoutubeMetadata(['task']);
+    expect(ai.suggest).toHaveBeenCalledWith([
+      { taskId: 'task', title: 'Original YouTube title' },
+    ]);
+  });
+
+  it('coalesces concurrent requests, caches successful results and allows explicit regeneration', async () => {
+    const { service, ai } = setup();
+    service['ytTasks'].get('task')!.sourceMetadata = { title: 'Original' };
+    const [first, second] = await Promise.all([
+      service.suggestYoutubeMetadata(['task']),
+      service.suggestYoutubeMetadata(['task']),
+    ]);
+    expect(first).toEqual(second);
+    await service.suggestYoutubeMetadata(['task']);
+    expect(ai.suggest).toHaveBeenCalledTimes(1);
+    await service.suggestYoutubeMetadata(['task'], true);
+    expect(ai.suggest).toHaveBeenCalledTimes(2);
+    service.cleanupTask('task');
+    expect(service['metadataCache'].has('task')).toBe(false);
+  });
+
+  it('clears failed in-flight requests so retry can succeed', async () => {
+    const { service, ai } = setup();
+    service['ytTasks'].get('task')!.sourceMetadata = { title: 'Original' };
+    ai.suggest.mockRejectedValueOnce(new Error('DeepSeek unavailable'));
+    await expect(service.suggestYoutubeMetadata(['task'])).rejects.toThrow(
+      'unavailable',
+    );
+    await expect(service.suggestYoutubeMetadata(['task'])).resolves.toEqual({
+      suggestions: [suggestion],
+    });
+    expect(ai.suggest).toHaveBeenCalledTimes(2);
+  });
+});

@@ -1,9 +1,11 @@
-# YouTube Cookie 同步
+# YouTube Cookie 获取与自动填入
 
-Chrome / Edge 中打开扩展管理，启用开发者模式，将下载的 ZIP 解压，然后选择「加载已解压的扩展程序」并选中该目录。刷新音乐导入页面，打开「YouTube Cookie」，点击「从浏览器同步」。
+Chrome / Edge 中打开扩展管理，启用开发者模式，将 ZIP 解压并选择「加载已解压的扩展程序」。已有旧版时重新加载扩展，并刷新 YouTube 与音乐后台页面。当前版本为 1.1.0。
 
-请先在同一浏览器的普通窗口中打开 YouTube 并完成登录或人机验证。扩展只读取 youtube.com 的 Cookie，只发送到当前已登录的 Johnny 音乐管理后台；不读取 Google 或其他网站的 Cookie，不保存 Cookie 副本，不在网页消息中返回 Cookie 值。请求沿用后台登录状态，不需要复制管理员 Token。
+在 YouTube 页面点击工具栏中的 Johnny Music 扩展，选择「获取并填入后台」。扩展读取当前 YouTube 标签页所属的 Cookie 存储，打开目标音乐后台，并自动把内容填入 Cookie 文本框。确认后点击「检查格式并保存」。也可选择「仅下载 cookies.txt」，再在后台选择该文件。
 
-支持 https://admin.johnnyallen.blog 与本地 3003 端口。使用其他域名时需同时修改 manifest.json 的 content_scripts.matches 和 background.js 的 allowedOrigins，随后重新加载扩展。
+获取和下载 Cookie 不需要后台登录，扩展也不会根据 Cookie 数量推断 YouTube 是否登录。若后台登录已过期，登录后会返回音乐页面继续填入，五分钟内无需重新获取。无痕窗口需先在浏览器中允许扩展访问无痕窗口，并在同一窗口类型接收。
 
-这是会话同步，不是绕过验证或无限续期。服务器与浏览器出口 IP 不同、会话被撤销或 YouTube 要求 PO Token 时，仍可能下载失败。请根据页面错误处理。下载器写回的 Cookie 会持久保存，但无法替代浏览器重新登录。
+Cookie 包含会话凭据。扩展只读取 youtube.com，不读取其他网站。自动传递使用扩展的临时 session storage，五分钟后不可读取，填入后立即清除；不放入网址、剪贴板或页面消息。下载文件只在你手动选择导出时创建，请勿分享。
+
+目标地址限定为 https://admin.johnnyallen.blog 和本地 3003 端口。服务器出口 IP、失效会话或 YouTube 的其他验证仍可能影响实际下载；同步 Cookie 不是无限续期。

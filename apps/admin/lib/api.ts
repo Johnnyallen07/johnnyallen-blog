@@ -31,7 +31,9 @@ export async function fetchClient(endpoint: string, options: RequestInit = {}) {
 
   // 401 未授权 → 跳转登录页
   if (response.status === 401 && typeof window !== "undefined") {
-    window.location.href = "/login";
+    const login = new URL("/login", window.location.origin);
+    if (window.location.pathname === "/music/youtube") login.searchParams.set("next", window.location.pathname + window.location.search);
+    window.location.href = login.toString();
     throw new Error("登录已过期，请重新登录");
   }
 

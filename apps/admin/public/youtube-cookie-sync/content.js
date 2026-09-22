@@ -1,25 +1,25 @@
 (() => {
-  let syncing = false;
+  let importing = false;
   const reply = (id, payload) => window.postMessage({ source: "johnny-cookie-extension", id, ...payload }, location.origin);
   window.addEventListener("message", async (event) => {
     if (event.source !== window || event.origin !== location.origin || event.data?.source !== "johnny-music-admin") return;
     const { action, id } = event.data;
     if (typeof id !== "string" || id.length > 100) return;
-    if (action === "ping") { reply(id, { installed: true }); return; }
-    if (action !== "sync" || syncing) return;
-    syncing = true;
+    if (action === "ping") { reply(id, { installed: true, version: "1.1.0" }); return; }
+    if (action !== "paste" || importing) return;
+    importing = true;
     try {
-      const result = await chrome.runtime.sendMessage({ type: "read-youtube-cookies" });
-      if (result?.error || !result?.cookies) throw new Error(result?.error || "扩展连接中断，请刷新页面");
-      const response = await fetch("/api/backend/music/youtube-cookies", {
-        method: "POST", credentials: "same-origin", redirect: "error",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cookies: result.cookies }),
-        signal: AbortSignal.timeout(20000),
-      });
-      if (!response.ok) throw new Error(response.status === 401 ? "请先登录音乐管理后台" : "同步失败，请检查后台服务后重试");
+      const result = await chrome.runtime.sendMessage({ type: "pending-youtube-cookies" });
+      if (result?.error || !result?.cookies) throw new Error(result?.error || "请在 YouTube 页面重新获取 Cookie。");
+      const input = document.getElementById("youtube-cookie-text");
+      if (!(input instanceof HTMLTextAreaElement)) throw new Error("请先打开后台的 YouTube Cookie 窗口。");
+      // Paste directly into the user-visible input, never pass credentials through window messages.
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, result.cookies);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await chrome.runtime.sendMessage({ type: "ack-youtube-cookies", id: result.id });
       reply(id, { ok: true });
-    } catch (error) {
-      reply(id, { error: error.message || "同步失败" });
-    } finally { syncing = false; }
+    } catch (error) { reply(id, { error: error.message || "自动填入失败" }); }
+    finally { importing = false; }
   });
 })();

@@ -35,7 +35,8 @@ export default function AdminLoginPage() {
             await res.json();
 
             toast.success("登录成功");
-            router.push("/");
+            const next = new URLSearchParams(window.location.search).get("next");
+            router.push((next === "/music/youtube" || next?.startsWith("/music/youtube?")) ? next : "/");
             router.refresh();
         } catch (error) {
             const message =

@@ -1,6 +1,6 @@
-/** The extension sends status only; browser cookies never enter React state. */
+/** The bridge sends status only; the extension pastes cookies directly into the visible form. */
 export function requestYoutubeCookieSync(
-  action: "ping" | "sync",
+  action: "ping" | "paste",
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
@@ -16,7 +16,8 @@ export function requestYoutubeCookieSync(
         event.data.id !== id
       )
         return;
-      finish(event.data.error ? new Error(event.data.error) : undefined);
+      const error = event.data.error || (action === "ping" && event.data.version !== "1.1.0" ? "请下载并重新加载新版同步扩展" : undefined);
+      finish(error ? new Error(error) : undefined);
     };
     function finish(error?: Error) {
       clearTimeout(timeout);

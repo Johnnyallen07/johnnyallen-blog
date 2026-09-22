@@ -66,6 +66,7 @@ interface TaskProgress {
     fileSize?: number;
     duration?: number;
     savedTrack?: SavedTrack;
+    sourceReady?: boolean;
 }
 
 interface MetadataSuggestion {
@@ -123,6 +124,7 @@ interface QueueItem {
     metadata: EditableMetadata;
     editedFields?: string[];
     savedTrack?: SavedTrack;
+    sourceReady?: boolean;
 }
 
 const EMPTY_METADATA: EditableMetadata = {
@@ -192,17 +194,20 @@ export default function YoutubeDownloadPage() {
     const pollingTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
     const isProcessing = useRef(false);
     const isUploading = useRef<Set<string>>(new Set());
-    const isSuggesting = useRef<Set<string>>(new Set());
+    const isSuggesting = useRef<Map<string, string>>(new Map());
 
     const [categories, setCategories] = useState<SidebarEntity[]>([]);
     const [seriesList, setSeriesList] = useState<SidebarEntity[]>([]);
     const [musicians, setMusicians] = useState<string[]>([]);
     const [libraryError, setLibraryError] = useState("");
+    const [libraryReady, setLibraryReady] = useState(false);
+    const [aiStatus, setAiStatus] = useState<{ configured: boolean; model: string; issue?: string } | null>(null);
     const categoriesRef = useRef<SidebarEntity[]>([]);
     const seriesListRef = useRef<SidebarEntity[]>([]);
 
     const [cookieDialogOpen, setCookieDialogOpen] = useState(false);
     const [cookieText, setCookieText] = useState("");
+    const [cookieImportPending, setCookieImportPending] = useState(false);
     const [cookieFileName, setCookieFileName] = useState("");
     const [cookieSummary, setCookieSummary] = useState<CookieSummary | null>(null);
     const [cookieStatus, setCookieStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -218,18 +223,19 @@ export default function YoutubeDownloadPage() {
 
     const fetchDropdowns = useCallback(async () => {
         setLibraryError("");
-        try {
-            const [cats, series, knownMusicians] = await Promise.all([
-                fetchClient("/music-categories"),
-                fetchClient("/music-series"),
-                fetchClient("/music/musicians"),
-            ]);
-            setCategories(Array.isArray(cats) ? cats : []);
-            setSeriesList(Array.isArray(series) ? series : []);
-            setMusicians(Array.isArray(knownMusicians) ? knownMusicians : []);
-        } catch {
-            setLibraryError("音乐分类或词表加载失败，请重试后选择分类。");
+        const [cats, series, knownMusicians] = await Promise.allSettled([
+            fetchClient("/music-categories"), fetchClient("/music-series"), fetchClient("/music/musicians"),
+        ]);
+        if (cats.status === "fulfilled" && Array.isArray(cats.value)) {
+            categoriesRef.current = cats.value; setCategories(cats.value);
         }
+        if (series.status === "fulfilled" && Array.isArray(series.value)) {
+            seriesListRef.current = series.value; setSeriesList(series.value);
+        }
+        if (knownMusicians.status === "fulfilled" && Array.isArray(knownMusicians.value)) setMusicians(knownMusicians.value);
+        const ready = cats.status === "fulfilled" && Array.isArray(cats.value) && series.status === "fulfilled" && Array.isArray(series.value);
+        setLibraryReady(ready);
+        if (!ready) setLibraryError("音乐分类或系列加载失败，请重新加载；已填写内容会保留。");
     }, []);
 
     const fetchCookieSummary = useCallback(async () => {
@@ -247,6 +253,7 @@ export default function YoutubeDownloadPage() {
     useEffect(() => {
         requestYoutubeCookieSync("ping").then(() => setExtensionAvailable(true)).catch(() => setExtensionAvailable(false));
         fetchClient("/music/youtube-runtime").then(setRuntime).catch(() => undefined);
+        fetchClient("/music/youtube-metadata/status").then(setAiStatus).catch(() => undefined);
     }, []);
 
     useEffect(() => {
@@ -262,7 +269,7 @@ export default function YoutubeDownloadPage() {
                         const progress = await fetchClient(`/music/youtube-download/${item.taskId}`, { signal: AbortSignal.timeout(15000) }) as TaskProgress;
                         if (progress.savedTrack) return { ...item, status: "saved", savedTrack: progress.savedTrack, statusLabel: "已保存", error: "" };
                         if (progress.status === "error") return { ...item, status: "error", failureStage: "download", error: progress.error || "下载失败" };
-                        return { ...item, status: progress.status === "done" ? "downloaded" : "downloading", suggestionStatus: item.suggestionStatus === "loading" ? "idle" : item.suggestionStatus, statusLabel: progress.status === "done" ? "等待审核" : "继续处理", error: "" };
+                        return { ...item, sourceReady: progress.sourceReady, status: progress.status === "done" ? "downloaded" : "downloading", suggestionStatus: item.suggestionStatus === "loading" ? "idle" : item.suggestionStatus, statusLabel: progress.status === "done" ? "等待审核" : "继续处理", error: "" };
                     } catch (error) {
                         return { ...item, status: "error", failureStage: error instanceof ApiError && error.status === 404 ? "download" : item.status === "uploading" ? "save" : "download", error: "暂时无法恢复任务。服务重启或任务过期时需重新下载，填写的信息已保留。" };
                     }
@@ -280,17 +287,34 @@ export default function YoutubeDownloadPage() {
         try { sessionStorage.setItem("youtube-import-queue", JSON.stringify(queue)); } catch { /* Storage may be disabled. */ }
     }, [queue, restored]);
 
-    const syncBrowserCookies = async () => {
+    const pasteBrowserCookies = useCallback(async () => {
         setIsUpdatingCookie(true);
         setCookieStatus(null);
         try {
-            await requestYoutubeCookieSync("sync");
-            await fetchCookieSummary();
-            setCookieStatus({ type: "success", message: "已同步浏览器会话，可以重试失败的下载。" });
+            await requestYoutubeCookieSync("paste");
+            setCookieFileName("从 YouTube 页面获取");
+            setCookieStatus({ type: "success", message: "Cookie 已自动填入，点击「检查格式并保存」即可更新服务器。" });
+            const current = new URL(window.location.href);
+            current.searchParams.delete("cookieImport");
+            window.history.replaceState(null, "", current);
         } catch (error) {
             setCookieStatus({ type: "error", message: error instanceof Error ? error.message : "同步失败" });
-        } finally { setIsUpdatingCookie(false); }
-    };
+        } finally { setIsUpdatingCookie(false); setCookieImportPending(false); }
+    }, []);
+
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("cookieImport") === "1") {
+            setCookieDialogOpen(true);
+            setCookieImportPending(true);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (cookieDialogOpen && cookieImportPending) {
+            const timer = setTimeout(() => { void pasteBrowserCookies(); }, 300);
+            return () => clearTimeout(timer);
+        }
+    }, [cookieDialogOpen, cookieImportPending, pasteBrowserCookies]);
 
     const updateRuntime = async () => {
         setUpdatingRuntime(true);
@@ -453,9 +477,9 @@ export default function YoutubeDownloadPage() {
             : item));
     };
 
-    const suggestItem = useCallback(async (itemId: string, taskId: string) => {
-        if (isSuggesting.current.has(itemId)) return;
-        isSuggesting.current.add(itemId);
+    const suggestItem = useCallback(async (itemId: string, taskId: string, force = false) => {
+        if (isSuggesting.current.get(itemId) === taskId) return;
+        isSuggesting.current.set(itemId, taskId);
         setQueue((current) => current.map((item) => item.id === itemId
             ? { ...item, suggestionStatus: "loading", suggestionError: "" }
             : item));
@@ -463,9 +487,10 @@ export default function YoutubeDownloadPage() {
         try {
             const result = await fetchClient("/music/youtube-metadata/suggest", {
                 method: "POST",
-                body: JSON.stringify({ taskIds: [taskId] }),
+                body: JSON.stringify({ taskIds: [taskId], force }),
+                signal: AbortSignal.timeout(55000),
             }) as { suggestions?: MetadataSuggestion[] };
-            const suggestion = result.suggestions?.[0];
+            const suggestion = result.suggestions?.find((entry) => entry.taskId === taskId);
             if (!suggestion) throw new Error("AI 未返回音乐信息");
 
             const categoryId = categoriesRef.current.find((item) => item.name === suggestion.category)?.id || "";
@@ -476,7 +501,7 @@ export default function YoutubeDownloadPage() {
                     title: item.editedFields?.includes("title") ? item.title : suggestion.title || item.title,
                     suggestionStatus: "ready",
                     suggestionError: "",
-                    statusLabel: "等待审核",
+                    statusLabel: item.status === "downloaded" ? "等待审核" : item.statusLabel,
                     metadata: {
                         musician: item.editedFields?.includes("musician") ? item.metadata.musician : suggestion.musician,
                         performer: item.editedFields?.includes("performer") ? item.metadata.performer : suggestion.performer,
@@ -499,11 +524,11 @@ export default function YoutubeDownloadPage() {
                     ...item,
                     suggestionStatus: "error",
                     suggestionError: error instanceof Error ? error.message : "AI 补全失败",
-                    statusLabel: "请手工填写或重试 AI",
+                    statusLabel: item.status === "downloaded" ? "请手工填写或重试 AI" : item.statusLabel,
                 }
                 : item));
         } finally {
-            isSuggesting.current.delete(itemId);
+            if (isSuggesting.current.get(itemId) === taskId) isSuggesting.current.delete(itemId);
         }
     }, []);
 
@@ -511,14 +536,16 @@ export default function YoutubeDownloadPage() {
         for (const item of queue) {
             if (
                 (item.status === "downloading" || item.status === "downloaded")
-                && item.title
+                && item.sourceReady
+                && libraryReady
+                && aiStatus?.configured !== false
                 && item.taskId
                 && item.suggestionStatus === "idle"
             ) {
                 suggestItem(item.id, item.taskId);
             }
         }
-    }, [queue, suggestItem]);
+    }, [queue, suggestItem, libraryReady, aiStatus]);
 
     const itemIsComplete = (item: QueueItem) => Boolean(
         item.title.trim()
@@ -612,7 +639,7 @@ export default function YoutubeDownloadPage() {
                         if (entry.id !== item.id || entry.taskId !== item.taskId) return entry;
                         if (progress.savedTrack) return { ...entry, status: "saved", savedTrack: progress.savedTrack, statusLabel: "已保存" };
                         if (progress.status === "error") return { ...entry, status: "error", failureStage: "download", statusLabel: "下载失败", error: progress.error || "下载失败" };
-                        return { ...entry, title: entry.title || progress.title, progress: progress.progress,
+                        return { ...entry, sourceReady: progress.sourceReady, title: entry.title || progress.title, progress: progress.progress,
                             status: progress.status === "done" ? "downloaded" : "downloading",
                             statusLabel: progress.status === "done" ? "可试听、填写信息并保存" : DL_STATUS_LABELS[progress.status] || "处理中…",
                             fileSize: progress.fileSize ?? entry.fileSize, duration: progress.duration ?? entry.duration };
@@ -655,6 +682,7 @@ export default function YoutubeDownloadPage() {
                 ...entry,
                 status: "queued",
                 taskId: null,
+                sourceReady: false,
                 progress: 0,
                 error: "",
                 failureStage: undefined,
@@ -726,7 +754,7 @@ export default function YoutubeDownloadPage() {
                             <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-2xl">
                                 <DialogHeader>
                                     <DialogTitle>更新 YouTube Cookie</DialogTitle>
-                                    <DialogDescription>Cookie 只写入 API 的私有文件，不会在页面中回显。</DialogDescription>
+                                    <DialogDescription>保存后写入 API 的私有文件；服务器不会回传已保存的 Cookie 内容。</DialogDescription>
                                 </DialogHeader>
 
                                 <div className="space-y-4">
@@ -751,13 +779,14 @@ export default function YoutubeDownloadPage() {
                                     </div>
 
                                     <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-3">
-                                        <p className="text-sm font-medium">从当前浏览器一键同步</p>
-                                        <p className="text-xs text-gray-600">先在同一浏览器打开 YouTube 完成验证，然后同步。Cookie 包含登录凭据；同步只读取 YouTube 域名，不上传其他网站数据。</p>
-                                        <Button onClick={syncBrowserCookies} disabled={isUpdatingCookie || !extensionAvailable}>
-                                            {isUpdatingCookie ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}从浏览器同步
+                                        <p className="text-sm font-medium">在 YouTube 页面获取，回到这里自动填入</p>
+                                        <p className="text-xs text-gray-600">打开 YouTube，点击工具栏中的 Johnny Music 扩展，再点「获取并填入后台」。也可以选择「仅下载 cookies.txt」，然后在下方选取文件。</p>
+                                        <a className="mr-3 text-sm underline" href="https://www.youtube.com" target="_blank" rel="noreferrer">打开 YouTube</a>
+                                        <Button onClick={pasteBrowserCookies} disabled={isUpdatingCookie || !extensionAvailable}>
+                                            {isUpdatingCookie ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}填入已获取的 Cookie
                                         </Button>
-                                        {!extensionAvailable && <p className="text-xs text-gray-600"><a className="underline" href="/youtube-cookie-sync.zip" download>下载同步扩展</a>，解压后在 Chrome / Edge 扩展管理中开启开发者模式，选择「加载已解压的扩展程序」，然后刷新此页面。</p>}
-                                        <p className="text-xs text-gray-500">未过期不代表会话有效。同步无法自动完成 YouTube 人机验证，服务器出口 IP 也可能影响下载。</p>
+                                        {!extensionAvailable && <p className="text-xs text-gray-600"><a className="underline" href="/youtube-cookie-sync.zip" download>下载新版扩展 v1.1</a>，解压后在 Chrome / Edge 扩展管理中开启开发者模式，选择「加载已解压的扩展程序」，已有旧版时请重新加载扩展，然后刷新 YouTube 和此页面。</p>}
+                                        <p className="text-xs text-gray-500">获取 Cookie 不需要后台登录。后台登录过期时，登录后会继续自动填入；这与 YouTube 是否登录无关。</p>
                                     </div>
                                     <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
                                         <div className="text-xs text-gray-600"><p>下载器：{runtime?.version || "未知"}</p><p>{runtime?.autoUpdate ? "下载前自动检查更新，每天最多一次" : "当前环境由系统管理下载器版本"}</p>{runtime?.issue && <p className="text-amber-700">{runtime.issue}</p>}</div>
@@ -816,7 +845,8 @@ export default function YoutubeDownloadPage() {
                         <Youtube className="h-8 w-8 text-white" />
                     </div>
                     <h1 className="text-3xl font-bold text-gray-900">YouTube 音乐入库</h1>
-                    <p className="mt-2 text-gray-500">粘贴链接，试听并核对信息后保存；AI 辅助填写，保存后可选剪辑。</p>
+                    <p className="mt-2 text-gray-500">粘贴链接，试听并核对信息后保存；DeepSeek 辅助填写，保存后可选剪辑。</p>
+                    {aiStatus && <p className={`mt-2 text-xs ${aiStatus.configured ? "text-gray-400" : "text-amber-700"}`}>{aiStatus.configured ? `音乐 AI：${aiStatus.model}` : aiStatus.issue}</p>}
                 </div>
 
                 <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
@@ -884,7 +914,7 @@ export default function YoutubeDownloadPage() {
                                         <div className="flex shrink-0 items-center gap-1">
                                             {item.status === "error" && <Button variant="ghost" size="sm" onClick={() => retryItem(item)}>重试</Button>}
                                             {item.status === "downloaded" && item.taskId && (
-                                                <Button variant="ghost" size="sm" onClick={() => suggestItem(item.id, item.taskId!)} disabled={item.suggestionStatus === "loading"} title="重新生成 AI 建议">
+                                                <Button variant="ghost" size="sm" onClick={() => suggestItem(item.id, item.taskId!, true)} disabled={item.suggestionStatus === "loading" || !item.sourceReady || !libraryReady} title="重新生成 AI 建议">
                                                     <RefreshCw className={`h-4 w-4 ${item.suggestionStatus === "loading" ? "animate-spin" : ""}`} />
                                                 </Button>
                                             )}

@@ -1,6 +1,17 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsUUID } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsUUID,
+  IsOptional,
+  IsBoolean,
+} from 'class-validator';
 
 export class SuggestYoutubeMetadataDto {
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(20)
