@@ -27,7 +27,8 @@
     "playModeShuffle": "Shuffle",
     "buffering": "Buffering",
     "bufferStatus": "Buffered {percent}%",
-    "quest": "Ear Quest"
+    "foundation": "Sight & Ear · Basic",
+    "quest": "Ear Quest · Advanced"
   },
   "scores": {
     "title": "Scores",
@@ -55,16 +56,72 @@
     "exitFullscreen": "Exit Fullscreen"
   },
   "quest": {
-    "title": "Ear Quest",
-    "subtitle": "Hear a phrase, play it back on your violin. You are graded on the sound that actually leaves the instrument — pitch, note order and rhythm ratios, measured in cents.",
+    "title": "Sight-Singing & Ear Quest",
+    "subtitle": "Progress from guided staff echoing, scaffolded sight-singing, and functional 'Sing-It-Home' single-note resolution to full violin transcription.",
     "back": "Back",
     "streak": "Streak {count}",
-    "worldLabel": "World",
+    "modeFoundation": "🌱 Foundation · Sight & Ear",
+    "modeFoundationSub": "Guided Echo → Sight-Singing → Sing-It-Home → Fill-in-the-Blank (Relative Pitch)",
+    "modeQuest": "🎯 Advanced · Ear Quest",
+    "modeQuestSub": "Blind phrase transcription + Sing-Then-Play combo (Worlds 1–6)",
+    "inputLabel": "Input Mode",
+    "input": {
+      "voice": "🎤 Voice (Sing)",
+      "violin": "🎻 Violin (Play)",
+      "singThenPlay": "🎤→🎻 Sing-Then-Play (Combo)"
+    },
+    "loopToggle": "🔥 4-Stage Mastery Loop (One Motif, 4 Steps)",
+    "loopStepBanner": "4-Stage Mastery · Step {step}/4",
+    "nextLoopStep": "Next Stage ({next}/4)",
+    "staffTitle": "Five-Line Staff & Movable-Do Degrees",
+    "showSolfege": "Solfège Badges (1̂ Do)",
+    "showSteppingStones": "Ghost Stepping-Stones",
+    "droneToggle": "Tonic Drone",
+    "playDemoAfterSight": "🔊 Hear Reference Melody",
+    "singLockSuccess": "✅ Vocal sequence locked in! Ghost scale degrees are now lit on the staff — pick up your violin for Phase 2!",
+    "singLockPrompt": "Phase 1 (🎤 Sing first): Hum or sing the phrase into the mic to verify your audiation",
+    "violinRealisePrompt": "Phase 2 (🎻 Play on violin): Use your unlocked staff contour to play it in tune",
+    "foundationStageLabel": "Foundation 4-Stage Curriculum",
+    "foundationStages": {
+      "echo": {
+        "name": "0.1 Guided Echo · Staff + Audio",
+        "blurb": "Full five-line staff + demo audio + tonic drone. Sing or play along to calibrate ear, voice, and fingerboard.",
+        "badge": "Staff ON · Audio ON"
+      },
+      "sight": {
+        "name": "0.2 Scaffolded Sight-Singing",
+        "blurb": "Plays ONLY the tonic cadence + starting note! Read the staff (with ghost stepping-stones on leaps) and sing/play.",
+        "badge": "Staff ON · Blind Audio"
+      },
+      "home": {
+        "name": "0.3 Sing-It-Home · Single Note",
+        "blurb": "Hear the cadence + 1 mystery tone. Sing/play the mystery tone AND walk it home to Tonic Do (e.g. Mi → Re → Do)!",
+        "badge": "Functional Gravity"
+      },
+      "fill": {
+        "name": "0.4 Fill-in-the-Blank · Hybrid",
+        "blurb": "Sight-read the printed first half of the measure, then seamlessly ear-transcribe the hidden `?` ending.",
+        "badge": "Half Staff · Half Ear"
+      }
+    },
+    "rungLabel": "Sing-It-Home · Scale Degree Ladder",
+    "rungs": {
+      "1": "Rung 1 · Pillars (1̂ Do · 5̂ Sol)",
+      "2": "Rung 2 · Major Triad (1̂ Do · 3̂ Mi · 5̂ Sol)",
+      "3": "Rung 3 · Tonic Gravity (1̂ · 2̂ Re · 3̂ Mi · 7̂ Ti)",
+      "4": "Rung 4 · Pentatonic (1̂ · 2̂ · 3̂ · 5̂ · 6̂ La)",
+      "5": "Rung 5 · Full Diatonic Major (1̂–7̂)",
+      "6": "Rung 6 · Natural Minor Scale"
+    },
+    "homeInstruction": "💡 Goal: After the cadence (1̂-5̂-1̂), you heard 1 mystery note. Sing/play that note AND resolve it home to Tonic D (1̂ Do)!",
+    "revealedFormulaLabel": "Resolution Path:",
+    "worldLabel": "Advanced Transcription Worlds",
     "toleranceLabel": "Strictness",
     "tolerance": {
       "8": "Strict ±8¢",
       "15": "Standard ±15¢",
-      "25": "Forgiving ±25¢"
+      "25": "Forgiving ±25¢",
+      "35": "Vocal ±35¢"
     },
     "worlds": {
       "1": {
@@ -92,30 +149,32 @@
         "blurb": "Longer phrases, closer to real music."
       }
     },
-    "startHint": "Ready when you are — current world: {world}",
-    "start": "Start",
-    "replay": "Play again",
+    "startHint": "Ready when you are — current drill: {world}",
+    "start": "Start Round",
+    "replay": "Replay Prompt",
     "replaysLeft": "{count}/{total} left",
-    "record": "Play it back",
-    "stop": "Stop and grade",
+    "record": "Record Answer",
+    "recordVoice": "🎤 Sing Answer",
+    "recordViolin": "🎻 Play on Violin",
+    "stop": "Stop & Grade",
     "grading": "Analysing",
-    "nextRound": "New phrase",
+    "nextRound": "Next Phrase",
     "hintsLabel": "Hints",
-    "micNotice": "The browser will ask for microphone access the first time you record. Echo cancellation, noise suppression and auto gain are all switched off — they are tuned for speech and will wreck the pitch.",
-    "roundMeta": "{notes} notes · {bpm} BPM",
+    "micNotice": "The browser will ask for microphone access the first time you record. Octave-invariant grading supports both human voice and violin.",
+    "roundMeta": "{notes} target notes · {bpm} BPM · Key of {tonic}",
     "revealedKey": "Key: {key}",
     "revealedFirstNote": "First note: {note}",
-    "curveLabel": "Pitch trace",
+    "curveLabel": "Pitch Trace (green dashed = target pitch class, purple = your trajectory)",
     "phase": {
       "idle": "Ready to start",
-      "prompt": "Playing",
+      "prompt": "Playing prompt",
       "ready": "Your turn",
-      "recording": "Recording",
+      "recording": "Listening...",
       "grading": "Analysing",
       "result": "Graded"
     },
     "axis": {
-      "sequence": "Sequence",
+      "sequence": "Sequence / Path",
       "intonation": "Intonation",
       "rhythm": "Rhythm",
       "na": "—"
@@ -148,20 +207,21 @@
       "separator": ", ",
       "ellipsis": "…",
       "stringName": "{name} string",
-      "noNotes": "No usable notes detected — check the microphone, the room noise, or whether the violin is in tune.",
+      "noNotes": "No usable notes detected — sing or play closer to the microphone.",
       "missedNotes": "Missed {count} notes.",
       "wrongNoteItem": "note {index} (should be {expected})",
       "wrongNotes": "Wrong notes: {items}",
       "badlyTunedItem": "{expected} {cents}¢",
       "badlyTuned": "Right note, badly out of tune: {items}",
       "extraNotes": "{count} extra notes — hunting for the pitch is normal, but it costs a little.",
-      "openStringDetuned": "⚠️ The {strings} open string is systematically off — that means the violin has drifted, not you. Retune before practising, or none of this intonation data is trustworthy.",
-      "systematicSharp": "You are {cents} cents sharp overall — that is a systematic offset. Check the open strings first, then the hand frame.",
-      "systematicFlat": "You are {cents} cents flat overall — that is a systematic offset. Check the open strings first, then the hand frame.",
+      "openStringDetuned": "⚠️ The {strings} open string is systematically off — retune before practising.",
+      "systematicSharp": "You are {cents} cents sharp overall.",
+      "systematicFlat": "You are {cents} cents flat overall.",
       "worstNote": "The worst note is {note}: {cents} cents.",
       "worstNoteWithFingering": "The worst note is {note} ({fingering}): {cents} cents.",
-      "rhythmUnsteady": "The long-short ratios are not steady yet — put a metronome on and slow it down until the durations are clean.",
-      "clean": "Clean. Time to move up."
+      "rhythmUnsteady": "The long-short ratios are not steady yet.",
+      "clean": "Clean and accurate. Ready for the next step!"
     }
   }
 }
+

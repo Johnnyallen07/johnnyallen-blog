@@ -2092,7 +2092,14 @@ export default function MusicPageClient() {
                             <span>{t("scores")}</span>
                         </Link>
                         <Link
-                            href="/quest"
+                            href="/quest?mode=foundation"
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-teal-700 hover:bg-white/45 transition-all duration-200"
+                        >
+                            <span className="text-base">🌱</span>
+                            <span>{t("foundation")}</span>
+                        </Link>
+                        <Link
+                            href="/quest?mode=quest"
                             className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-amber-700 hover:bg-white/45 transition-all duration-200"
                         >
                             <span className="text-base">🎯</span>

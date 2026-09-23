@@ -176,11 +176,14 @@ export interface TokenWallet {
 // ---------------------------------------------------------------------------
 
 /** Cents of deviation tolerated before a note counts as out of tune. */
-export type Tolerance = 25 | 15 | 8;
+export type Tolerance = 35 | 25 | 15 | 8;
 
+export const TOLERANCE_VOICE: Tolerance = 35;
 export const TOLERANCE_BEGINNER: Tolerance = 25;
 export const TOLERANCE_INTERMEDIATE: Tolerance = 15;
 export const TOLERANCE_ADVANCED: Tolerance = 8;
+
+export type InputProfile = "voice" | "violin" | "auto";
 
 export interface NoteScore {
     targetIndex: number;
@@ -245,4 +248,7 @@ export interface ScoreOptions {
     temperament?: Temperament;
     ledger?: HintLedger | null;
     gradeRhythm?: boolean;
+    /** When true (default), pitch comparison is octave-invariant so male/female singing and any violin octave register match the target pitch class. */
+    octaveInvariant?: boolean;
 }
+

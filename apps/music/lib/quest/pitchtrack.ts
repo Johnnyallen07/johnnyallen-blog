@@ -4,7 +4,12 @@ import {
     hzToMidi,
     midiToHz,
 } from "./theory.ts";
-import type { PitchDetector, PitchTrack } from "./types.ts";
+import type { InputProfile, PitchDetector, PitchTrack } from "./types.ts";
+
+/** Lowest fundamental for human singing (C2 ≈ 65.4 Hz, covering male bass/baritone). */
+export const VOICE_MIN_HZ = 65.0;
+/** Upper fundamental ceiling for human soprano singing (D6 ≈ 1175 Hz). */
+export const VOICE_MAX_HZ = 1200.0;
 
 export interface YinOptions {
     frameS: number;
@@ -25,6 +30,29 @@ const DEFAULT_OPTIONS: YinOptions = {
     silenceDb: -45.0,
     octaveGuard: true,
 };
+
+/**
+ * Creates a pitch detector configured for human voice (`65–1200 Hz`),
+ * solo violin (`196–2637 Hz`), or automatic dual input (`65–2637 Hz`).
+ */
+export function createInputPitchDetector(profile: InputProfile = "auto"): PitchDetector {
+    if (profile === "violin") {
+        return createYinPitchDetector();
+    }
+    if (profile === "voice") {
+        return createYinPitchDetector({
+            frameS: 0.046,
+            minHz: VOICE_MIN_HZ,
+            maxHz: VOICE_MAX_HZ,
+        });
+    }
+    return createYinPitchDetector({
+        frameS: 0.046,
+        minHz: VOICE_MIN_HZ,
+        maxHz: VIOLIN_MAX_HZ,
+    });
+}
+
 
 export function medianFilter1d(arr: Float64Array, size: number): Float64Array {
     if (size <= 1 || arr.length === 0) return new Float64Array(arr);

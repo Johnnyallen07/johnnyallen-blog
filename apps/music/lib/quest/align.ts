@@ -12,7 +12,16 @@ function subCost(delta: number): [number, boolean] {
     return [1.0, false];
 }
 
-export function align(target: readonly number[], detected: readonly number[], transpose = 0.0): Alignment {
+export function foldOctave(deltaSemitones: number): number {
+    return deltaSemitones - 12.0 * Math.round(deltaSemitones / 12.0);
+}
+
+export function align(
+    target: readonly number[],
+    detected: readonly number[],
+    transpose = 0.0,
+    octaveInvariant = true,
+): Alignment {
     const t = target.map(x => x + transpose);
     const d = detected.slice();
     const n = t.length;
@@ -32,7 +41,8 @@ export function align(target: readonly number[], detected: readonly number[], tr
 
     for (let i = 1; i <= n; i++) {
         for (let j = 1; j <= m; j++) {
-            const delta = d[j - 1]! - t[i - 1]!;
+            const rawDelta = d[j - 1]! - t[i - 1]!;
+            const delta = octaveInvariant ? foldOctave(rawDelta) : rawDelta;
             const [scost] = subCost(delta);
             const cDiag = dp[ix(i - 1, j - 1)]! + scost;
             const cUp = dp[ix(i - 1, j)]! + GAP_COST;
@@ -50,7 +60,8 @@ export function align(target: readonly number[], detected: readonly number[], tr
     while (i > 0 || j > 0) {
         const move = back[ix(i, j)]!;
         if (i > 0 && j > 0 && move === 0) {
-            const delta = d[j - 1]! - t[i - 1]!;
+            const rawDelta = d[j - 1]! - t[i - 1]!;
+            const delta = octaveInvariant ? foldOctave(rawDelta) : rawDelta;
             const [, isMatch] = subCost(delta);
             pairs.push({
                 op: isMatch ? "match" : "sub",
@@ -80,16 +91,23 @@ export function align(target: readonly number[], detected: readonly number[], tr
     };
 }
 
-export function bestAlignment(target: readonly number[], detected: readonly number[], mode: MatchMode = "absolute", maxTranspose = 12): Alignment {
+export function bestAlignment(
+    target: readonly number[],
+    detected: readonly number[],
+    mode: MatchMode = "absolute",
+    maxTranspose = 12,
+    octaveInvariant = true,
+): Alignment {
     if (mode === "absolute" || target.length === 0 || detected.length === 0) {
-        const result = align(target, detected, 0.0);
+        const result = align(target, detected, 0.0, octaveInvariant);
         result.mode = mode;
         return result;
     }
 
     const offsets: number[] = [];
     for (let i = 0; i < Math.min(target.length, detected.length); i++) {
-        offsets.push(detected[i]! - target[i]!);
+        const raw = detected[i]! - target[i]!;
+        offsets.push(octaveInvariant ? foldOctave(raw) : raw);
     }
     offsets.sort((a, b) => a - b);
     const seed = offsets[Math.floor(offsets.length / 2)]!;
@@ -107,7 +125,7 @@ export function bestAlignment(target: readonly number[], detected: readonly numb
 
     let best: Alignment | null = null;
     for (const k of order) {
-        const cand = align(target, detected, k);
+        const cand = align(target, detected, k, octaveInvariant);
         if (!best || cand.cost < best.cost - 1e-9) {
             best = cand;
         } else if (Math.abs(cand.cost - best.cost) <= 1e-9 && Math.abs(k) < Math.abs(best.transposeSemitones)) {

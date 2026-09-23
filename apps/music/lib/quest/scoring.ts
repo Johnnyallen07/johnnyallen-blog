@@ -1,4 +1,4 @@
-import { bestAlignment, residualOffsetCents } from "./align.ts";
+import { bestAlignment, foldOctave, residualOffsetCents } from "./align.ts";
 import { HINT_CATALOG, ledgerMultiplier, createHintLedger } from "./hints.ts";
 import { noteName, bestFingering, adjustedTargetMidi, formatFingering, isOpenString, stringNameOf } from "./theory.ts";
 import type {
@@ -269,10 +269,11 @@ export function scoreAttempt(lick: Lick, events: readonly NoteEvent[], options: 
     const temperament = options.temperament ?? "equal";
     const ledger = options.ledger ?? createHintLedger();
     const gradeRhythm = options.gradeRhythm ?? true;
+    const octaveInvariant = options.octaveInvariant ?? true;
 
     const lickPitches = lick.notes.map(n => n.midi);
     const detectedPitches = events.map(e => e.midi);
-    const alignment = bestAlignment(lickPitches, detectedPitches, mode);
+    const alignment = bestAlignment(lickPitches, detectedPitches, mode, 12, octaveInvariant);
 
     const offsetCents = mode === "relative" ? residualOffsetCents(alignment) : 0.0;
 
@@ -297,7 +298,9 @@ export function scoreAttempt(lick: Lick, events: readonly NoteEvent[], options: 
 
         const played = events[pair.detectedIndex]!.midi;
         const reference = adjustedTargetMidi(targetMidi, lick.tonicMidi % 12, temperament) + alignment.transposeSemitones + offsetCents / 100.0;
-        const cents = (played - reference) * 100.0;
+        const rawDiff = played - reference;
+        const effectiveDiff = octaveInvariant ? foldOctave(rawDiff) : rawDiff;
+        const cents = effectiveDiff * 100.0;
 
         noteScores.push({
             targetIndex: pair.targetIndex,

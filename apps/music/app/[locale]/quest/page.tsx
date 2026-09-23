@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { setRequestLocale } from "next-intl/server";
 import QuestPageClient from "./quest-client";
 
@@ -8,5 +9,9 @@ export default async function QuestPage({
 }) {
     const { locale } = await params;
     setRequestLocale(locale);
-    return <QuestPageClient />;
+    return (
+        <Suspense fallback={null}>
+            <QuestPageClient />
+        </Suspense>
+    );
 }

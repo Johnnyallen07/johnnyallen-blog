@@ -471,3 +471,88 @@ export function wavBytes(x: Float32Array, sr: number = DEFAULT_SR): Uint8Array {
 
     return buf;
 }
+
+/**
+ * Synthesises a warm Tonic-Dominant-Tonic (1̂ – 5̂ – 1̂) cadence to anchor
+ * the listener's relative pitch centre before a sight-singing or ear drill.
+ */
+export function renderTonicCadence(
+    tonicMidi: number,
+    cfg: SynthConfig = DEFAULT_SYNTH_CONFIG,
+): Float32Array {
+    const stepDur = 0.36;
+    const finalDur = 0.55;
+    const gap = 0.04;
+    const p1 = synthNote(tonicMidi, stepDur, { ...cfg, amplitude: cfg.amplitude * 0.72 });
+    const p5 = synthNote(tonicMidi + 7, stepDur, { ...cfg, amplitude: cfg.amplitude * 0.68 });
+    const pHome = synthNote(tonicMidi, finalDur, { ...cfg, amplitude: cfg.amplitude * 0.85 });
+
+    const gapSamples = Math.trunc(gap * cfg.sr);
+    const tailSamples = Math.trunc(0.22 * cfg.sr);
+    const out = new Float32Array(
+        p1.length + gapSamples + p5.length + gapSamples + pHome.length + tailSamples,
+    );
+
+    let cursor = 0;
+    out.set(p1, cursor);
+    cursor += p1.length + gapSamples;
+    out.set(p5, cursor);
+    cursor += p5.length + gapSamples;
+    out.set(pHome, cursor);
+    return out;
+}
+
+/**
+ * Renders the audio prompt for a Foundation Mode round:
+ * - `full_demo`: Cadence + full melody (+ optional low tonic drone).
+ * - `cadence_and_first_note`: Cadence + starting reference note ONLY (for Sight-Singing).
+ * - `cadence_and_mystery_note`: Cadence + the single mystery note ONLY (for Sing-It-Home).
+ */
+export function renderFoundationPrompt(
+    options: {
+        tonicMidi: number;
+        cueMidi: number;
+        targetLick: Lick;
+        promptAudioMode: "full_demo" | "cadence_and_first_note" | "cadence_and_mystery_note";
+        tempoScale?: number;
+        withDrone?: boolean;
+    },
+    cfg: SynthConfig = DEFAULT_SYNTH_CONFIG,
+): Float32Array {
+    const cadence = renderTonicCadence(options.tonicMidi, cfg);
+    const tempoScale = options.tempoScale ?? 1.0;
+
+    let body: Float32Array;
+    if (
+        options.promptAudioMode === "cadence_and_first_note" ||
+        options.promptAudioMode === "cadence_and_mystery_note"
+    ) {
+        const singleLick: Lick = {
+            ...options.targetLick,
+            notes: [{ midi: options.cueMidi, beats: 1.8 }],
+        };
+        body = renderLick(singleLick, cfg, { tempoScale });
+    } else {
+        body = renderLick(options.targetLick, cfg, { tempoScale });
+    }
+
+    if (options.withDrone) {
+        const droneDur = body.length / cfg.sr;
+        const drone = synthNote(options.tonicMidi - 12, droneDur, {
+            ...cfg,
+            attackS: 0.15,
+            releaseS: 0.25,
+            bowNoise: 0.0,
+            amplitude: cfg.amplitude * 0.22,
+        });
+        for (let i = 0; i < Math.min(body.length, drone.length); i++) {
+            body[i] = Math.max(-0.98, Math.min(0.98, body[i]! + drone[i]!));
+        }
+    }
+
+    const total = new Float32Array(cadence.length + body.length);
+    total.set(cadence, 0);
+    total.set(body, cadence.length);
+    return total;
+}
+
