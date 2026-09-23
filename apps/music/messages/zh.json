@@ -26,7 +26,8 @@
     "playModeRepeatOne": "单曲循环",
     "playModeShuffle": "随机播放",
     "buffering": "缓冲中",
-    "bufferStatus": "缓存 {percent}%"
+    "bufferStatus": "缓存 {percent}%",
+    "quest": "扒谱闯关"
   },
   "scores": {
     "title": "乐谱",
@@ -52,5 +53,115 @@
     "downloadPdf": "下载 PDF",
     "fullscreen": "全屏",
     "exitFullscreen": "退出全屏"
+  },
+  "quest": {
+    "title": "扒谱闯关",
+    "subtitle": "听一句，用琴拉回来。评分看的是真正从琴上出来的声音 —— 音准、音序、节奏比例，都以音分为单位。",
+    "back": "返回",
+    "streak": "连胜 {count}",
+    "worldLabel": "关卡",
+    "toleranceLabel": "判定",
+    "tolerance": {
+      "8": "严格 ±8¢",
+      "15": "标准 ±15¢",
+      "25": "宽松 ±25¢"
+    },
+    "worlds": {
+      "1": {
+        "name": "摸索",
+        "blurb": "一个把位，级进为主。先把「听到 → 找到」的反射建立起来。"
+      },
+      "2": {
+        "name": "跳进",
+        "blurb": "三度、四度、五度进场。真正开始练音程感。"
+      },
+      "3": {
+        "name": "节奏",
+        "blurb": "时值不再均等，长短比例要拉清楚。"
+      },
+      "4": {
+        "name": "转调",
+        "blurb": "同一个旋律形状，换个调性重来。"
+      },
+      "5": {
+        "name": "换把",
+        "blurb": "越过第一把位，手要会走。"
+      },
+      "6": {
+        "name": "曲目",
+        "blurb": "更长的乐句，接近真实的曲子片段。"
+      }
+    },
+    "startHint": "准备好了就开始 —— 当前关卡：{world}",
+    "start": "开始",
+    "replay": "再听一次",
+    "replaysLeft": "剩 {count}/{total}",
+    "record": "开始演奏",
+    "stop": "结束并评分",
+    "grading": "分析中",
+    "nextRound": "换一题",
+    "hintsLabel": "提示",
+    "micNotice": "首次点「开始演奏」时浏览器会请求麦克风权限。回声消除、降噪、自动增益都会被关掉 —— 它们是为人声调的，会毁掉音高。",
+    "roundMeta": "{notes} 个音 · {bpm} BPM",
+    "revealedKey": "调性：{key}",
+    "revealedFirstNote": "首音：{note}",
+    "curveLabel": "音高轨迹",
+    "phase": {
+      "idle": "待开始",
+      "prompt": "播放中",
+      "ready": "轮到你了",
+      "recording": "录音中",
+      "grading": "分析中",
+      "result": "已评分"
+    },
+    "axis": {
+      "sequence": "音序",
+      "intonation": "音准",
+      "rhythm": "节奏",
+      "na": "—"
+    },
+    "op": {
+      "match": "",
+      "sub": "错音",
+      "del": "漏",
+      "ins": "多"
+    },
+    "hints": {
+      "slow_75": "0.75x 慢放",
+      "slow_50": "0.5x 慢放",
+      "reveal_key": "显示调性",
+      "reveal_first_note": "显示首音"
+    },
+    "fingering": {
+      "0": "{string} 弦空弦",
+      "1": "{string} 弦 1 指",
+      "2": "{string} 弦 2 指",
+      "3": "{string} 弦 3 指",
+      "4": "{string} 弦 4 指"
+    },
+    "errors": {
+      "mic": "无法打开麦克风，请检查浏览器权限或输入设备。",
+      "grading": "分析失败了。换一题再试，如果一直这样请把控制台日志发我。",
+      "insecureContext": "当前页面不是安全上下文，浏览器不会给麦克风权限。请用 https:// 或 http://localhost 访问。"
+    },
+    "feedback": {
+      "separator": "、",
+      "ellipsis": "…",
+      "stringName": "{name} 弦",
+      "noNotes": "没有检测到有效音符 —— 检查麦克风、环境噪音，或者琴是否走音。",
+      "missedNotes": "漏了 {count} 个音。",
+      "wrongNoteItem": "第 {index} 个音（应为 {expected}）",
+      "wrongNotes": "拉错音：{items}",
+      "badlyTunedItem": "{expected} {cents}¢",
+      "badlyTuned": "音是对的，但偏得太多：{items}",
+      "extraNotes": "多拉了 {count} 个音 —— 找音的时候试错是正常的，但会小幅扣分。",
+      "openStringDetuned": "⚠️ {strings} 的空弦系统性偏了 —— 这说明琴走音了，不是你的问题。先调音再练，否则本次所有音准数据都不可信。",
+      "systematicSharp": "整体偏高 {cents} 音分 —— 这是系统性偏差，先检查空弦是否准，再看手型位置。",
+      "systematicFlat": "整体偏低 {cents} 音分 —— 这是系统性偏差，先检查空弦是否准，再看手型位置。",
+      "worstNote": "最不准的是 {note}：{cents} 音分。",
+      "worstNoteWithFingering": "最不准的是 {note}（{fingering}）：{cents} 音分。",
+      "rhythmUnsteady": "节奏的长短比例还不稳 —— 打开节拍器，慢速把时值拉清楚。",
+      "clean": "干净利落。可以升难度了。"
+    }
   }
 }

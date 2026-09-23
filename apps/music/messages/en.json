@@ -26,7 +26,8 @@
     "playModeRepeatOne": "Repeat One",
     "playModeShuffle": "Shuffle",
     "buffering": "Buffering",
-    "bufferStatus": "Buffered {percent}%"
+    "bufferStatus": "Buffered {percent}%",
+    "quest": "Ear Quest"
   },
   "scores": {
     "title": "Scores",
@@ -52,5 +53,115 @@
     "downloadPdf": "Download PDF",
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit Fullscreen"
+  },
+  "quest": {
+    "title": "Ear Quest",
+    "subtitle": "Hear a phrase, play it back on your violin. You are graded on the sound that actually leaves the instrument — pitch, note order and rhythm ratios, measured in cents.",
+    "back": "Back",
+    "streak": "Streak {count}",
+    "worldLabel": "World",
+    "toleranceLabel": "Strictness",
+    "tolerance": {
+      "8": "Strict ±8¢",
+      "15": "Standard ±15¢",
+      "25": "Forgiving ±25¢"
+    },
+    "worlds": {
+      "1": {
+        "name": "Groping",
+        "blurb": "One position, stepwise motion. Build the hear-it-then-find-it reflex."
+      },
+      "2": {
+        "name": "Leaps",
+        "blurb": "Thirds, fourths and fifths. Interval recognition proper."
+      },
+      "3": {
+        "name": "Rhythm",
+        "blurb": "Unequal note values. The long-short ratios have to be clean."
+      },
+      "4": {
+        "name": "Transposition",
+        "blurb": "The same shape, moved to another key."
+      },
+      "5": {
+        "name": "Shifting",
+        "blurb": "Past first position. The hand has to travel."
+      },
+      "6": {
+        "name": "Repertoire",
+        "blurb": "Longer phrases, closer to real music."
+      }
+    },
+    "startHint": "Ready when you are — current world: {world}",
+    "start": "Start",
+    "replay": "Play again",
+    "replaysLeft": "{count}/{total} left",
+    "record": "Play it back",
+    "stop": "Stop and grade",
+    "grading": "Analysing",
+    "nextRound": "New phrase",
+    "hintsLabel": "Hints",
+    "micNotice": "The browser will ask for microphone access the first time you record. Echo cancellation, noise suppression and auto gain are all switched off — they are tuned for speech and will wreck the pitch.",
+    "roundMeta": "{notes} notes · {bpm} BPM",
+    "revealedKey": "Key: {key}",
+    "revealedFirstNote": "First note: {note}",
+    "curveLabel": "Pitch trace",
+    "phase": {
+      "idle": "Ready to start",
+      "prompt": "Playing",
+      "ready": "Your turn",
+      "recording": "Recording",
+      "grading": "Analysing",
+      "result": "Graded"
+    },
+    "axis": {
+      "sequence": "Sequence",
+      "intonation": "Intonation",
+      "rhythm": "Rhythm",
+      "na": "—"
+    },
+    "op": {
+      "match": "",
+      "sub": "wrong",
+      "del": "missed",
+      "ins": "extra"
+    },
+    "hints": {
+      "slow_75": "Slow to 75%",
+      "slow_50": "Slow to 50%",
+      "reveal_key": "Show the key",
+      "reveal_first_note": "Show the first note"
+    },
+    "fingering": {
+      "0": "{string} open",
+      "1": "{string} 1st finger",
+      "2": "{string} 2nd finger",
+      "3": "{string} 3rd finger",
+      "4": "{string} 4th finger"
+    },
+    "errors": {
+      "mic": "Could not open the microphone. Check the browser permission and your input device.",
+      "grading": "Analysis failed. Try another phrase; if it keeps happening, send me the console log.",
+      "insecureContext": "This page is not a secure context, so the browser will refuse microphone access. Open it over https:// or http://localhost."
+    },
+    "feedback": {
+      "separator": ", ",
+      "ellipsis": "…",
+      "stringName": "{name} string",
+      "noNotes": "No usable notes detected — check the microphone, the room noise, or whether the violin is in tune.",
+      "missedNotes": "Missed {count} notes.",
+      "wrongNoteItem": "note {index} (should be {expected})",
+      "wrongNotes": "Wrong notes: {items}",
+      "badlyTunedItem": "{expected} {cents}¢",
+      "badlyTuned": "Right note, badly out of tune: {items}",
+      "extraNotes": "{count} extra notes — hunting for the pitch is normal, but it costs a little.",
+      "openStringDetuned": "⚠️ The {strings} open string is systematically off — that means the violin has drifted, not you. Retune before practising, or none of this intonation data is trustworthy.",
+      "systematicSharp": "You are {cents} cents sharp overall — that is a systematic offset. Check the open strings first, then the hand frame.",
+      "systematicFlat": "You are {cents} cents flat overall — that is a systematic offset. Check the open strings first, then the hand frame.",
+      "worstNote": "The worst note is {note}: {cents} cents.",
+      "worstNoteWithFingering": "The worst note is {note} ({fingering}): {cents} cents.",
+      "rhythmUnsteady": "The long-short ratios are not steady yet — put a metronome on and slow it down until the durations are clean.",
+      "clean": "Clean. Time to move up."
+    }
   }
 }

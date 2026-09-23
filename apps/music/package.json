@@ -8,7 +8,8 @@
         "build": "next build",
         "start": "next start",
         "lint": "eslint --max-warnings 0",
-        "check-types": "tsc --noEmit"
+        "check-types": "tsc --noEmit",
+        "test": "node --test lib/*.test.mjs lib/quest/*.test.mjs"
     },
     "dependencies": {
         "class-variance-authority": "^0.7.1",

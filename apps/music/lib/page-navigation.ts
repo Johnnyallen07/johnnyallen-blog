@@ -1,6 +1,17 @@
 export type PageReadingLayout = "single" | "double" | "continuous";
 
 /**
+ * The order a continuous reader should rasterise pages in: the page you asked
+ * for first, then its neighbours, so a jump paints immediately instead of
+ * waiting behind the pages you scrolled past.
+ */
+export function pageRenderPriority(page: number, totalPages: number): number[] {
+    const order = [page, page - 1, page + 1];
+    return order.filter((candidate) => candidate >= 1 && candidate <= totalPages);
+}
+
+
+/**
  * Resolves the value typed into a page field without ever leaving the document
  * range. Double-page readers always start on the first page of a spread.
  */
