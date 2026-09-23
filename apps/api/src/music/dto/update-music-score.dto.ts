@@ -4,12 +4,21 @@ import {
   IsNumber,
   IsArray,
   ArrayMinSize,
+  ArrayMaxSize,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ScoreAnnotationDto } from './score-annotation.dto';
 import { ScorePageDto } from './score-page.dto';
 
 export class UpdateMusicScoreDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(1000)
+  @ValidateNested({ each: true })
+  @Type(() => ScoreAnnotationDto)
+  annotations?: ScoreAnnotationDto[];
+
   @IsOptional()
   @IsString()
   title?: string;

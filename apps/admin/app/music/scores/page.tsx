@@ -16,6 +16,8 @@ import {
     ChevronRight,
     Image as ImageIcon,
     Plus,
+    Camera,
+    Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +42,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { ScoreReader } from "@repo/ui/score-reader";
+import { cropStrokes, type PageAnnotations, type ScoreDocument } from "@repo/ui/score-model";
+import { ImageCropper, captureScoreImage } from "@/components/scores/image-cropper";
 import { fetchClient } from "@/lib/api";
 
 /* ── Types ── */
@@ -61,6 +66,7 @@ interface MusicScore {
     fileUrl: string;
     fileSize: number;
     pageCount: number;
+    annotations?: PageAnnotations[] | null;
     coverUrl: string | null;
     order: number;
     createdAt: string;
@@ -195,78 +201,6 @@ function PageThumbGrid({
     );
 }
 
-/* ── 大图预览（上传前检查图片；渲染在对话框外层避免 transform 影响 fixed 定位） ── */
-
-function ImagePreviewOverlay({
-    urls,
-    index,
-    onNavigate,
-    onClose,
-}: {
-    urls: string[];
-    index: number;
-    onNavigate: (index: number) => void;
-    onClose: () => void;
-}) {
-    useEffect(() => {
-        const onKeyDown = (e: globalThis.KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
-            if (e.key === "ArrowLeft" && index > 0) onNavigate(index - 1);
-            if (e.key === "ArrowRight" && index < urls.length - 1) onNavigate(index + 1);
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [index, urls.length, onNavigate, onClose]);
-
-    return (
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85"
-            onClick={onClose}
-        >
-            <img
-                src={urls[index]}
-                alt={`第 ${index + 1} 页`}
-                onClick={(e) => e.stopPropagation()}
-                className="max-h-[90vh] max-w-[90vw] rounded object-contain shadow-2xl"
-            />
-            <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs tabular-nums text-white">
-                {index + 1} / {urls.length}
-            </span>
-            <button
-                type="button"
-                onClick={onClose}
-                className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
-            >
-                <X className="h-5 w-5" />
-            </button>
-            {index > 0 && (
-                <button
-                    type="button"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onNavigate(index - 1);
-                    }}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
-                >
-                    <ChevronLeft className="h-6 w-6" />
-                </button>
-            )}
-            {index < urls.length - 1 && (
-                <button
-                    type="button"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onNavigate(index + 1);
-                    }}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
-                >
-                    <ChevronRight className="h-6 w-6" />
-                </button>
-            )}
-        </div>
-    );
-}
-
 /* ── Page ── */
 
 export default function ScoresManagePage() {
@@ -298,12 +232,62 @@ export default function ScoresManagePage() {
     const [editingScore, setEditingScore] = useState<MusicScore | null>(null);
     const [editPages, setEditPages] = useState<EditPage[]>([]);
     const [isSavingEdit, setIsSavingEdit] = useState(false);
+    const editPagesRef = useRef(editPages);
+    editPagesRef.current = editPages;
+    useEffect(() => () => {
+        uploadImagesRef.current.forEach(image => URL.revokeObjectURL(image.previewUrl));
+        editPagesRef.current.forEach(page => { if (page.file) URL.revokeObjectURL(page.url); });
+    }, []);
     const editImageInputRef = useRef<HTMLInputElement | null>(null);
 
     /* ── 大图预览（上传/编辑共用） ── */
-    const [imagePreview, setImagePreview] = useState<
-        { urls: string[]; index: number } | null
-    >(null);
+    const [imagePreview, setImagePreview] = useState<{ source: "upload" | "edit"; index: number } | null>(null);
+    const [reader, setReader] = useState<{ source: "upload" | "edit" | "saved"; score: ScoreDocument; id?: string } | null>(null);
+    const [uploadAnnotations, setUploadAnnotations] = useState<PageAnnotations[]>([]);
+    const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
+    const [capturing, setCapturing] = useState(false);
+    const [captureError, setCaptureError] = useState("");
+
+    useEffect(() => {
+        if (!uploadFile) { setPdfPreviewUrl(""); return; }
+        const url = URL.createObjectURL(uploadFile);
+        setPdfPreviewUrl(url);
+        return () => URL.revokeObjectURL(url);
+    }, [uploadFile]);
+
+    const previewUpload = () => setReader({ source: "upload", score: {
+        title: uploadForm.title || "乐谱预览",
+        fileType: uploadFile ? "pdf" : "images",
+        fileUrl: pdfPreviewUrl,
+        pages: uploadImages.map(image => ({ key: image.id, url: image.previewUrl })),
+        annotations: uploadAnnotations,
+    } });
+    const previewEdit = () => {
+        if (!editingScore) return;
+        setReader({ source: "edit", score: { ...editingScore,
+            pages: editPages.map(page => ({ key: page.id, url: page.url })),
+        } });
+    };
+
+    const capture = async (source: "upload" | "edit") => {
+        setCapturing(true); setCaptureError("");
+        try {
+            const file = await captureScoreImage();
+            const id = makeId(), url = URL.createObjectURL(file);
+            if (source === "upload") {
+                if (uploadFile) setUploadAnnotations([]);
+                setUploadFile(null);
+                setUploadImages(previous => [...previous, { id, file, previewUrl: url }]);
+                setUploadForm(previous => ({ ...previous, title: previous.title || "截图乐谱" }));
+                setImagePreview({ source, index: uploadImages.length });
+            } else {
+                setEditPages(previous => [...previous, { id, file, url }]);
+                setImagePreview({ source, index: editPages.length });
+            }
+        } catch (error) {
+            if (!(error instanceof DOMException && error.name === "NotAllowedError")) setCaptureError(error instanceof Error ? error.message : "截图失败，请重试。");
+        } finally { setCapturing(false); }
+    };
 
     /* ── Data fetching ── */
 
@@ -351,6 +335,7 @@ export default function ScoresManagePage() {
                 return [];
             });
             setUploadFile(pdf);
+            setUploadAnnotations([]);
             setUploadForm((prev) =>
                 prev.title
                     ? prev
@@ -360,6 +345,7 @@ export default function ScoresManagePage() {
         }
 
         if (images.length > 0) {
+            setUploadAnnotations(previous => previous.filter(item => !item.page.startsWith("pdf:")));
             setUploadFile(null);
             setUploadImages((prev) => [
                 ...prev,
@@ -382,7 +368,7 @@ export default function ScoresManagePage() {
 
     // 对话框打开期间支持全局粘贴（截图或复制的图片文件）
     useEffect(() => {
-        if (!isUploadDialogOpen) return;
+        if (!isUploadDialogOpen || reader || imagePreview || isUploading || capturing) return;
         const onPaste = (e: globalThis.ClipboardEvent) => {
             const files = Array.from(e.clipboardData?.files ?? []);
             if (files.length > 0) {
@@ -392,7 +378,7 @@ export default function ScoresManagePage() {
         };
         window.addEventListener("paste", onPaste);
         return () => window.removeEventListener("paste", onPaste);
-    }, [isUploadDialogOpen, addUploadFiles]);
+    }, [isUploadDialogOpen, addUploadFiles, reader, imagePreview, isUploading, capturing]);
 
     // 关闭对话框时释放本地预览 URL
     const resetUploadDialog = useCallback(() => {
@@ -403,6 +389,8 @@ export default function ScoresManagePage() {
         setUploadFile(null);
         setUploadForm({ title: "", instrument: "小提琴" });
         setUploadProgress(null);
+        setUploadAnnotations([]);
+        setCaptureError("");
         setIsDraggingOver(false);
     }, []);
 
@@ -439,6 +427,7 @@ export default function ScoresManagePage() {
             const arrayBuffer = await uploadFile.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             pageCount = pdf.numPages;
+            await pdf.destroy();
         } catch {
             console.warn("Could not extract page count from PDF");
         }
@@ -451,6 +440,7 @@ export default function ScoresManagePage() {
                 composer: null,
                 instrument: uploadForm.instrument,
                 fileType: "pdf",
+                annotations: uploadAnnotations,
                 fileKey: key,
                 fileUrl: publicUrl,
                 fileSize: uploadFile.size,
@@ -508,6 +498,10 @@ export default function ScoresManagePage() {
                 composer: null,
                 instrument: uploadForm.instrument,
                 fileType: "images",
+                annotations: uploadAnnotations.flatMap(item => {
+                    const index = uploadImages.findIndex(image => image.id === item.page);
+                    return index < 0 ? [] : [{ ...item, page: pages[index]!.key }];
+                }),
                 pages,
                 fileKey: pages[0]!.key,
                 fileUrl: pages[0]!.url,
@@ -547,7 +541,7 @@ export default function ScoresManagePage() {
         setEditPages(
             score.fileType === "images"
                 ? (score.pages ?? []).map((page) => ({
-                      id: makeId(),
+                      id: page.key,
                       key: page.key,
                       url: page.url,
                       size: page.size,
@@ -621,6 +615,10 @@ export default function ScoresManagePage() {
                     composer: editingScore.composer?.trim() || null,
                     instrument: editingScore.instrument,
                     ...(pages ? { pages } : {}),
+                    annotations: pages ? (editingScore.annotations ?? []).flatMap(item => {
+                        const index = editPages.findIndex(page => page.id === item.page);
+                        return index < 0 ? [] : [{ ...item, page: pages[index]!.key }];
+                    }) : editingScore.annotations ?? [],
                 }),
             });
             closeEditDialog();
@@ -741,9 +739,7 @@ export default function ScoresManagePage() {
                                         )}
                                     </div>
                                     <div className="min-w-0">
-                                        <h3 className="font-medium text-gray-900 text-sm leading-tight truncate">
-                                            {score.title}
-                                        </h3>
+                                        <button type="button" onClick={() => setReader({ source: "saved", score, id: score.id })} className="max-w-full truncate text-left text-sm font-medium leading-tight text-gray-900 hover:text-amber-600">{score.title}</button>
                                         {score.composer && (
                                             <p className="text-xs text-gray-400 mt-0.5">
                                                 {score.composer}
@@ -781,35 +777,14 @@ export default function ScoresManagePage() {
                                 <div className="flex items-center justify-center">
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <button className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
+                                            <button className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors opacity-100">
                                                 <MoreVertical className="w-4 h-4 text-gray-500" />
                                             </button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
-                                            <DropdownMenuItem
-                                                onClick={() => {
-                                                    if (
-                                                        score.fileType === "images" &&
-                                                        score.pages?.length
-                                                    ) {
-                                                        setImagePreview({
-                                                            urls: score.pages.map(
-                                                                (page) => page.url
-                                                            ),
-                                                            index: 0,
-                                                        });
-                                                    } else {
-                                                        window.open(
-                                                            score.fileUrl,
-                                                            "_blank"
-                                                        );
-                                                    }
-                                                }}
-                                            >
-                                                <FileText className="w-4 h-4 mr-2" />
-                                                {score.fileType === "images"
-                                                    ? "预览图片"
-                                                    : "预览 PDF"}
+                                            <DropdownMenuItem onClick={() => setReader({ source: "saved", score, id: score.id })}>
+                                                <Eye className="w-4 h-4 mr-2" />
+                                                阅读与批注
                                             </DropdownMenuItem>
                                             <DropdownMenuItem onClick={() => handleEdit(score)}>
                                                 <Edit className="w-4 h-4 mr-2" />
@@ -840,20 +815,20 @@ export default function ScoresManagePage() {
             <Dialog
                 open={isUploadDialogOpen}
                 onOpenChange={(open) => {
-                    if (!open && isUploading) return;
+                    if (!open && (isUploading || capturing || reader || imagePreview)) return;
                     setIsUploadDialogOpen(open);
                     if (!open) resetUploadDialog();
                 }}
             >
                 <DialogContent
                     className={`max-h-[85vh] w-[calc(100vw-2rem)] overflow-y-auto overflow-x-hidden ${
-                        uploadImages.length > 0 ? "max-w-xl" : "max-w-md"
+                        "sm:max-w-3xl"
                     }`}
                 >
                     <DialogHeader>
                         <DialogTitle>上传乐谱</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <fieldset disabled={isUploading || capturing} className="space-y-4">
                         <div>
                             <Label>文件（PDF 或图片）</Label>
                             <input
@@ -917,10 +892,20 @@ export default function ScoresManagePage() {
                                     </>
                                 )}
                             </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <Button type="button" variant="outline" onClick={() => void capture("upload")} disabled={capturing || isUploading}>
+                                    <Camera className="mr-2 h-4 w-4" />{capturing ? "正在截图…" : "截取屏幕 / 窗口"}
+                                </Button>
+                                <Button type="button" variant="outline" onClick={previewUpload} disabled={(!uploadFile && !uploadImages.length) || (!!uploadFile && !pdfPreviewUrl) || isUploading}>
+                                    <Eye className="mr-2 h-4 w-4" />预览与批注
+                                </Button>
+                            </div>
+                            <p className="mt-2 text-xs text-gray-500">可用系统截图后 Ctrl / ⌘ V 粘贴；点击图片裁剪，再预览完整乐谱。</p>
+                            {captureError && <p role="alert" className="mt-2 text-sm text-red-600">{captureError}</p>}
                             {uploadImages.length > 0 && (
                                 <div className="mt-3 space-y-2">
                                     <div className="flex items-center justify-between text-xs text-gray-500">
-                                        <span>拖拽调整顺序 · 点击图片检查大图</span>
+                                        <span>拖拽调整顺序 · 点击图片裁剪</span>
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -952,9 +937,7 @@ export default function ScoresManagePage() {
                                         }
                                         onPreview={(index) =>
                                             setImagePreview({
-                                                urls: uploadImages.map(
-                                                    (img) => img.previewUrl
-                                                ),
+                                                source: "upload",
                                                 index,
                                             })
                                         }
@@ -990,7 +973,7 @@ export default function ScoresManagePage() {
                                 </SelectContent>
                             </Select>
                         </div>
-                    </div>
+                    </fieldset>
                     <DialogFooter>
                         <Button
                             variant="outline"
@@ -998,7 +981,7 @@ export default function ScoresManagePage() {
                                 setIsUploadDialogOpen(false);
                                 resetUploadDialog();
                             }}
-                            disabled={isUploading}
+                            disabled={isUploading || capturing}
                         >
                             取消
                         </Button>
@@ -1007,7 +990,7 @@ export default function ScoresManagePage() {
                             disabled={
                                 (!uploadFile && uploadImages.length === 0) ||
                                 !uploadForm.title ||
-                                isUploading
+                                isUploading || capturing
                             }
                         >
                             {isUploading
@@ -1026,20 +1009,20 @@ export default function ScoresManagePage() {
             <Dialog
                 open={isEditDialogOpen}
                 onOpenChange={(open) => {
-                    if (!open && isSavingEdit) return;
+                    if (!open && (isSavingEdit || capturing || reader || imagePreview)) return;
                     if (!open) closeEditDialog();
                 }}
             >
                 <DialogContent
                     className={`max-h-[85vh] w-[calc(100vw-2rem)] overflow-y-auto overflow-x-hidden ${
-                        editingScore?.fileType === "images" ? "max-w-xl" : "max-w-md"
+                        "sm:max-w-3xl"
                     }`}
                 >
                     <DialogHeader>
                         <DialogTitle>编辑乐谱信息</DialogTitle>
                     </DialogHeader>
                     {editingScore && (
-                        <div className="space-y-4">
+                        <fieldset disabled={isSavingEdit || capturing} className="space-y-4">
                             <div>
                                 <Label>标题</Label>
                                 <Input
@@ -1086,6 +1069,11 @@ export default function ScoresManagePage() {
                                     </SelectContent>
                                 </Select>
                             </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button type="button" variant="outline" onClick={previewEdit} disabled={isSavingEdit || (editingScore.fileType === "images" && !editPages.length)}><Eye className="mr-2 h-4 w-4" />阅读与批注</Button>
+                                {editingScore.fileType === "images" && <Button type="button" variant="outline" onClick={() => void capture("edit")} disabled={capturing || isSavingEdit}><Camera className="mr-2 h-4 w-4" />{capturing ? "正在截图…" : "截图加页"}</Button>}
+                            </div>
+                            {captureError && <p role="alert" className="text-sm text-red-600">{captureError}</p>}
                             {editingScore.fileType === "images" && (
                                 <div>
                                     <div className="flex items-center justify-between">
@@ -1120,7 +1108,7 @@ export default function ScoresManagePage() {
                                         className="sr-only"
                                     />
                                     <p className="mb-2 mt-1 text-xs text-gray-400">
-                                        拖拽调整顺序 · 点击图片查看大图 ·
+                                        拖拽调整顺序 · 点击图片裁剪 ·
                                         新增页保存时才会上传
                                     </p>
                                     <PageThumbGrid
@@ -1146,43 +1134,65 @@ export default function ScoresManagePage() {
                                         }
                                         onPreview={(index) =>
                                             setImagePreview({
-                                                urls: editPages.map(
-                                                    (page) => page.url
-                                                ),
+                                                source: "edit",
                                                 index,
                                             })
                                         }
                                     />
                                 </div>
                             )}
-                        </div>
+                        </fieldset>
                     )}
                     <DialogFooter>
                         <Button
                             variant="outline"
                             onClick={closeEditDialog}
-                            disabled={isSavingEdit}
+                            disabled={isSavingEdit || capturing}
                         >
                             取消
                         </Button>
-                        <Button onClick={handleSaveEdit} disabled={isSavingEdit}>
+                        <Button onClick={handleSaveEdit} disabled={isSavingEdit || capturing}>
                             {isSavingEdit ? "保存中..." : "保存"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* 大图预览 */}
-            {imagePreview && (
-                <ImagePreviewOverlay
-                    urls={imagePreview.urls}
-                    index={imagePreview.index}
-                    onNavigate={(index) =>
-                        setImagePreview((prev) => (prev ? { ...prev, index } : prev))
-                    }
-                    onClose={() => setImagePreview(null)}
-                />
-            )}
+            <Dialog open={!!reader} onOpenChange={() => {}}>
+                <DialogContent aria-describedby={undefined} className="!inset-0 !h-dvh !w-screen !max-w-none !translate-x-0 !translate-y-0 overflow-hidden rounded-none border-0 p-0 [&>button]:hidden" onEscapeKeyDown={event => event.preventDefault()} onPointerDownOutside={event => event.preventDefault()}>
+                    <DialogTitle className="sr-only">{reader?.score.title ?? "乐谱预览"}</DialogTitle>
+                    {reader && <ScoreReader score={reader.score} locale="zh" onClose={() => setReader(null)} saveLabel={reader.source === "saved" ? "保存批注" : "应用到待保存乐谱"} onSave={async annotations => {
+                        if (reader.source === "saved") {
+                            await fetchClient(`/music-scores/${reader.id}`, { method: "PATCH", body: JSON.stringify({ annotations }) });
+                            setScores(previous => previous.map(score => score.id === reader.id ? { ...score, annotations } : score));
+                        } else if (reader.source === "upload") {
+                            setUploadAnnotations(annotations); setReader(null);
+                        } else {
+                            setEditingScore(previous => previous ? { ...previous, annotations } : previous); setReader(null);
+                        }
+                    }} />}
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!imagePreview} onOpenChange={open => { if (!open) setImagePreview(null); }}>
+                <DialogContent aria-describedby={undefined} className="w-[95vw] overflow-hidden border-0 bg-slate-950 p-0 sm:max-w-6xl [&>button]:hidden">
+                    <DialogTitle className="sr-only">裁剪乐谱图片</DialogTitle>
+                    {imagePreview && <ImageCropper url={imagePreview.source === "upload" ? uploadImages[imagePreview.index]!.previewUrl : editPages[imagePreview.index]!.url} onClose={() => setImagePreview(null)} onApply={(file, rect) => {
+                        const url = URL.createObjectURL(file);
+                        if (imagePreview.source === "upload") {
+                            const target = uploadImages[imagePreview.index]!;
+                            setUploadImages(previous => previous.map(image => image.id === target.id ? { ...image, file, previewUrl: url } : image));
+                            setUploadAnnotations(previous => previous.map(item => item.page === target.id ? { ...item, strokes: cropStrokes(item.strokes, rect) } : item));
+                            URL.revokeObjectURL(target.previewUrl);
+                        } else {
+                            const target = editPages[imagePreview.index]!;
+                            setEditPages(previous => previous.map(page => page.id === target.id ? { ...page, file, url } : page));
+                            setEditingScore(previous => previous ? { ...previous, annotations: (previous.annotations ?? []).map(item => item.page === target.id ? { ...item, strokes: cropStrokes(item.strokes, rect) } : item) } : previous);
+                            if (target.file) URL.revokeObjectURL(target.url);
+                        }
+                        setImagePreview(null);
+                    }} />}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -333,6 +333,7 @@ model MusicScore {
   fileType   String   @default("pdf")
   // 图片乐谱页面（按展示顺序）：[{ key, url, size? }]
   pages      Json?
+  annotations Json?
   fileKey    String
   fileUrl    String
   fileSize   Int      @default(0)

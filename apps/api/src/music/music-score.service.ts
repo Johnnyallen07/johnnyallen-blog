@@ -100,9 +100,7 @@ export class MusicScoreService {
   }
 
   /** 批量生成上传预签名 URL（图片乐谱一次传多页） */
-  async generateUploadUrls(
-    files: { fileName: string; contentType: string }[],
-  ) {
+  async generateUploadUrls(files: { fileName: string; contentType: string }[]) {
     return Promise.all(
       files.map((file) =>
         this.generateUploadUrl(file.fileName, file.contentType),
@@ -155,10 +153,17 @@ export class MusicScoreService {
     const maxOrder = await this.prisma.musicScore.aggregate({
       _max: { order: true },
     });
-    const { pages, ...rest } = dto;
+    const { pages, annotations, ...rest } = dto;
     return this.prisma.musicScore.create({
       data: {
         ...rest,
+        ...(annotations
+          ? {
+              annotations: JSON.parse(
+                JSON.stringify(annotations),
+              ) as Prisma.InputJsonValue,
+            }
+          : {}),
         composer: dto.composer?.trim() || null,
         ...(pages ? { pages: this.toPlainPages(pages) } : {}),
         order: (maxOrder._max.order ?? -1) + 1,
@@ -192,8 +197,13 @@ export class MusicScoreService {
   async update(id: string, dto: UpdateMusicScoreDto) {
     const existing = await this.findOne(id);
 
-    const { pages: dtoPages, ...rest } = dto;
+    const { pages: dtoPages, annotations, ...rest } = dto;
     const data: Prisma.MusicScoreUpdateInput = { ...rest };
+    if (annotations)
+      data.annotations = JSON.parse(
+        JSON.stringify(annotations),
+      ) as Prisma.InputJsonValue;
+    const obsoleteKeys: string[] = [];
     if (dto.composer !== undefined) {
       data.composer = dto.composer?.trim() || null;
     }
@@ -204,7 +214,7 @@ export class MusicScoreService {
 
       // 被移除的页面从 COS 删除（仅当新列表里确实不再引用）
       for (const page of this.parsePages(existing.pages)) {
-        if (!keptKeys.has(page.key)) this.deleteObjectQuiet(page.key);
+        if (!keptKeys.has(page.key)) obsoleteKeys.push(page.key);
       }
 
       // fileKey/fileUrl/封面 跟随第一页，页数/大小同步
@@ -219,10 +229,16 @@ export class MusicScoreService {
       }
     } else if (dto.fileKey && dto.fileKey !== existing.fileKey) {
       // PDF 换文件：删除旧的 COS 文件
-      this.deleteObjectQuiet(existing.fileKey);
+      obsoleteKeys.push(existing.fileKey);
     }
 
-    return this.prisma.musicScore.update({ where: { id }, data });
+    const updated = await this.prisma.musicScore.update({
+      where: { id },
+      data,
+    });
+    // Only remove replaced files after the database commits successfully.
+    obsoleteKeys.forEach((key) => this.deleteObjectQuiet(key));
+    return updated;
   }
 
   /** 删除乐谱（包含从 COS 删除文件；图片乐谱删除全部页面） */
