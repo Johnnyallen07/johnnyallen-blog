@@ -88,12 +88,44 @@ interface Placed {
     accidental: "♯" | "♭" | "♮" | null;
 }
 
+/**
+ * What to print under each note.
+ *
+ * - `number`: 简谱 scale degree (1–7) relative to the key, read with the
+ *   key's "1=G" label. Function without a syllable, so it cannot collide with
+ *   the fixed-do names a Chinese instrumentalist already uses.
+ * - `movable`: movable-do (首调) syllables — G is Do in G major.
+ * - `fixed`: fixed-do (固定调) syllables — G is always sol.
+ * - `letter`: the pitch's letter name.
+ */
+export type NoteLabelStyle = "number" | "movable" | "fixed" | "letter" | "off";
+
+const MOVABLE = ["Do", "Re", "Mi", "Fa", "Sol", "La", "Ti"];
+const FIXED: Record<string, string> = { C: "do", D: "re", E: "mi", F: "fa", G: "sol", A: "la", B: "si" };
+
+export function noteLabel(glyph: StaffNoteGlyph, style: NoteLabelStyle): string {
+    const letter = glyph.name[0] ?? "";
+    const acc = glyph.name.includes("#") ? "♯" : glyph.name.slice(1).includes("b") ? "♭" : "";
+    switch (style) {
+        case "number":
+            return `${glyph.degree}`;
+        case "movable":
+            return MOVABLE[glyph.degree - 1] ?? "";
+        case "fixed":
+            return `${FIXED[letter] ?? ""}${acc}`;
+        case "letter":
+            return `${letter}${acc}`;
+        case "off":
+            return "";
+    }
+}
+
 export function TrebleStaffSvg({
     glyphs,
     keySignature,
     flats,
     octaveDown = false,
-    showSolfege,
+    labelStyle,
     showSteppingStones,
     noteScores,
 }: {
@@ -107,7 +139,7 @@ export function TrebleStaffSvg({
      * small 8 under the clef says so — the way every choral score does it.
      */
     octaveDown?: boolean;
-    showSolfege: boolean;
+    labelStyle: NoteLabelStyle;
     showSteppingStones: boolean;
     noteScores?: readonly NoteScore[];
 }) {
@@ -155,7 +187,9 @@ export function TrebleStaffSvg({
     const top = Math.min(-54, ...placed.map(p => yOf(p.step) - (p.step < 4 ? 38 : 10)));
     const staffBottom = Math.max(28, ...placed.map(p => yOf(p.step) + (p.step < 4 ? 8 : 36)));
     const solfegeY = staffBottom + 4;
-    const centsY = solfegeY + (showSolfege ? 12 : 2);
+    const centsY = solfegeY + (labelStyle !== "off" ? 12 : 2);
+    /** Colour by scale degree only when the label itself is functional. */
+    const functional = labelStyle === "number" || labelStyle === "movable";
     const bottom = centsY + (noteScores ? 6 : 0);
     const width = Math.max(endX + 6, 200);
     const height = bottom - top;
@@ -254,16 +288,16 @@ export function TrebleStaffSvg({
                             strokeDasharray={ghost ? "2 1.4" : undefined}
                         />
                         {dotted && <circle cx={x + 10} cy={step % 2 === 0 ? y - 2.5 : y} r={1.4} fill={colour} />}
-                        {showSolfege && (
+                        {labelStyle !== "off" && (
                             <text
                                 x={x}
                                 y={solfegeY + 6}
                                 textAnchor="middle"
-                                fontSize={ghost ? 5.5 : 7}
+                                fontSize={ghost ? 5.5 : labelStyle === "number" ? 8 : 7}
                                 fontWeight={700}
-                                fill={ghost ? "#a5b4fc" : degreeColour}
+                                fill={ghost ? "#a5b4fc" : functional ? degreeColour : "#475569"}
                             >
-                                {glyph.solfege}
+                                {noteLabel(glyph, labelStyle)}
                             </text>
                         )}
                         {ns && ns.centsError !== null && (

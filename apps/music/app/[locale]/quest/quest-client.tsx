@@ -45,7 +45,7 @@ import { noteName } from "@/lib/quest/theory";
 import type { Feedback, HintLedger, HintType, Lick, PitchTrack, Score, Tolerance } from "@/lib/quest/types";
 
 import { BadgeShelf, isKeyUnlocked, KeyLadder, ProgressHud, type RewardInfo, RewardCard } from "./quest-hud";
-import { TrebleStaffSvg } from "./staff-svg";
+import { type NoteLabelStyle, noteLabel, TrebleStaffSvg } from "./staff-svg";
 
 type TopMode = "foundation" | "quest";
 type AnswerStyle = "voice" | "violin" | "singThenPlay";
@@ -61,6 +61,8 @@ const TOLERANCES: Tolerance[] = [35, 25, 15, 8];
 
 const PROGRESS_KEY = "fiddle-quest-progress-v2";
 const SETTINGS_KEY = "fiddle-quest-settings-v1";
+const LABEL_KEY = "fiddle-quest-labels-v1";
+const LABEL_STYLES: readonly NoteLabelStyle[] = ["number", "movable", "fixed", "letter", "off"];
 
 function loadProgress(): PlayerProgress {
     const fresh = createProgress();
@@ -248,7 +250,7 @@ export default function QuestPageClient() {
     const [singer, setSinger] = useState<Singer>("female");
     const [keyId, setKeyId] = useState("C");
     const [singLocked, setSingLocked] = useState(false);
-    const [showSolfege, setShowSolfege] = useState(true);
+    const [labelStyle, setLabelStyle] = useState<NoteLabelStyle>("number");
     const [showSteppingStones, setShowSteppingStones] = useState(true);
     const [withDrone, setWithDrone] = useState(true);
 
@@ -294,6 +296,12 @@ export default function QuestPageClient() {
         // Never restore a key the player has not unlocked (e.g. progress was cleared).
         const index = KEY_LADDER.findIndex(k => k.id === settings.keyId);
         setKeyId(isKeyUnlocked(KEY_LADDER, index, loaded.keysCleared) ? settings.keyId : "C");
+        try {
+            const saved = window.localStorage.getItem(LABEL_KEY);
+            if (saved && (LABEL_STYLES as readonly string[]).includes(saved)) setLabelStyle(saved as NoteLabelStyle);
+        } catch {
+            // Private browsing denies localStorage.
+        }
         setInsecure(!window.isSecureContext);
     }, []);
 
@@ -797,7 +805,14 @@ export default function QuestPageClient() {
                         <>
                             <div className="flex flex-wrap items-center gap-2 text-xs">
                                 {topMode === "foundation" && (
-                                    <span className="rounded-full bg-teal-50 px-2.5 py-1 font-semibold text-teal-800">{t(`keys.${selectedKey.id}`)}</span>
+                                    <span className="rounded-full bg-teal-50 px-2.5 py-1 font-semibold text-teal-800">
+                                        {t(`keys.${selectedKey.id}`)}
+                                        {foundationRound && (
+                                            <span className="ml-1.5 font-mono text-teal-600">
+                                                1={noteName(foundationRound.tonicMidi, foundationRound.flats).replace(/-?\d+$/, "").replace("#", "♯").replace(/(.)b/, "$1♭")}
+                                            </span>
+                                        )}
+                                    </span>
                                 )}
                                 {loopActive && foundationRound?.loopStep && (
                                     <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 font-semibold text-orange-700">
@@ -821,19 +836,39 @@ export default function QuestPageClient() {
                                     keySignature={foundationRound?.keySignature ?? []}
                                     flats={foundationRound?.flats ?? false}
                                     octaveDown={foundationRound?.voice === "male"}
-                                    showSolfege={showSolfege}
+                                    labelStyle={labelStyle}
                                     showSteppingStones={showSteppingStones}
                                     noteScores={phase === "result" ? score?.noteScores : undefined}
                                 />
                                 {phase === "result" && foundationRound?.stage === "home" && (
-                                    <div className="mt-1 text-center text-xs font-medium text-teal-700">{foundationRound.resolutionFormula}</div>
+                                    <div className="mt-1 text-center text-sm font-semibold text-teal-700">
+                                        {foundationRound.revealedGlyphs
+                                            .filter(g => g.targetIndex >= 0)
+                                            .map(g => noteLabel(g, labelStyle === "off" ? "number" : labelStyle))
+                                            .join(" → ")}
+                                    </div>
                                 )}
                             </div>
 
-                            <div className="mt-2 flex flex-wrap justify-end gap-1.5">
-                                <Chip active={showSolfege} onClick={() => setShowSolfege(s => !s)}>
-                                    {t("showSolfege")}
-                                </Chip>
+                            <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5">
+                                <div className="inline-flex rounded-full bg-gray-100 p-0.5">
+                                    {LABEL_STYLES.map(style => (
+                                        <button
+                                            key={style}
+                                            type="button"
+                                            title={t(`labels.${style}Hint`)}
+                                            onClick={() => {
+                                                setLabelStyle(style);
+                                                writeStorage(LABEL_KEY, style);
+                                            }}
+                                            className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                                                labelStyle === style ? "bg-white text-teal-700 shadow-sm" : "text-gray-500 hover:text-gray-800"
+                                            }`}
+                                        >
+                                            {t(`labels.${style}`)}
+                                        </button>
+                                    ))}
+                                </div>
                                 {foundationRound?.stage === "sight" && (
                                     <Chip tone="indigo" active={showSteppingStones} onClick={() => setShowSteppingStones(s => !s)}>
                                         {t("showSteppingStones")}
