@@ -26,7 +26,7 @@ import {
     VOICE_RANGES,
     type VoiceRange,
 } from "./keys.ts";
-import { generateLick } from "./licks.ts";
+import { generateLick, Random } from "./licks.ts";
 import { scoreAttempt } from "./scoring.ts";
 import { SCALE_INTERVALS, type Mode, noteName, scalePitches } from "./theory.ts";
 import type { Lick, NoteEvent, NoteSpec, Score, ScoreOptions } from "./types.ts";
@@ -429,6 +429,67 @@ function makeLickFromPitches(
 }
 
 /**
+ * Melody difficulty for the reading/echo stages.
+ *
+ *   1  one note         — just match a pitch
+ *   2  two notes        — one interval, possibly a leap
+ *   3  stepwise phrase  — four notes, mostly by step
+ *   4  leaps            — five notes with resolved leaps
+ *   5  random           — five scale tones, any order, any leap up to an octave
+ */
+export type MelodyLevel = 1 | 2 | 3 | 4 | 5;
+
+export const MELODY_LEVELS: readonly MelodyLevel[] = [1, 2, 3, 4, 5];
+
+export function generateMelody(options: {
+    level: MelodyLevel;
+    seed: number;
+    tonicMidi: number;
+    mode: Mode;
+    voice: VoiceRange;
+    tempoBpm?: number;
+}): Lick {
+    const { level, seed, tonicMidi, mode, voice } = options;
+    const tempoBpm = options.tempoBpm ?? 68;
+    if (level === 3 || level === 4) {
+        return generateLick({
+            world: level === 3 ? 1 : 2,
+            seed,
+            tonicMidi,
+            mode,
+            numNotes: level === 3 ? 4 : 5,
+            tempoBpm,
+            ...lickRangeFor(voice),
+        });
+    }
+
+    const spec = VOICE_RANGES[voice];
+    const pool = scalePitches(tonicMidi, mode, Math.max(spec.loMidi, tonicMidi - 5), Math.min(spec.hiMidi, tonicMidi + 12));
+    const intervals = SCALE_INTERVALS[mode] ?? SCALE_INTERVALS.major;
+    const stableSet = new Set([0, intervals[2]!, intervals[4]!]);
+    const stable = pool.filter(m => stableSet.has((((m - tonicMidi) % 12) + 12) % 12));
+    const rng = new Random(seed);
+
+    let pitches: number[];
+    if (level === 1) {
+        pitches = [rng.choice(stable)];
+    } else if (level === 2) {
+        const first = rng.choice(stable);
+        const options2 = pool.filter(m => m !== first && Math.abs(m - first) <= 7);
+        pitches = [first, rng.choice(options2.length > 0 ? options2 : pool)];
+    } else {
+        pitches = [rng.choice(stable)];
+        for (let i = 1; i < 5; i++) {
+            const prev = pitches[i - 1]!;
+            const last = i === 4;
+            const candidates = (last ? stable : pool).filter(m => m !== prev && Math.abs(m - prev) <= 12);
+            pitches.push(rng.choice(candidates.length > 0 ? candidates : pool));
+        }
+    }
+    return makeLickFromPitches(pitches, tonicMidi, mode, tempoBpm, seed);
+}
+
+/**
  * Generates a deterministic `FoundationRound` for any of the four pre-requisite stages.
  *
  * The key defaults to the first rung of the ladder (C major) and the register
@@ -444,6 +505,8 @@ export function generateFoundationRound(options: {
     loopStep?: 1 | 2 | 3 | 4;
     key?: KeyStage;
     voice?: VoiceRange;
+    /** Melody difficulty for `echo` / `sight` / `fill`. See `MelodyLevel`. */
+    level?: MelodyLevel;
 }): FoundationRound {
     const stage = options.stage;
     const rung: HomeRung = options.rung ?? 2;
@@ -516,17 +579,11 @@ export function generateFoundationRound(options: {
     }
 
     // For `echo`, `sight`, and `fill`, generate or reuse a melodic Lick
-    const lick =
-        options.baseLick ??
-        generateLick({
-            world: stage === "echo" ? 1 : 2,
-            seed,
-            tonicMidi,
-            mode,
-            numNotes: stage === "echo" ? 4 : 5,
-            tempoBpm,
-            ...lickRangeFor(voice),
-        });
+    const defaultLevel: MelodyLevel = stage === "echo" ? 3 : 4;
+    const requested = options.level ?? defaultLevel;
+    // Fill splits the phrase in two, so it needs enough notes for both halves.
+    const level: MelodyLevel = stage === "fill" ? (Math.max(3, requested) as MelodyLevel) : requested;
+    const lick = options.baseLick ?? generateMelody({ level, seed, tonicMidi, mode, voice, tempoBpm });
 
     const glyphsOf = (visibilityAt: (index: number) => NoteVisibility): StaffNoteGlyph[] =>
         lick.notes.map((n, i) =>

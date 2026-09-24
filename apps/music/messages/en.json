@@ -206,6 +206,18 @@
       "ladder_complete": {
         "name": "All keys",
         "desc": "Clear every key"
+      },
+      "sharp_ears": {
+        "name": "Sharp Ears",
+        "desc": "Max out Higher/Lower"
+      },
+      "interval_master": {
+        "name": "Interval Master",
+        "desc": "Max out Intervals"
+      },
+      "chord_master": {
+        "name": "Chord Hunter",
+        "desc": "Max out Chords"
       }
     },
     "worlds": {
@@ -290,6 +302,87 @@
       "worstNoteWithFingering": "The worst note is {note} ({fingering}): {cents} cents.",
       "rhythmUnsteady": "The long-short ratios are not steady yet.",
       "clean": "Clean and accurate. Ready for the next step!"
+    },
+    "drills": {
+      "compare": {
+        "name": "Higher/Lower",
+        "tip": "Is the second note higher, lower, or the same?",
+        "levels": {
+          "1": "5th+",
+          "2": "~3rd",
+          "3": "Whole tone",
+          "4": "Semitone",
+          "5": "50 cents",
+          "6": "25 cents"
+        },
+        "choices": {
+          "lower": "Lower",
+          "same": "Same",
+          "higher": "Higher"
+        }
+      },
+      "interval": {
+        "name": "Intervals",
+        "tip": "Name the interval",
+        "levels": {
+          "1": "5th vs octave",
+          "2": "+ 4th",
+          "3": "+ 3rds",
+          "4": "+ 2nds / 6ths",
+          "5": "All · harmonic"
+        },
+        "choices": {
+          "m2": "m2",
+          "M2": "M2",
+          "m3": "m3",
+          "M3": "M3",
+          "P4": "P4",
+          "TT": "Tritone",
+          "P5": "P5",
+          "m6": "m6",
+          "M6": "M6",
+          "m7": "m7",
+          "M7": "M7",
+          "P8": "Octave"
+        }
+      },
+      "chord": {
+        "name": "Chords",
+        "tip": "Major, minor, or something else?",
+        "levels": {
+          "1": "Major vs minor",
+          "2": "+ diminished",
+          "3": "+ augmented"
+        },
+        "choices": {
+          "major": "Major",
+          "minor": "Minor",
+          "diminished": "Diminished",
+          "augmented": "Augmented"
+        }
+      },
+      "promoteHint": "{count} in a row to level up",
+      "keysHint": "Number keys answer · Space replays · Enter next",
+      "right": "Correct!",
+      "wrong": "It was {answer}",
+      "levelUp": "Level {level}!",
+      "next": "Next"
+    },
+    "melodyLevels": {
+      "1": "One note",
+      "2": "Two notes",
+      "3": "Steps",
+      "4": "Leaps",
+      "5": "Random"
+    },
+    "reference": {
+      "label": "Reference",
+      "triad": "Tonic chord",
+      "tonic": "Tonic only",
+      "fixA": "Always A",
+      "fixC": "Always C",
+      "button": "Reference",
+      "replay": "Replay the reference"
     }
   }
 }

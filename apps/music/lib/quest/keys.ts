@@ -196,3 +196,20 @@ export function usesFlats(stage: KeyStage): boolean {
 export function tonicMidiFor(stage: KeyStage, range: VoiceRange): number {
     return placeTonic(stage.tonicPc, range);
 }
+
+/**
+ * The octave of a fixed reference pitch (`pc`, C = 0) for `range`.
+ *
+ * Aimed a little above the preferred tonic rather than at it, so the violin's
+ * A lands on A4 — the note every violinist tunes to — instead of A3.
+ */
+export function referenceMidiFor(pc: number, range: VoiceRange): number {
+    const spec = VOICE_RANGES[range];
+    const target = spec.preferredTonicMidi + 3;
+    const p = ((pc % 12) + 12) % 12;
+    let best = p;
+    for (let midi = p; midi <= 127; midi += 12) {
+        if (Math.abs(midi - target) < Math.abs(best - target)) best = midi;
+    }
+    return best;
+}

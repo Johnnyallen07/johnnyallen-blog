@@ -23,6 +23,9 @@ export const ALL_BADGES: readonly BadgeId[] = [
     "key_cleared",
     "both_voices",
     "ladder_complete",
+    "sharp_ears",
+    "interval_master",
+    "chord_master",
 ];
 
 export const BADGE_EMOJI: Record<BadgeId, string> = {
@@ -36,6 +39,9 @@ export const BADGE_EMOJI: Record<BadgeId, string> = {
     key_cleared: "🔑",
     both_voices: "🎻",
     ladder_complete: "👑",
+    sharp_ears: "🦅",
+    interval_master: "📐",
+    chord_master: "🎹",
 };
 
 export function ProgressHud({ progress, t }: { progress: PlayerProgress; t: T }) {

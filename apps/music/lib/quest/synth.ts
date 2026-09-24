@@ -525,10 +525,73 @@ export function renderTonicCadence(
 
 
 /**
+ * What establishes the pitch frame before an exercise.
+ *
+ * - `triad`: the tonic arpeggio (see `renderTonicCadence`). Most informative,
+ *   but it asks the listener to already hear a triad as a triad.
+ * - `tonic`: the tonic alone, held. For learners who cannot yet hear a fifth,
+ *   a single sustained Do is something to hold on to rather than decode.
+ * - `fixed`: always the same pitch (`fixedMidi`, e.g. A4) regardless of key —
+ *   a tuning fork. The learner derives everything from one anchor they come
+ *   to know by heart.
+ */
+export type ReferenceKind = "triad" | "tonic" | "fixed";
+
+export interface ReferenceSpec {
+    kind: ReferenceKind;
+    /** Required for `fixed`. */
+    fixedMidi?: number;
+}
+
+/** Sequential note events, each a single note or a chord, with a gap after each. */
+export function renderEvents(
+    events: readonly { midis: readonly number[]; durS: number; gapS?: number; gain?: number }[],
+    cfg: SynthConfig = DEFAULT_SYNTH_CONFIG,
+    tailS = 0.2,
+): Float32Array {
+    const rendered = events.map(ev => {
+        const gain = (ev.gain ?? 1) / Math.sqrt(Math.max(1, ev.midis.length));
+        const voices = ev.midis.map(m => synthNote(m, ev.durS, { ...cfg, amplitude: cfg.amplitude * gain }));
+        const len = Math.max(1, ...voices.map(v => v.length));
+        const mix = new Float32Array(len);
+        for (const v of voices) for (let i = 0; i < v.length; i++) mix[i] = mix[i]! + v[i]!;
+        return { mix, gap: Math.trunc((ev.gapS ?? 0.08) * cfg.sr) };
+    });
+    let length = Math.trunc(tailS * cfg.sr);
+    for (const r of rendered) length += r.mix.length + r.gap;
+    const out = new Float32Array(length);
+    let cursor = 0;
+    for (const r of rendered) {
+        out.set(r.mix, cursor);
+        cursor += r.mix.length + r.gap;
+    }
+    let peak = 0;
+    for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]!));
+    if (peak > 0.98) for (let i = 0; i < out.length; i++) out[i] = out[i]! * (0.98 / peak);
+    return out;
+}
+
+/** The reference alone, as played before a round and by the 🔔 replay button. */
+export function renderReference(
+    tonicMidi: number,
+    mode: Mode,
+    reference: ReferenceSpec,
+    cfg: SynthConfig = DEFAULT_SYNTH_CONFIG,
+): Float32Array {
+    if (reference.kind === "tonic") {
+        return renderEvents([{ midis: [tonicMidi], durS: 1.1, gain: 0.85 }], cfg, 0.3);
+    }
+    if (reference.kind === "fixed" && reference.fixedMidi !== undefined) {
+        return renderEvents([{ midis: [reference.fixedMidi], durS: 1.1, gain: 0.85 }], cfg, 0.3);
+    }
+    return renderTonicCadence(tonicMidi, mode, cfg);
+}
+
+/**
  * Renders the audio prompt for a Foundation Mode round:
- * - `full_demo`: Cadence + full melody (+ optional low tonic drone).
- * - `cadence_and_first_note`: Cadence + starting reference note ONLY (for Sight-Singing).
- * - `cadence_and_mystery_note`: Cadence + the single mystery note ONLY (for Sing-It-Home).
+ * - `full_demo`: Reference + full melody (+ optional low tonic drone).
+ * - `cadence_and_first_note`: Reference + starting note ONLY (for Sight-Singing).
+ * - `cadence_and_mystery_note`: Reference + the single mystery note ONLY (for Sing-It-Home).
  */
 export function renderFoundationPrompt(
     options: {
@@ -539,10 +602,21 @@ export function renderFoundationPrompt(
         promptAudioMode: "full_demo" | "cadence_and_first_note" | "cadence_and_mystery_note";
         tempoScale?: number;
         withDrone?: boolean;
+        reference?: ReferenceSpec;
     },
     cfg: SynthConfig = DEFAULT_SYNTH_CONFIG,
 ): Float32Array {
-    const cadence = renderTonicCadence(options.tonicMidi, options.mode ?? "major", cfg);
+    const reference = options.reference ?? { kind: "triad" };
+    let cadence: Float32Array = renderReference(options.tonicMidi, options.mode ?? "major", reference, cfg);
+    // Sing-It-Home is defined relative to Do. A fixed anchor on its own leaves
+    // that undefined, so the tonic follows it.
+    if (reference.kind === "fixed" && options.promptAudioMode === "cadence_and_mystery_note") {
+        const tonic = renderEvents([{ midis: [options.tonicMidi], durS: 0.8, gain: 0.85 }], cfg, 0.25);
+        const joined = new Float32Array(cadence.length + tonic.length);
+        joined.set(cadence, 0);
+        joined.set(tonic, cadence.length);
+        cadence = joined;
+    }
     const tempoScale = options.tempoScale ?? 1.0;
 
     let body: Float32Array;

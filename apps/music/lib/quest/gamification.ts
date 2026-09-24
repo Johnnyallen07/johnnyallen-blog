@@ -25,7 +25,10 @@ export type BadgeId =
     | "no_hints"
     | "key_cleared"
     | "ladder_complete"
-    | "both_voices";
+    | "both_voices"
+    | "sharp_ears"
+    | "interval_master"
+    | "chord_master";
 
 export interface PlayerProgress {
     xp: number;
@@ -97,6 +100,12 @@ export interface RoundOutcome {
     answerStyle: string;
     /** Median absolute cents error, when the round produced one. */
     medianAbsCents: number | null;
+    /**
+     * Scales the experience. A tap drill answer takes a second, a sung phrase
+     * ten, so drills pass a fraction here rather than paying out like a
+     * full round and turning into an XP farm.
+     */
+    weight?: number;
 }
 
 /**
@@ -190,7 +199,8 @@ export function applyRound(previous: PlayerProgress, outcome: RoundOutcome): Rou
 
     const combo = outcome.stars > 0 ? previous.combo + 1 : 0;
     const comboBonus = 1 + Math.min(combo, COMBO_CAP) * COMBO_STEP;
-    const xpGained = Math.round(xpForRound(outcome) * comboBonus);
+    const weight = outcome.weight ?? 1;
+    const xpGained = Math.max(1, Math.round(xpForRound(outcome) * comboBonus * weight));
 
     const gap = previous.lastPlayedDay === null ? null : daysBetween(previous.lastPlayedDay, outcome.day);
     const dayStreak =
@@ -259,4 +269,10 @@ export function checkLadderComplete(progress: PlayerProgress, ladderSize: number
     if (progress.keysCleared.length < ladderSize) return progress;
     if (progress.badges.includes("ladder_complete")) return progress;
     return { ...progress, badges: [...progress.badges, "ladder_complete"] };
+}
+
+/** Grants a badge earned outside `applyRound` (e.g. maxing a drill). No-op if already held. */
+export function awardBadge(progress: PlayerProgress, id: BadgeId): { next: PlayerProgress; unlocked: boolean } {
+    if (progress.badges.includes(id)) return { next: progress, unlocked: false };
+    return { next: { ...progress, badges: [...progress.badges, id] }, unlocked: true };
 }

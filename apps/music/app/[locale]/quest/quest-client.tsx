@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { ArrowRight, ChevronLeft, Flame, Loader2, Mic, Play, RotateCcw, Square, Star, Volume2 } from "lucide-react";
+import { ArrowRight, Bell, ChevronLeft, Flame, Loader2, Mic, Play, RotateCcw, Square, Star, Volume2 } from "lucide-react";
 
 import { Link } from "@/i18n/navigation";
 import { createQuestAudioContext, openQuestRecorder, playSamples, type QuestRecorder } from "@/lib/quest-audio";
@@ -23,27 +23,33 @@ import {
     generateFoundationRound,
     generateMasteryLoop,
     type HomeRung,
+    MELODY_LEVELS,
+    type MelodyLevel,
     scoreFoundationAttempt,
     type StaffNoteGlyph,
 } from "@/lib/quest/foundation";
 import {
     applyRound,
+    awardBadge,
+    type BadgeId,
     checkLadderComplete,
     createProgress,
     dayStamp,
     levelForXp,
     type PlayerProgress,
 } from "@/lib/quest/gamification";
-import { KEY_LADDER, type KeyStage, type VoiceRange } from "@/lib/quest/keys";
+import { DRILL_IDS, type DrillEvent, type DrillId } from "@/lib/quest/drills";
+import { KEY_LADDER, type KeyStage, referenceMidiFor, type VoiceRange } from "@/lib/quest/keys";
 import { generateLick } from "@/lib/quest/licks";
 import { createInputPitchDetector } from "@/lib/quest/pitchtrack";
 import { segmentNotes } from "@/lib/quest/segment";
-import { DEFAULT_SYNTH_CONFIG, renderFoundationPrompt, renderLick } from "@/lib/quest/synth";
+import { DEFAULT_SYNTH_CONFIG, type ReferenceSpec, renderEvents, renderFoundationPrompt, renderLick, renderReference } from "@/lib/quest/synth";
 import { createHintLedger, FREE_REPLAYS, HINT_CATALOG, takeHint } from "@/lib/quest/hints";
 import { scoreAttempt } from "@/lib/quest/scoring";
 import { noteName } from "@/lib/quest/theory";
 import type { Feedback, HintLedger, HintType, Lick, PitchTrack, Score, Tolerance } from "@/lib/quest/types";
 
+import { DrillPanel } from "./drill-panel";
 import { BadgeShelf, isKeyUnlocked, KeyLadder, ProgressHud, type RewardInfo, RewardCard } from "./quest-hud";
 import { type NoteLabelStyle, noteLabel, TrebleStaffSvg } from "./staff-svg";
 
@@ -55,6 +61,14 @@ type Phase = "idle" | "prompt" | "ready" | "recording" | "grading" | "result";
 const FOUNDATION_STAGES: FoundationStageId[] = ["echo", "sight", "home", "fill"];
 const STAGE_ICON: Record<FoundationStageId, string> = { echo: "👀", sight: "🪜", home: "🏠", fill: "🧩" };
 const HOME_RUNGS: HomeRung[] = [1, 2, 3, 4, 5];
+const DRILL_ICON: Record<DrillId, string> = { compare: "↕️", interval: "📏", chord: "🎹" };
+const DRILL_BADGE: Record<DrillId, BadgeId> = { compare: "sharp_ears", interval: "interval_master", chord: "chord_master" };
+/** Experience per tap answer, as a fraction of a sung round. */
+const DRILL_XP_WEIGHT = 0.3;
+
+type ReferenceChoice = "triad" | "tonic" | "fixA" | "fixC";
+const REFERENCE_CHOICES: readonly ReferenceChoice[] = ["triad", "tonic", "fixA", "fixC"];
+const PREFS_KEY = "fiddle-quest-prefs-v1";
 const WORLD_IDS = [1, 2, 3, 4, 5, 6];
 const OFFERED_HINTS: HintType[] = ["slow_75", "slow_50", "reveal_key", "reveal_first_note"];
 const TOLERANCES: Tolerance[] = [35, 25, 15, 8];
@@ -251,6 +265,9 @@ export default function QuestPageClient() {
     const [keyId, setKeyId] = useState("C");
     const [singLocked, setSingLocked] = useState(false);
     const [labelStyle, setLabelStyle] = useState<NoteLabelStyle>("number");
+    const [drill, setDrill] = useState<DrillId | null>(null);
+    const [melodyLevel, setMelodyLevel] = useState<MelodyLevel>(3);
+    const [referenceChoice, setReferenceChoice] = useState<ReferenceChoice>("triad");
     const [showSteppingStones, setShowSteppingStones] = useState(true);
     const [withDrone, setWithDrone] = useState(true);
 
@@ -296,6 +313,17 @@ export default function QuestPageClient() {
         // Never restore a key the player has not unlocked (e.g. progress was cleared).
         const index = KEY_LADDER.findIndex(k => k.id === settings.keyId);
         setKeyId(isKeyUnlocked(KEY_LADDER, index, loaded.keysCleared) ? settings.keyId : "C");
+        try {
+            const prefs = JSON.parse(window.localStorage.getItem(PREFS_KEY) ?? "{}") as { melodyLevel?: unknown; reference?: unknown };
+            if (typeof prefs.melodyLevel === "number" && (MELODY_LEVELS as readonly number[]).includes(prefs.melodyLevel)) {
+                setMelodyLevel(prefs.melodyLevel as MelodyLevel);
+            }
+            if (typeof prefs.reference === "string" && (REFERENCE_CHOICES as readonly string[]).includes(prefs.reference)) {
+                setReferenceChoice(prefs.reference as ReferenceChoice);
+            }
+        } catch {
+            // Corrupt or denied storage: keep defaults.
+        }
         try {
             const saved = window.localStorage.getItem(LABEL_KEY);
             if (saved && (LABEL_STYLES as readonly string[]).includes(saved)) setLabelStyle(saved as NoteLabelStyle);
@@ -368,6 +396,16 @@ export default function QuestPageClient() {
         [ensureContext],
     );
 
+    const referenceSpec: ReferenceSpec = useMemo(() => {
+        if (referenceChoice === "fixA") return { kind: "fixed", fixedMidi: referenceMidiFor(9, voiceRange) };
+        if (referenceChoice === "fixC") return { kind: "fixed", fixedMidi: referenceMidiFor(0, voiceRange) };
+        return { kind: referenceChoice };
+    }, [referenceChoice, voiceRange]);
+
+    const savePrefs = useCallback((next: { melodyLevel: MelodyLevel; reference: ReferenceChoice }) => {
+        writeStorage(PREFS_KEY, next);
+    }, []);
+
     const renderCurrentPrompt = useCallback(
         (targetLick: Lick, fRound: FoundationRound | null, tempoScale = 1) => {
             const context = ensureContext();
@@ -382,13 +420,14 @@ export default function QuestPageClient() {
                         promptAudioMode: fRound.promptAudioMode,
                         tempoScale,
                         withDrone: withDrone && (fRound.stage === "echo" || fRound.stage === "sight"),
+                        reference: referenceSpec,
                     },
                     cfg,
                 );
             }
             return renderLick(targetLick, cfg, { tempoScale });
         },
-        [ensureContext, withDrone],
+        [ensureContext, referenceSpec, withDrone],
     );
 
     const clearAttempt = useCallback(() => {
@@ -413,6 +452,7 @@ export default function QuestPageClient() {
                     seed: Math.floor(Math.random() * 2 ** 31),
                     key: selectedKey,
                     voice: voiceRange,
+                    level: melodyLevel,
                 });
             setFoundationRound(nextRound);
             setLick(nextRound.targetLick);
@@ -420,7 +460,7 @@ export default function QuestPageClient() {
             renderedRef.current = samples;
             await playAudioBuffer(samples);
         },
-        [clearAttempt, foundationStage, homeRung, playAudioBuffer, renderCurrentPrompt, selectedKey, voiceRange],
+        [clearAttempt, foundationStage, homeRung, melodyLevel, playAudioBuffer, renderCurrentPrompt, selectedKey, voiceRange],
     );
 
     const startMasteryLoop = useCallback(async () => {
@@ -494,6 +534,55 @@ export default function QuestPageClient() {
             else if (hint === "reveal_first_note") setRevealed(prev => ({ ...prev, firstNote: true }));
         },
         [lick, replay],
+    );
+
+    const playReference = useCallback(async () => {
+        if (!foundationRound) return;
+        const context = ensureContext();
+        await playAudioBuffer(
+            renderReference(foundationRound.tonicMidi, foundationRound.mode, referenceSpec, { ...DEFAULT_SYNTH_CONFIG, sr: context.sampleRate }),
+        );
+    }, [ensureContext, foundationRound, playAudioBuffer, referenceSpec]);
+
+    const playDrill = useCallback(
+        async (events: DrillEvent[]) => {
+            const context = ensureContext();
+            await playAudioBuffer(renderEvents(events, { ...DEFAULT_SYNTH_CONFIG, sr: context.sampleRate }));
+        },
+        [ensureContext, playAudioBuffer],
+    );
+
+    const recordDrill = useCallback(
+        (correct: boolean, which: DrillId, maxed: boolean) => {
+            const outcome = applyRound(progress, {
+                stars: correct ? 1 : 0,
+                toleranceCents: 25,
+                tokensSpent: 0,
+                day: dayStamp(new Date()),
+                keyId: "",
+                answerStyle: "tap",
+                medianAbsCents: null,
+                weight: DRILL_XP_WEIGHT,
+            });
+            let next = outcome.next;
+            const unlocked = [...outcome.unlocked];
+            if (maxed) {
+                const badge = awardBadge(next, DRILL_BADGE[which]);
+                next = badge.next;
+                if (badge.unlocked) unlocked.push(DRILL_BADGE[which]);
+            }
+            setProgress(next);
+            writeStorage(PROGRESS_KEY, next);
+            setReward({
+                xpGained: outcome.xpGained,
+                leveledUp: outcome.leveledUp,
+                level: levelForXp(next.xp).level,
+                combo: next.combo,
+                unlocked,
+                keyUnlocked: null,
+            });
+        },
+        [progress],
     );
 
     const startRecording = useCallback(async () => {
@@ -683,12 +772,32 @@ export default function QuestPageClient() {
                             ))}
                         </>
                     )}
+                    {topMode === "foundation" && drill === null && (
+                        <select
+                            value={referenceChoice}
+                            disabled={locked}
+                            onChange={e => {
+                                const next = e.target.value as ReferenceChoice;
+                                setReferenceChoice(next);
+                                savePrefs({ melodyLevel, reference: next });
+                                renderedRef.current = null;
+                            }}
+                            title={t("reference.label")}
+                            className="ml-auto rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600"
+                        >
+                            {REFERENCE_CHOICES.map(c => (
+                                <option key={c} value={c}>
+                                    🔔 {t(`reference.${c}`)}
+                                </option>
+                            ))}
+                        </select>
+                    )}
                     <select
                         value={tolerance}
                         disabled={locked}
                         onChange={e => setTolerance(Number(e.target.value) as Tolerance)}
                         title={t("toleranceLabel")}
-                        className="ml-auto rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600"
+                        className={`${topMode === "foundation" && drill === null ? "" : "ml-auto "}rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600`}
                     >
                         {TOLERANCES.map(v => (
                             <option key={v} value={v}>
@@ -702,19 +811,37 @@ export default function QuestPageClient() {
                     <div className="mt-4 space-y-3">
                         <KeyLadder ladder={KEY_LADDER} selectedId={selectedKey.id} cleared={progress.keysCleared} disabled={locked} onSelect={chooseKey} t={t} />
 
-                        <div className="grid grid-cols-4 gap-2">
+                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                            {DRILL_IDS.map(id => (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    disabled={locked}
+                                    onClick={() => {
+                                        resetRound();
+                                        setDrill(id);
+                                    }}
+                                    className={`flex flex-col items-center rounded-2xl border px-2 py-2.5 transition-all disabled:opacity-50 ${
+                                        drill === id ? "border-violet-400 bg-violet-50 shadow-sm" : "border-violet-100 bg-white hover:border-violet-200"
+                                    }`}
+                                >
+                                    <span className="text-xl">{DRILL_ICON[id]}</span>
+                                    <span className="mt-0.5 text-sm font-semibold text-gray-800">{t(`drills.${id}.name`)}</span>
+                                </button>
+                            ))}
                             {FOUNDATION_STAGES.map(stg => (
                                 <button
                                     key={stg}
                                     type="button"
                                     disabled={locked}
                                     onClick={() => {
+                                        setDrill(null);
                                         setLoopActive(false);
                                         setFoundationStage(stg);
                                         void startFoundationRound(stg, homeRung);
                                     }}
                                     className={`flex flex-col items-center rounded-2xl border px-2 py-2.5 transition-all disabled:opacity-50 ${
-                                        foundationStage === stg && !loopActive
+                                        drill === null && foundationStage === stg && !loopActive
                                             ? "border-teal-400 bg-teal-50 shadow-sm"
                                             : "border-gray-200 bg-white hover:border-teal-200"
                                     }`}
@@ -725,6 +852,10 @@ export default function QuestPageClient() {
                             ))}
                         </div>
 
+                        {drill ? (
+                            <div className="text-xs text-gray-500">{t(`drills.${drill}.tip`)}</div>
+                        ) : (
+                        <>
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs text-gray-500">{t(`stages.${foundationStage}.tip`)}</span>
                             <button
@@ -746,6 +877,25 @@ export default function QuestPageClient() {
                             </button>
                         </div>
 
+                        {foundationStage !== "home" && (
+                            <div className="flex flex-wrap gap-1.5">
+                                {MELODY_LEVELS.map(lv => (
+                                    <Chip
+                                        key={lv}
+                                        active={melodyLevel === lv}
+                                        disabled={locked || (foundationStage === "fill" && lv < 3)}
+                                        onClick={() => {
+                                            setMelodyLevel(lv);
+                                            savePrefs({ melodyLevel: lv, reference: referenceChoice });
+                                            resetRound();
+                                        }}
+                                    >
+                                        {t(`melodyLevels.${lv}`)}
+                                    </Chip>
+                                ))}
+                            </div>
+                        )}
+
                         {foundationStage === "home" && (
                             <div className="flex flex-wrap gap-1.5">
                                 {HOME_RUNGS.map(r => (
@@ -762,6 +912,8 @@ export default function QuestPageClient() {
                                     </Chip>
                                 ))}
                             </div>
+                        )}
+                        </>
                         )}
                     </div>
                 ) : (
@@ -788,7 +940,16 @@ export default function QuestPageClient() {
                 )}
 
                 <div className="mt-5 rounded-3xl border border-gray-200 bg-white p-4 shadow-sm md:p-6">
-                    {!lick ? (
+                    {topMode === "foundation" && drill ? (
+                        <DrillPanel
+                            drill={drill}
+                            voice={voiceRange}
+                            play={playDrill}
+                            onAnswer={recordDrill}
+                            footer={reward ? <RewardCard reward={reward} stars={1} t={t} /> : null}
+                            t={t}
+                        />
+                    ) : !lick ? (
                         <div className="py-10 text-center">
                             <button
                                 type="button"
@@ -894,6 +1055,19 @@ export default function QuestPageClient() {
                                         <span className="text-xs text-gray-400">{t("replaysLeft", { count: ledger.freeReplaysRemaining, total: FREE_REPLAYS })}</span>
                                     )}
                                 </button>
+
+                                {foundationRound && (
+                                    <button
+                                        type="button"
+                                        disabled={locked}
+                                        onClick={() => void playReference()}
+                                        title={t("reference.replay")}
+                                        className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50/70 px-4 py-2.5 text-sm text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-40"
+                                    >
+                                        <Bell className="h-4 w-4" />
+                                        {t("reference.button")}
+                                    </button>
+                                )}
 
                                 {foundationRound?.stage === "sight" && (
                                     <button
