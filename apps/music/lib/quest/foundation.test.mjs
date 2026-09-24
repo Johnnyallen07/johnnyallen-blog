@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
     buildResolutionPaths,
     buildSightGlyphsWithSteppingStones,
+    createStaffGlyph,
     generateFoundationRound,
     generateMasteryLoop,
     midiToTrebleStaffStep,
@@ -14,6 +15,7 @@ import { createInputPitchDetector } from "./pitchtrack.ts";
 import { segmentNotes } from "./segment.ts";
 import { DEFAULT_SYNTH_CONFIG, renderFoundationPrompt, renderLick } from "./synth.ts";
 import { TOLERANCE_VOICE } from "./types.ts";
+import { KEY_LADDER, keyStageById } from "./keys.ts";
 
 test("midiToTrebleStaffStep places E4 on bottom line (0), D4 at -1, C4 at -2, and F5 at top line (8)", () => {
     assert.deepEqual(midiToTrebleStaffStep(64), { staffStep: 0, accidental: "" }); // E4
@@ -21,6 +23,13 @@ test("midiToTrebleStaffStep places E4 on bottom line (0), D4 at -1, C4 at -2, an
     assert.deepEqual(midiToTrebleStaffStep(60), { staffStep: -2, accidental: "" }); // C4
     assert.deepEqual(midiToTrebleStaffStep(66), { staffStep: 1, accidental: "♯" }); // F#4
     assert.deepEqual(midiToTrebleStaffStep(77), { staffStep: 8, accidental: "" }); // F5
+});
+
+test("midiToTrebleStaffStep spells the same pitch on a different line under flats", () => {
+    // MIDI 70 is A♯4 in a sharp key and B♭4 in a flat one. Same sound, one
+    // staff position apart — F major must not draw it as A♯.
+    assert.deepEqual(midiToTrebleStaffStep(70, false), { staffStep: 3, accidental: "♯" }); // A♯4
+    assert.deepEqual(midiToTrebleStaffStep(70, true), { staffStep: 4, accidental: "♭" }); // B♭4
 });
 
 test("scaleDegreeOf assigns movable-do solfege and carets in D major", () => {
@@ -118,6 +127,7 @@ test("generateMasteryLoop creates the 4 progressive stages for a single motif", 
     for (const s of steps) {
         const audio = renderFoundationPrompt({
             tonicMidi: s.tonicMidi,
+            mode: s.mode,
             cueMidi: s.cueMidi,
             targetLick: s.targetLick,
             promptAudioMode: s.promptAudioMode,
@@ -125,4 +135,66 @@ test("generateMasteryLoop creates the 4 progressive stages for a single motif", 
         });
         assert.ok(audio.length > 48000);
     }
+});
+
+test("rounds default to C major, not the violin-friendly D that fixed-do learners misread", () => {
+    const round = generateFoundationRound({ stage: "echo", seed: 5 });
+    assert.equal(round.keyId, "C");
+    assert.equal(round.tonicMidi % 12, 0);
+    assert.deepEqual(round.keySignature, []);
+    assert.equal(round.flats, false);
+    // The tonic must be printed as Do, which is the whole point of starting here.
+    const tonicGlyph = round.revealedGlyphs.find(g => g.midi % 12 === 0);
+    if (tonicGlyph) assert.equal(tonicGlyph.solfege, "Do");
+});
+
+test("the male register is exactly one octave below the female one", () => {
+    for (const key of KEY_LADDER) {
+        const male = generateFoundationRound({ stage: "echo", seed: 11, key, voice: "male" });
+        const female = generateFoundationRound({ stage: "echo", seed: 11, key, voice: "female" });
+        assert.equal(
+            female.tonicMidi - male.tonicMidi,
+            12,
+            `${key.id}: male ${male.tonicMidi} vs female ${female.tonicMidi}`,
+        );
+        // And the exercise itself must sit inside what that voice can sing.
+        for (const note of male.targetLick.notes) {
+            assert.ok(note.midi >= 45 && note.midi <= 64, `${key.id}: male note ${note.midi}`);
+        }
+    }
+});
+
+test("F major spells its accidental as B♭, never A♯", () => {
+    const round = generateFoundationRound({
+        stage: "echo",
+        seed: 3,
+        key: keyStageById("F"),
+    });
+    assert.equal(round.flats, true);
+    assert.deepEqual(round.keySignature, ["B♭"]);
+    for (const glyph of round.revealedGlyphs) {
+        assert.notEqual(glyph.accidental, "♯");
+    }
+});
+
+test("a minor key names its own third rather than borrowing the major one", () => {
+    const round = generateFoundationRound({
+        stage: "home",
+        rung: 2,
+        seed: 2,
+        key: keyStageById("Am"),
+    });
+    assert.equal(round.mode, "natural_minor");
+    // A natural minor's 3̂ is C, three semitones above the tonic.
+    const third = round.tonicMidi + 3;
+    const glyph = createStaffGlyph({
+        midi: third,
+        beats: 1,
+        tonicMidi: round.tonicMidi,
+        mode: round.mode,
+        targetIndex: 0,
+    });
+    assert.equal(glyph.degree, 3);
+    // And no Chinese prose may reach the formula — it is rendered in /en too.
+    assert.ok(!/[\u4e00-\u9fff]/.test(round.resolutionFormula), round.resolutionFormula);
 });

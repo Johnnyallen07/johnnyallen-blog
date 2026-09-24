@@ -56,72 +56,146 @@
     "exitFullscreen": "退出全屏"
   },
   "quest": {
-    "title": "视唱练耳 & 扒谱闯关",
-    "subtitle": "从五线谱模唱、阶梯视唱、调内单音「带它回家」一路进阶到盲听扒谱。八度无关判分，支持人声唱谱与小提琴演奏无缝切换。",
+    "title": "视唱练耳",
     "back": "返回",
-    "streak": "连胜 {count}",
-    "modeFoundation": "🌱 基础模式 · 视唱练耳",
-    "modeFoundationSub": "模唱校准 → 阶梯视唱 → 单音归家 → 残谱填空（培养相对音感）",
-    "modeQuest": "🎯 进阶模式 · 扒谱闯关",
-    "modeQuestSub": "盲听乐句 +「先唱后拉」双连击（World 1–6 指板实战）",
-    "inputLabel": "作答方式",
+    "modeFoundation": "🌱 基础",
+    "modeQuest": "🎯 扒谱",
     "input": {
-      "voice": "🎤 人声视唱/模唱",
-      "violin": "🎻 小提琴演奏",
-      "singThenPlay": "🎤→🎻 先唱后拉 (双连击)"
+      "voice": "🎤 唱",
+      "violin": "🎻 拉",
+      "singThenPlay": "🎤→🎻 先唱后拉"
     },
-    "loopToggle": "🔥 四幕渐进特训 (同一旋律 4 连击)",
-    "loopStepBanner": "四幕特训 · 第 {step}/4 幕",
-    "nextLoopStep": "进入下一幕 ({next}/4)",
-    "staffTitle": "五线谱与首调音级 (Treble Staff · Movable-Do)",
-    "showSolfege": "唱名浮标 (1̂ Do)",
-    "showSteppingStones": "幽灵垫脚石",
-    "droneToggle": "主音 Drone 共鸣",
-    "playDemoAfterSight": "🔊 听标准旋律对照",
-    "singLockSuccess": "✅ 嗓音已锁定旋律音级！五线谱幽灵轮廓已点亮，现在请拿起小提琴拉出第 2 段连击！",
-    "singLockPrompt": "第 1 步（🎤 先唱）：先对着麦克风哼唱出刚才听到的旋律，验证内心听觉",
-    "violinRealisePrompt": "第 2 步（🎻 后拉）：看着五线谱上你哼出的音级轮廓，用小提琴精准拉出来",
-    "foundationStageLabel": "视唱练耳四阶训练",
-    "foundationStages": {
-      "echo": {
-        "name": "0.1 共鸣校准 · 看谱模唱",
-        "blurb": "五线谱全显 + 播放示范音与主音 Drone。看着谱面用嗓子或琴跟唱/模奏，对齐耳与喉。",
-        "badge": "谱开 · 音开"
-      },
-      "sight": {
-        "name": "0.2 心中有谱 · 阶梯视唱",
-        "blurb": "仅播定调终止式与首音 Do，不播旋律！看五线谱（含跳进幽灵垫脚石）独立视唱/视奏。",
-        "badge": "谱开 · 盲唱"
-      },
-      "home": {
-        "name": "0.3 听音归位 · 带它回家",
-        "blurb": "听定调终止式 + 1 个神秘单音，不仅要唱/拉出该音，还要顺着它的调内引力唱/拉回主音 Do！",
-        "badge": "功能相对音感"
-      },
-      "fill": {
-        "name": "0.4 残谱补全 · 视唱+练耳",
-        "blurb": "前半句看五线谱视唱作为调性跳板，后半句无缝切入凭耳朵补齐问号音符。",
-        "badge": "半谱 · 半盲"
-      }
+    "singer": {
+      "female": "♀ 女声",
+      "male": "♂ 男声"
     },
-    "rungLabel": "单音归家 · 音级解锁阶梯",
-    "rungs": {
-      "1": "第1阶 · 骨干双柱 (1̂ Do · 5̂ Sol)",
-      "2": "第2阶 · 主三和弦 (1̂ Do · 3̂ Mi · 5̂ Sol)",
-      "3": "第3阶 · 导音引力 (1̂ · 2̂ Re · 3̂ Mi · 7̂ Ti)",
-      "4": "第4阶 · 大调五声 (1̂ · 2̂ · 3̂ · 5̂ · 6̂ La)",
-      "5": "第5阶 · 自然大调全音阶 (1̂–7̂)",
-      "6": "第6阶 · 自然小调全音阶"
+    "singerHint": {
+      "female": "按女声音域出题",
+      "male": "男声比女声低一个八度，题目会整体降八度"
     },
-    "homeInstruction": "💡 任务：你听到了定调（1̂-5̂-1̂）后的一个神秘单音。请唱/拉出这个单音，并顺着调内引力一路唱/拉回主音 D (1̂ Do)！",
-    "revealedFormulaLabel": "归家解决路径：",
-    "worldLabel": "进阶扒谱关卡",
     "toleranceLabel": "音准容差",
     "tolerance": {
       "8": "大师 ±8¢",
       "15": "标准 ±15¢",
       "25": "宽松 ±25¢",
-      "35": "人声 ±35¢"
+      "35": "入门 ±35¢"
+    },
+    "keys": {
+      "C": "C 大调",
+      "G": "G 大调",
+      "F": "F 大调",
+      "D": "D 大调",
+      "Am": "a 小调",
+      "A": "A 大调",
+      "Em": "e 小调"
+    },
+    "keysShort": {
+      "C": "C",
+      "G": "G",
+      "F": "F",
+      "D": "D",
+      "Am": "a",
+      "A": "A",
+      "Em": "e"
+    },
+    "keyLocked": "上一个调拿到 3 星解锁",
+    "stages": {
+      "echo": {
+        "name": "模唱",
+        "tip": "看谱 · 听示范 · 跟着唱"
+      },
+      "sight": {
+        "name": "视唱",
+        "tip": "只给主和弦，看谱唱"
+      },
+      "home": {
+        "name": "回家",
+        "tip": "听一个音，唱回 Do"
+      },
+      "fill": {
+        "name": "填空",
+        "tip": "前半看谱，后半靠耳朵"
+      }
+    },
+    "rungs": {
+      "1": "Do · Sol",
+      "2": "Do · Mi · Sol",
+      "3": "+ Re · Ti",
+      "4": "五声",
+      "5": "全音阶"
+    },
+    "loopToggle": "四连关",
+    "nextLoopStep": "下一关",
+    "showSolfege": "唱名",
+    "showSteppingStones": "垫脚石",
+    "droneToggle": "持续音",
+    "playDemo": "听示范",
+    "singLockPrompt": "① 先唱",
+    "singLockSuccess": "② 唱对了，拉出来",
+    "start": "开始",
+    "replay": "再听",
+    "replaysLeft": "{count}/{total}",
+    "recordVoice": "唱",
+    "recordViolin": "拉",
+    "stop": "完成",
+    "grading": "分析中",
+    "nextRound": "换一题",
+    "revealedKey": "调：{key}",
+    "details": "音高曲线 & 逐音明细",
+    "hud": {
+      "level": "Lv {level}",
+      "xp": "{into}/{needed} XP",
+      "dayStreakTitle": "连续练习天数",
+      "comboTitle": "连击"
+    },
+    "reward": {
+      "xp": "+{xp} XP",
+      "combo": "{count} 连击",
+      "levelUp": "升级 Lv {level}",
+      "keyUnlocked": "解锁 {key}"
+    },
+    "badgesTitle": "徽章 {count}/{total}",
+    "badges": {
+      "first_blood": {
+        "name": "第一声",
+        "desc": "完成第一题"
+      },
+      "flawless": {
+        "name": "三星",
+        "desc": "一题拿满 3 星"
+      },
+      "dead_centre": {
+        "name": "正中靶心",
+        "desc": "中位音差 ≤10¢"
+      },
+      "no_hints": {
+        "name": "裸耳",
+        "desc": "不用提示拿 3 星"
+      },
+      "combo_5": {
+        "name": "五连击",
+        "desc": "连续 5 题有星"
+      },
+      "combo_10": {
+        "name": "十连击",
+        "desc": "连续 10 题有星"
+      },
+      "week_streak": {
+        "name": "一周不断",
+        "desc": "连续练 7 天"
+      },
+      "key_cleared": {
+        "name": "开锁",
+        "desc": "通关第一个调"
+      },
+      "both_voices": {
+        "name": "能唱能拉",
+        "desc": "唱和拉都答过"
+      },
+      "ladder_complete": {
+        "name": "全调通关",
+        "desc": "通关所有调"
+      }
     },
     "worlds": {
       "1": {
@@ -149,22 +223,6 @@
         "blurb": "更长的乐句，接近真实的曲子片段。"
       }
     },
-    "startHint": "准备好了就开始 —— 当前训练：{world}",
-    "start": "开始本轮",
-    "replay": "重听提示音",
-    "replaysLeft": "剩 {count}/{total}",
-    "record": "开始录音作答",
-    "recordVoice": "🎤 开始模唱/视唱",
-    "recordViolin": "🎻 开始拉琴作答",
-    "stop": "完成并判分",
-    "grading": "分析中",
-    "nextRound": "换一题",
-    "hintsLabel": "提示币",
-    "micNotice": "首次录音时浏览器会请求麦克风权限。人声哼唱与小提琴演奏均已支持八度自适应识别。",
-    "roundMeta": "{notes} 个目标音 · {bpm} BPM · 调中心 {tonic}",
-    "revealedKey": "调性：{key}",
-    "revealedFirstNote": "首音：{note}",
-    "curveLabel": "音高轨迹（绿虚线 = 目标半音，紫线 = 你的实际音高）",
     "phase": {
       "idle": "待开始",
       "prompt": "播放提示中",
@@ -224,4 +282,3 @@
     }
   }
 }
-

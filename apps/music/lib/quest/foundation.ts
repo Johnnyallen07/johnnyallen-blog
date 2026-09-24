@@ -17,12 +17,27 @@
  * Pure functions only — no DOM, no Web Audio, no filesystem.
  */
 
+import {
+    type KeyStage,
+    keySignatureOf,
+    keyStageById,
+    tonicMidiFor,
+    usesFlats,
+    VOICE_RANGES,
+    type VoiceRange,
+} from "./keys.ts";
 import { generateLick } from "./licks.ts";
 import { scoreAttempt } from "./scoring.ts";
 import { SCALE_INTERVALS, type Mode, noteName, scalePitches } from "./theory.ts";
 import type { Lick, NoteEvent, NoteSpec, Score, ScoreOptions } from "./types.ts";
 
 export type FoundationStageId = "echo" | "sight" | "home" | "fill";
+
+/** The pitch-range overrides that keep a generated phrase inside `voice`. */
+function lickRangeFor(voice: VoiceRange): { midiRange: readonly [number, number]; requirePlayable: boolean } {
+    const spec = VOICE_RANGES[voice];
+    return { midiRange: [spec.loMidi, spec.hiMidi], requirePlayable: voice === "violin" };
+}
 
 export type PromptAudioMode =
     | "full_demo"
@@ -33,7 +48,7 @@ export type NoteVisibility = "full" | "ghost" | "hidden";
 
 export type GravityDirection = "home" | "down" | "up" | "pillar";
 
-export type HomeRung = 1 | 2 | 3 | 4 | 5 | 6;
+export type HomeRung = 1 | 2 | 3 | 4 | 5;
 
 export interface StaffNoteGlyph {
     /** Index in the target Lick (-1 for ungraded ghost stepping-stones). */
@@ -64,8 +79,16 @@ export interface FoundationRound {
     stage: FoundationStageId;
     rung: HomeRung;
     seed: number;
+    /** Rung of the key ladder this round was generated from, e.g. `"C"`, `"Am"`. */
+    keyId: string;
     tonicMidi: number;
     mode: Mode;
+    /** Register the prompt was placed in, so a baritone sings what he hears. */
+    voice: VoiceRange;
+    /** Accidentals of the key signature, in writing order. */
+    keySignature: readonly string[];
+    /** True when this key spells its accidentals with flats. */
+    flats: boolean;
     tempoBpm: number;
     promptAudioMode: PromptAudioMode;
     /** The single mystery note for `home` stage, or the first note for `sight`. */
@@ -111,32 +134,55 @@ const CARET_BY_DEGREE: readonly string[] = [
 ];
 
 /**
- * Maps pitch class (0..11, where C=0) to diatonic letter index (C=0, D=1, E=2, F=3, G=4, A=5, B=6)
- * and accidental under sharp spelling (standard for violin keys G, D, A, E).
+ * Maps pitch class (0..11, C=0) to a diatonic letter index (C=0 … B=6) plus an
+ * accidental.
+ *
+ * Two tables, because a pitch class is not a note. MIDI 70 is B♭ in F major
+ * and A♯ in B major; they sound identical and sit on different lines of the
+ * staff. Spelling one as the other puts the notehead in the wrong place, which
+ * is exactly the thing a reading exercise is trying to teach.
  */
 const PC_TO_DIATONIC_SHARP: readonly { letter: number; accidental: "♯" | "♭" | "" }[] = [
     { letter: 0, accidental: "" },  // C
-    { letter: 0, accidental: "♯" }, // C#
+    { letter: 0, accidental: "♯" }, // C♯
     { letter: 1, accidental: "" },  // D
-    { letter: 2, accidental: "♭" }, // Eb
+    { letter: 1, accidental: "♯" }, // D♯
     { letter: 2, accidental: "" },  // E
     { letter: 3, accidental: "" },  // F
-    { letter: 3, accidental: "♯" }, // F#
+    { letter: 3, accidental: "♯" }, // F♯
     { letter: 4, accidental: "" },  // G
-    { letter: 4, accidental: "♯" }, // G#
+    { letter: 4, accidental: "♯" }, // G♯
     { letter: 5, accidental: "" },  // A
-    { letter: 6, accidental: "♭" }, // Bb
+    { letter: 5, accidental: "♯" }, // A♯
+    { letter: 6, accidental: "" },  // B
+];
+
+const PC_TO_DIATONIC_FLAT: readonly { letter: number; accidental: "♯" | "♭" | "" }[] = [
+    { letter: 0, accidental: "" },  // C
+    { letter: 1, accidental: "♭" }, // D♭
+    { letter: 1, accidental: "" },  // D
+    { letter: 2, accidental: "♭" }, // E♭
+    { letter: 2, accidental: "" },  // E
+    { letter: 3, accidental: "" },  // F
+    { letter: 4, accidental: "♭" }, // G♭
+    { letter: 4, accidental: "" },  // G
+    { letter: 5, accidental: "♭" }, // A♭
+    { letter: 5, accidental: "" },  // A
+    { letter: 6, accidental: "♭" }, // B♭
     { letter: 6, accidental: "" },  // B
 ];
 
 /**
  * Computes the treble-clef staff step where E4 (MIDI 64) = 0.
  */
-export function midiToTrebleStaffStep(midi: number): { staffStep: number; accidental: "♯" | "♭" | "" } {
+export function midiToTrebleStaffStep(
+    midi: number,
+    flats = false,
+): { staffStep: number; accidental: "♯" | "♭" | "" } {
     const rounded = Math.round(midi);
     const pc = ((rounded % 12) + 12) % 12;
     const octave = Math.floor(rounded / 12) - 1;
-    const info = PC_TO_DIATONIC_SHARP[pc]!;
+    const info = (flats ? PC_TO_DIATONIC_FLAT : PC_TO_DIATONIC_SHARP)[pc]!;
     // E4 is octave 4, letter 2 (E).
     const absoluteDiatonic = octave * 7 + info.letter;
     const e4Diatonic = 4 * 7 + 2; // 30
@@ -144,34 +190,6 @@ export function midiToTrebleStaffStep(midi: number): { staffStep: number; accide
         staffStep: absoluteDiatonic - e4Diatonic,
         accidental: info.accidental,
     };
-}
-
-/**
- * Returns the key signature sharps count for standard violin keys (C=0, G=1, D=2, A=3, E=4).
- */
-export function keySignatureSharps(tonicMidi: number, mode: Mode): readonly string[] {
-    const pc = ((tonicMidi % 12) + 12) % 12;
-    // Convert minor/modal tonic to relative major pitch class
-    const relMajorPc = mode === "natural_minor" || mode === "harmonic_minor"
-        ? (pc + 3) % 12
-        : mode === "dorian"
-            ? (pc + 10) % 12
-            : mode === "mixolydian"
-                ? (pc + 5) % 12
-                : pc;
-
-    switch (relMajorPc) {
-        case 7: // G major
-            return ["F♯"];
-        case 2: // D major
-            return ["F♯", "C♯"];
-        case 9: // A major
-            return ["F♯", "C♯", "G♯"];
-        case 4: // E major
-            return ["F♯", "C♯", "G♯", "D♯"];
-        default:
-            return [];
-    }
 }
 
 /**
@@ -202,29 +220,38 @@ export function scaleDegreeOf(midi: number, tonicMidi: number, mode: Mode): {
     };
 }
 
-export function createStaffGlyph(
-    midi: number,
-    beats: number,
-    tonicMidi: number,
-    mode: Mode,
-    targetIndex: number,
-    visibility: NoteVisibility = "full",
-    isSteppingStone = false,
-): StaffNoteGlyph {
-    const { staffStep, accidental } = midiToTrebleStaffStep(midi);
-    const { degree, solfege, degreeCaret } = scaleDegreeOf(midi, tonicMidi, mode);
+export interface StaffGlyphOptions {
+    midi: number;
+    beats: number;
+    tonicMidi: number;
+    mode: Mode;
+    targetIndex: number;
+    visibility?: NoteVisibility;
+    isSteppingStone?: boolean;
+    /** Spell accidentals as flats. Follows the key signature, not the pitch. */
+    flats?: boolean;
+}
+
+export function createStaffGlyph(options: StaffGlyphOptions): StaffNoteGlyph {
+    const flats = options.flats ?? false;
+    const { staffStep, accidental } = midiToTrebleStaffStep(options.midi, flats);
+    const { degree, solfege, degreeCaret } = scaleDegreeOf(
+        options.midi,
+        options.tonicMidi,
+        options.mode,
+    );
     return {
-        targetIndex,
-        midi,
-        beats,
+        targetIndex: options.targetIndex,
+        midi: options.midi,
+        beats: options.beats,
         staffStep,
-        name: noteName(midi),
+        name: noteName(options.midi, flats),
         accidental,
         degree,
         solfege,
         degreeCaret,
-        visibility,
-        isSteppingStone,
+        visibility: options.visibility ?? "full",
+        isSteppingStone: options.isSteppingStone ?? false,
     };
 }
 
@@ -233,8 +260,8 @@ export function createStaffGlyph(
  * (>= 3 semitones) so a sight-singing learner can visually and mentally bridge
  * intervals like 1̂ → 5̂ via (2̂-3̂-4̂).
  */
-export function buildSightGlyphsWithSteppingStones(lick: Lick): StaffNoteGlyph[] {
-    const scale = scalePitches(lick.tonicMidi, lick.mode, 50, 88);
+export function buildSightGlyphsWithSteppingStones(lick: Lick, flats = false): StaffNoteGlyph[] {
+    const scale = scalePitches(lick.tonicMidi, lick.mode, lick.tonicMidi - 12, lick.tonicMidi + 24);
     const out: StaffNoteGlyph[] = [];
 
     for (let i = 0; i < lick.notes.length; i++) {
@@ -248,33 +275,57 @@ export function buildSightGlyphsWithSteppingStones(lick: Lick): StaffNoteGlyph[]
                 const between = scale.filter(m => m > lo && m < hi);
                 if (diff < 0) between.reverse();
                 for (const stepMidi of between) {
-                    out.push(
-                        createStaffGlyph(stepMidi, 0.25, lick.tonicMidi, lick.mode, -1, "ghost", true),
-                    );
+                    out.push(createStaffGlyph({
+                        midi: stepMidi,
+                        beats: 0.25,
+                        tonicMidi: lick.tonicMidi,
+                        mode: lick.mode,
+                        targetIndex: -1,
+                        visibility: "ghost",
+                        isSteppingStone: true,
+                        flats,
+                    }));
                 }
             }
         }
-        out.push(createStaffGlyph(cur.midi, cur.beats, lick.tonicMidi, lick.mode, i, "full", false));
+        out.push(createStaffGlyph({
+            midi: cur.midi,
+            beats: cur.beats,
+            tonicMidi: lick.tonicMidi,
+            mode: lick.mode,
+            targetIndex: i,
+            flats,
+        }));
     }
     return out;
 }
 
 /**
  * Allowed scale degrees (1..7) for each progressive rung of `Sing-It-Home` (0.3).
+ *
+ * There used to be a sixth rung whose only distinction was being minor. Mode
+ * now belongs to the key you chose off the ladder, so that rung was an exact
+ * duplicate of rung 5 wearing a different label.
  */
 export const HOME_RUNG_DEGREES: Record<HomeRung, readonly number[]> = {
     1: [1, 5],                // Pillars: Do, Sol
-    2: [1, 3, 5],             // Major triad: Do, Mi, Sol
-    3: [1, 2, 3, 7],          // Tonic neighbors & leading tone: Do, Re, Mi, Ti
+    2: [1, 3, 5],             // Tonic triad: Do, Mi, Sol
+    3: [1, 2, 3, 7],          // Tonic neighbours & leading tone: Do, Re, Mi, Ti
     4: [1, 2, 3, 5, 6],       // Pentatonic: Do, Re, Mi, Sol, La
-    5: [1, 2, 3, 4, 5, 6, 7], // Full Diatonic Major
-    6: [1, 2, 3, 4, 5, 6, 7], // Natural Minor
+    5: [1, 2, 3, 4, 5, 6, 7], // Full diatonic
 };
 
 /**
  * Builds the functional resolution path(s) from a scale degree back to Tonic (`1̂ Do`).
  *
  * Returns `[primaryPath, ...alternatePaths]` as arrays of MIDI pitches.
+ *
+ * The formula is *derived from* the paths rather than written out beside them.
+ * Two reasons. It was previously half-Chinese, which put user-visible prose
+ * inside the engine where `/en` could never reach it. And it named the
+ * major-scale syllables unconditionally, so a minor round would print "Mi"
+ * over what is actually 3̂ of a minor scale. Reading the syllables back off
+ * the pitches makes both failures impossible.
  */
 export function buildResolutionPaths(
     tonicMidi: number,
@@ -291,63 +342,68 @@ export function buildResolutionPaths(
         return tonicMidi + 12; // Upper octave tonic (8̂)
     };
 
+    const describe = (path: readonly number[]): string =>
+        path
+            .map((midi, i) => {
+                const { solfege, degreeCaret } = scaleDegreeOf(midi, tonicMidi, mode);
+                const token = `${solfege} (${degreeCaret})`;
+                if (i === 0) return token;
+                return `${midi > path[i - 1]! ? "↗" : "↘"} ${token}`;
+            })
+            .join(" ");
+
+    const build = (
+        paths: number[][],
+        gravity: GravityDirection,
+    ): { paths: number[][]; gravity: GravityDirection; formula: string } => ({
+        paths,
+        gravity,
+        // Only the first two paths are shown. The third is a legal answer, not
+        // a thing anyone needs to read.
+        formula: paths.slice(0, 2).map(describe).join("  ·  "),
+    });
+
     switch (degree) {
         case 1:
-            return {
-                paths: [[degPitch(1)]],
-                gravity: "home",
-                formula: "Do (1̂) — 已在主音归属点",
-            };
+            return build([[degPitch(1)]], "home");
         case 2:
-            return {
-                paths: [[degPitch(2), degPitch(1)]],
-                gravity: "down",
-                formula: "Re (2̂) ↘ Do (1̂)",
-            };
+            return build([[degPitch(2), degPitch(1)]], "down");
         case 3:
-            return {
-                paths: [[degPitch(3), degPitch(2), degPitch(1)]],
-                gravity: "down",
-                formula: "Mi (3̂) ↘ Re (2̂) ↘ Do (1̂)",
-            };
+            return build([[degPitch(3), degPitch(2), degPitch(1)]], "down");
         case 4:
-            return {
-                paths: [
+            return build(
+                [
                     [degPitch(4), degPitch(3), degPitch(2), degPitch(1)],
                     [degPitch(4), degPitch(3)],
                 ],
-                gravity: "down",
-                formula: "Fa (4̂) ↘ Mi (3̂) ↘ Re (2̂) ↘ Do (1̂)",
-            };
+                "down",
+            );
         case 5:
-            return {
-                paths: [
+            return build(
+                [
                     [degPitch(5), degPitch(1)],
                     [degPitch(5), degPitch(6), degPitch(7), degPitch(8)],
                     [degPitch(5), degPitch(4), degPitch(3), degPitch(2), degPitch(1)],
                 ],
-                gravity: "pillar",
-                formula: "Sol (5̂) ↘ Do (1̂)  或  Sol (5̂) ↗ La ↗ Ti ↗ Do",
-            };
+                "pillar",
+            );
         case 6:
-            return {
-                paths: [
+            return build(
+                [
                     [degPitch(6), degPitch(5), degPitch(1)],
                     [degPitch(6), degPitch(7), degPitch(8)],
                 ],
-                gravity: "down",
-                formula: "La (6̂) ↘ Sol (5̂) ↘ Do (1̂)  或  La (6̂) ↗ Ti ↗ Do",
-            };
+                "down",
+            );
         case 7:
         default:
-            return {
-                paths: [
+            return build(
+                [
                     [degPitch(7), degPitch(8)],
                     [degPitch(7), degPitch(1)],
                 ],
-                gravity: "up",
-                formula: "Ti (7̂) ↗ Do (1̂)（导音半音上行解决）",
-            };
+                "up",
+            );
     }
 }
 
@@ -374,6 +430,11 @@ function makeLickFromPitches(
 
 /**
  * Generates a deterministic `FoundationRound` for any of the four pre-requisite stages.
+ *
+ * The key defaults to the first rung of the ladder (C major) and the register
+ * to the violin. Both are explicit rather than implied: the tonic used to be a
+ * hardcoded D4, which is simultaneously the wrong pitch class for a fixed-do
+ * beginner and the wrong octave for a male voice.
  */
 export function generateFoundationRound(options: {
     stage: FoundationStageId;
@@ -381,13 +442,25 @@ export function generateFoundationRound(options: {
     seed?: number;
     baseLick?: Lick;
     loopStep?: 1 | 2 | 3 | 4;
+    key?: KeyStage;
+    voice?: VoiceRange;
 }): FoundationRound {
     const stage = options.stage;
     const rung: HomeRung = options.rung ?? 2;
     const seed = options.seed ?? Math.floor(Math.random() * 2 ** 31);
-    const mode: Mode = stage === "home" && rung === 6 ? "natural_minor" : "major";
-    const tonicMidi = 62; // D4 — violin's most resonant open-string key centre
+    const key = options.key ?? keyStageById("C");
+    const voice: VoiceRange = options.voice ?? "violin";
+    const mode: Mode = key.mode;
+    const tonicMidi = options.baseLick?.tonicMidi ?? tonicMidiFor(key, voice);
+    const flats = usesFlats(key);
     const tempoBpm = 68;
+
+    const keyFields = {
+        keyId: key.id,
+        voice,
+        keySignature: keySignatureOf(key),
+        flats,
+    };
 
     if (stage === "home") {
         const degrees = HOME_RUNG_DEGREES[rung];
@@ -403,21 +476,30 @@ export function generateFoundationRound(options: {
             .map((p, i) => makeLickFromPitches(p, tonicMidi, mode, tempoBpm, seed + i + 1));
 
         // Staff shows Tonic Do anchor on left, then hidden `?` notes for the resolution path
-        const anchorGlyph = createStaffGlyph(tonicMidi, 1.0, tonicMidi, mode, -1, "full", false);
-        const hiddenGlyphs = primaryPitches.map((m, i) =>
-            createStaffGlyph(m, i === primaryPitches.length - 1 ? 1.5 : 1.0, tonicMidi, mode, i, "hidden", false),
-        );
-        const revealedGlyphs = [
-            anchorGlyph,
-            ...primaryPitches.map((m, i) =>
-                createStaffGlyph(m, i === primaryPitches.length - 1 ? 1.5 : 1.0, tonicMidi, mode, i, "full", false),
-            ),
-        ];
+        const anchorGlyph = createStaffGlyph({
+            midi: tonicMidi,
+            beats: 1.0,
+            tonicMidi,
+            mode,
+            targetIndex: -1,
+            flats,
+        });
+        const pathGlyph = (m: number, i: number, visibility: NoteVisibility): StaffNoteGlyph =>
+            createStaffGlyph({
+                midi: m,
+                beats: i === primaryPitches.length - 1 ? 1.5 : 1.0,
+                tonicMidi,
+                mode,
+                targetIndex: i,
+                visibility,
+                flats,
+            });
 
         return {
             stage: "home",
             rung,
             seed,
+            ...keyFields,
             tonicMidi,
             mode,
             tempoBpm,
@@ -425,8 +507,8 @@ export function generateFoundationRound(options: {
             cueMidi: primaryPitches[0]!,
             targetLick,
             alternateLicks,
-            staffGlyphs: [anchorGlyph, ...hiddenGlyphs],
-            revealedGlyphs,
+            staffGlyphs: [anchorGlyph, ...primaryPitches.map((m, i) => pathGlyph(m, i, "hidden"))],
+            revealedGlyphs: [anchorGlyph, ...primaryPitches.map((m, i) => pathGlyph(m, i, "full"))],
             gravity,
             resolutionFormula: formula,
             loopStep: options.loopStep,
@@ -443,83 +525,64 @@ export function generateFoundationRound(options: {
             mode,
             numNotes: stage === "echo" ? 4 : 5,
             tempoBpm,
+            ...lickRangeFor(voice),
         });
 
-    const fullGlyphs = lick.notes.map((n, i) =>
-        createStaffGlyph(n.midi, n.beats, lick.tonicMidi, lick.mode, i, "full", false),
-    );
+    const glyphsOf = (visibilityAt: (index: number) => NoteVisibility): StaffNoteGlyph[] =>
+        lick.notes.map((n, i) =>
+            createStaffGlyph({
+                midi: n.midi,
+                beats: n.beats,
+                tonicMidi: lick.tonicMidi,
+                mode: lick.mode,
+                targetIndex: i,
+                visibility: visibilityAt(i),
+                flats,
+            }),
+        );
+
+    const fullGlyphs = glyphsOf(() => "full");
+    const common = {
+        rung,
+        seed,
+        ...keyFields,
+        tonicMidi: lick.tonicMidi,
+        mode: lick.mode,
+        tempoBpm: lick.tempoBpm,
+        cueMidi: lick.notes[0]!.midi,
+        targetLick: lick,
+        alternateLicks: [],
+        revealedGlyphs: fullGlyphs,
+        gravity: "home" as const,
+        resolutionFormula: fullGlyphs.map(g => `${g.solfege} (${g.degreeCaret})`).join(" → "),
+        loopStep: options.loopStep,
+    };
 
     if (stage === "echo") {
         return {
+            ...common,
             stage: "echo",
-            rung,
-            seed,
-            tonicMidi: lick.tonicMidi,
-            mode: lick.mode,
-            tempoBpm: lick.tempoBpm,
             promptAudioMode: "full_demo",
-            cueMidi: lick.notes[0]!.midi,
-            targetLick: lick,
-            alternateLicks: [],
             staffGlyphs: fullGlyphs,
-            revealedGlyphs: fullGlyphs,
-            gravity: "home",
-            resolutionFormula: fullGlyphs.map(g => `${g.solfege}(${g.degreeCaret})`).join(" → "),
-            loopStep: options.loopStep,
         };
     }
 
     if (stage === "sight") {
-        const sightGlyphs = buildSightGlyphsWithSteppingStones(lick);
         return {
+            ...common,
             stage: "sight",
-            rung,
-            seed,
-            tonicMidi: lick.tonicMidi,
-            mode: lick.mode,
-            tempoBpm: lick.tempoBpm,
             promptAudioMode: "cadence_and_first_note",
-            cueMidi: lick.notes[0]!.midi,
-            targetLick: lick,
-            alternateLicks: [],
-            staffGlyphs: sightGlyphs,
-            revealedGlyphs: fullGlyphs,
-            gravity: "home",
-            resolutionFormula: fullGlyphs.map(g => `${g.solfege}(${g.degreeCaret})`).join(" → "),
-            loopStep: options.loopStep,
+            staffGlyphs: buildSightGlyphsWithSteppingStones(lick, flats),
         };
     }
 
     // stage === "fill" (First half visible for sight-singing, second half masked as `?` for ear training)
     const visibleCount = Math.max(1, Math.floor(lick.notes.length / 2));
-    const fillGlyphs = lick.notes.map((n, i) =>
-        createStaffGlyph(
-            n.midi,
-            n.beats,
-            lick.tonicMidi,
-            lick.mode,
-            i,
-            i < visibleCount ? "full" : "hidden",
-            false,
-        ),
-    );
-
     return {
+        ...common,
         stage: "fill",
-        rung,
-        seed,
-        tonicMidi: lick.tonicMidi,
-        mode: lick.mode,
-        tempoBpm: lick.tempoBpm,
         promptAudioMode: "full_demo",
-        cueMidi: lick.notes[0]!.midi,
-        targetLick: lick,
-        alternateLicks: [],
-        staffGlyphs: fillGlyphs,
-        revealedGlyphs: fullGlyphs,
-        gravity: "home",
-        resolutionFormula: fullGlyphs.map(g => `${g.solfege}(${g.degreeCaret})`).join(" → "),
-        loopStep: options.loopStep,
+        staffGlyphs: glyphsOf(i => (i < visibleCount ? "full" : "hidden")),
     };
 }
 
@@ -530,20 +593,27 @@ export function generateFoundationRound(options: {
  *   Step 3: 核心骨干音归家 (`home`)
  *   Step 4: 残谱/盲听终极实战 (`fill`)
  */
-export function generateMasteryLoop(seed: number, rung: HomeRung = 2): readonly FoundationRound[] {
+export function generateMasteryLoop(
+    seed: number,
+    rung: HomeRung = 2,
+    key: KeyStage = keyStageById("C"),
+    voice: VoiceRange = "violin",
+): readonly FoundationRound[] {
     const baseLick = generateLick({
         world: 2,
         seed,
-        tonicMidi: 62,
-        mode: "major",
+        tonicMidi: tonicMidiFor(key, voice),
+        mode: key.mode,
         numNotes: 4,
         tempoBpm: 68,
+        ...lickRangeFor(voice),
     });
+    const shared = { rung, key, voice };
     return [
-        generateFoundationRound({ stage: "echo", rung, seed, baseLick, loopStep: 1 }),
-        generateFoundationRound({ stage: "sight", rung, seed, baseLick, loopStep: 2 }),
-        generateFoundationRound({ stage: "home", rung, seed: seed + 7, loopStep: 3 }),
-        generateFoundationRound({ stage: "fill", rung, seed, baseLick, loopStep: 4 }),
+        generateFoundationRound({ ...shared, stage: "echo", seed, baseLick, loopStep: 1 }),
+        generateFoundationRound({ ...shared, stage: "sight", seed, baseLick, loopStep: 2 }),
+        generateFoundationRound({ ...shared, stage: "home", seed: seed + 7, loopStep: 3 }),
+        generateFoundationRound({ ...shared, stage: "fill", seed, baseLick, loopStep: 4 }),
     ];
 }
 

@@ -236,17 +236,16 @@ function reachable(midi: number, maxPosition: number): boolean {
     return false;
 }
 
-function buildPool(spec: WorldSpec, tonicMidi: number, mode: Mode): number[] {
-    const lo = spec.midiRange[0]!;
-    const hi = spec.midiRange[1]!;
-    const pool = scalePitches(tonicMidi, mode, lo, hi);
-    const out: number[] = [];
-    for (let i = 0; i < pool.length; i++) {
-        if (reachable(pool[i]!, spec.maxPosition)) {
-            out.push(pool[i]!);
-        }
-    }
-    return out;
+function buildPool(
+    spec: WorldSpec,
+    tonicMidi: number,
+    mode: Mode,
+    range: readonly [number, number] = spec.midiRange,
+    requirePlayable = true,
+): number[] {
+    const pool = scalePitches(tonicMidi, mode, range[0], range[1]);
+    if (!requirePlayable) return pool;
+    return pool.filter((midi) => reachable(midi, spec.maxPosition));
 }
 
 /** Tonic and dominant pitches -- the notes a phrase can safely rest on. */
@@ -483,6 +482,17 @@ export interface GenerateLickOptions {
     numNotes?: number;
     /** Override the tempo. */
     tempoBpm?: number;
+    /**
+     * Override the world's pitch range. A singer's exercise has to live in the
+     * singer's register, not the violin's: without this, a male voice asked
+     * for C major got pitches up to G4, well out of a baritone's comfort.
+     */
+    midiRange?: readonly [number, number];
+    /**
+     * Whether every note must be reachable on the violin within the world's
+     * position limit. False for voices — a throat has no fingerboard.
+     */
+    requirePlayable?: boolean;
 }
 
 /**
@@ -509,7 +519,7 @@ export function generateLick(options: GenerateLickOptions = {}): Lick {
         tonic = spec.tonicChoices.length === 1 ? spec.tonicChoices[0]! : tonic;
     }
 
-    const pool = buildPool(spec, tonic, chosenMode);
+    const pool = buildPool(spec, tonic, chosenMode, options.midiRange, options.requirePlayable ?? true);
     if (pool.length < 2) {
         throw new Error(
             `world ${worldIndex} with tonic ${noteName(tonic)} ${chosenMode} yields too few playable pitches`

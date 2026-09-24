@@ -23,7 +23,8 @@
  * yields identical outputs.
  */
 
-import { DEFAULT_A4_HZ, midiToHz } from "./theory.ts";
+import { DEFAULT_A4_HZ, midiToHz, SCALE_INTERVALS } from "./theory.ts";
+import type { Mode } from "./theory.ts";
 import type { Lick } from "./types.ts";
 
 export const DEFAULT_SR = 48000;
@@ -473,34 +474,55 @@ export function wavBytes(x: Float32Array, sr: number = DEFAULT_SR): Uint8Array {
 }
 
 /**
- * Synthesises a warm Tonic-Dominant-Tonic (1̂ – 5̂ – 1̂) cadence to anchor
- * the listener's relative pitch centre before a sight-singing or ear drill.
+ * The short phrase played before an exercise to establish "this is Do".
+ *
+ * It arpeggiates the tonic triad — 1̂ 3̂ 5̂ 1̂ — rather than sounding a bare
+ * fifth. This is not decoration. A bare 1̂–5̂ contains no third, and the third
+ * is the *only* interval that distinguishes major from minor, so a fifth
+ * cannot establish the mode it is supposed to be establishing. A learner asked
+ * to sing "Mi" after hearing only Do and Sol is being asked to guess which
+ * Mi.
+ *
+ * The third is taken from the mode's own interval set, so the minor rungs of
+ * the key ladder announce themselves as minor.
  */
 export function renderTonicCadence(
     tonicMidi: number,
+    mode: Mode = "major",
     cfg: SynthConfig = DEFAULT_SYNTH_CONFIG,
 ): Float32Array {
-    const stepDur = 0.36;
-    const finalDur = 0.55;
-    const gap = 0.04;
-    const p1 = synthNote(tonicMidi, stepDur, { ...cfg, amplitude: cfg.amplitude * 0.72 });
-    const p5 = synthNote(tonicMidi + 7, stepDur, { ...cfg, amplitude: cfg.amplitude * 0.68 });
-    const pHome = synthNote(tonicMidi, finalDur, { ...cfg, amplitude: cfg.amplitude * 0.85 });
+    const intervals = SCALE_INTERVALS[mode] ?? SCALE_INTERVALS.major;
+    const third = tonicMidi + (intervals[2] ?? 4);
+    const fifth = tonicMidi + (intervals[4] ?? 7);
+
+    const stepDur = 0.30;
+    const finalDur = 0.62;
+    const gap = 0.035;
+
+    const voices = [
+        synthNote(tonicMidi, stepDur, { ...cfg, amplitude: cfg.amplitude * 0.66 }),
+        synthNote(third, stepDur, { ...cfg, amplitude: cfg.amplitude * 0.66 }),
+        synthNote(fifth, stepDur, { ...cfg, amplitude: cfg.amplitude * 0.70 }),
+        // Landing on the tonic an octave up and then settling back would be
+        // prettier, but it doubles the wait before every single round.
+        synthNote(tonicMidi, finalDur, { ...cfg, amplitude: cfg.amplitude * 0.88 }),
+    ];
 
     const gapSamples = Math.trunc(gap * cfg.sr);
     const tailSamples = Math.trunc(0.22 * cfg.sr);
-    const out = new Float32Array(
-        p1.length + gapSamples + p5.length + gapSamples + pHome.length + tailSamples,
-    );
 
+    let length = tailSamples;
+    for (const voice of voices) length += voice.length + gapSamples;
+
+    const out = new Float32Array(length);
     let cursor = 0;
-    out.set(p1, cursor);
-    cursor += p1.length + gapSamples;
-    out.set(p5, cursor);
-    cursor += p5.length + gapSamples;
-    out.set(pHome, cursor);
+    for (const voice of voices) {
+        out.set(voice, cursor);
+        cursor += voice.length + gapSamples;
+    }
     return out;
 }
+
 
 /**
  * Renders the audio prompt for a Foundation Mode round:
@@ -511,6 +533,7 @@ export function renderTonicCadence(
 export function renderFoundationPrompt(
     options: {
         tonicMidi: number;
+        mode?: Mode;
         cueMidi: number;
         targetLick: Lick;
         promptAudioMode: "full_demo" | "cadence_and_first_note" | "cadence_and_mystery_note";
@@ -519,7 +542,7 @@ export function renderFoundationPrompt(
     },
     cfg: SynthConfig = DEFAULT_SYNTH_CONFIG,
 ): Float32Array {
-    const cadence = renderTonicCadence(options.tonicMidi, cfg);
+    const cadence = renderTonicCadence(options.tonicMidi, options.mode ?? "major", cfg);
     const tempoScale = options.tempoScale ?? 1.0;
 
     let body: Float32Array;
@@ -538,7 +561,10 @@ export function renderFoundationPrompt(
 
     if (options.withDrone) {
         const droneDur = body.length / cfg.sr;
-        const drone = synthNote(options.tonicMidi - 12, droneDur, {
+        // An octave under the tonic, unless that would fall below G3: a male
+        // register tonic is already low, and C2 is inaudible on a laptop.
+        const droneMidi = options.tonicMidi - 12 >= 55 ? options.tonicMidi - 12 : options.tonicMidi;
+        const drone = synthNote(droneMidi, droneDur, {
             ...cfg,
             attackS: 0.15,
             releaseS: 0.25,

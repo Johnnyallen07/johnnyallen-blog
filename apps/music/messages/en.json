@@ -56,72 +56,146 @@
     "exitFullscreen": "Exit Fullscreen"
   },
   "quest": {
-    "title": "Sight-Singing & Ear Quest",
-    "subtitle": "Progress from guided staff echoing, scaffolded sight-singing, and functional 'Sing-It-Home' single-note resolution to full violin transcription.",
+    "title": "Ear Training",
     "back": "Back",
-    "streak": "Streak {count}",
-    "modeFoundation": "🌱 Foundation · Sight & Ear",
-    "modeFoundationSub": "Guided Echo → Sight-Singing → Sing-It-Home → Fill-in-the-Blank (Relative Pitch)",
-    "modeQuest": "🎯 Advanced · Ear Quest",
-    "modeQuestSub": "Blind phrase transcription + Sing-Then-Play combo (Worlds 1–6)",
-    "inputLabel": "Input Mode",
+    "modeFoundation": "🌱 Basics",
+    "modeQuest": "🎯 Transcribe",
     "input": {
-      "voice": "🎤 Voice (Sing)",
-      "violin": "🎻 Violin (Play)",
-      "singThenPlay": "🎤→🎻 Sing-Then-Play (Combo)"
+      "voice": "🎤 Sing",
+      "violin": "🎻 Play",
+      "singThenPlay": "🎤→🎻 Sing, then play"
     },
-    "loopToggle": "🔥 4-Stage Mastery Loop (One Motif, 4 Steps)",
-    "loopStepBanner": "4-Stage Mastery · Step {step}/4",
-    "nextLoopStep": "Next Stage ({next}/4)",
-    "staffTitle": "Five-Line Staff & Movable-Do Degrees",
-    "showSolfege": "Solfège Badges (1̂ Do)",
-    "showSteppingStones": "Ghost Stepping-Stones",
-    "droneToggle": "Tonic Drone",
-    "playDemoAfterSight": "🔊 Hear Reference Melody",
-    "singLockSuccess": "✅ Vocal sequence locked in! Ghost scale degrees are now lit on the staff — pick up your violin for Phase 2!",
-    "singLockPrompt": "Phase 1 (🎤 Sing first): Hum or sing the phrase into the mic to verify your audiation",
-    "violinRealisePrompt": "Phase 2 (🎻 Play on violin): Use your unlocked staff contour to play it in tune",
-    "foundationStageLabel": "Foundation 4-Stage Curriculum",
-    "foundationStages": {
+    "singer": {
+      "female": "♀ Female",
+      "male": "♂ Male"
+    },
+    "singerHint": {
+      "female": "Exercises sit in a female vocal range",
+      "male": "Male voices sit an octave lower; exercises are transposed down"
+    },
+    "toleranceLabel": "Tolerance",
+    "tolerance": {
+      "8": "Master ±8¢",
+      "15": "Standard ±15¢",
+      "25": "Relaxed ±25¢",
+      "35": "Beginner ±35¢"
+    },
+    "keys": {
+      "C": "C major",
+      "G": "G major",
+      "F": "F major",
+      "D": "D major",
+      "Am": "A minor",
+      "A": "A major",
+      "Em": "E minor"
+    },
+    "keysShort": {
+      "C": "C",
+      "G": "G",
+      "F": "F",
+      "D": "D",
+      "Am": "a",
+      "A": "A",
+      "Em": "e"
+    },
+    "keyLocked": "Get 3 stars in the previous key to unlock",
+    "stages": {
       "echo": {
-        "name": "0.1 Guided Echo · Staff + Audio",
-        "blurb": "Full five-line staff + demo audio + tonic drone. Sing or play along to calibrate ear, voice, and fingerboard.",
-        "badge": "Staff ON · Audio ON"
+        "name": "Echo",
+        "tip": "Read · listen · sing along"
       },
       "sight": {
-        "name": "0.2 Scaffolded Sight-Singing",
-        "blurb": "Plays ONLY the tonic cadence + starting note! Read the staff (with ghost stepping-stones on leaps) and sing/play.",
-        "badge": "Staff ON · Blind Audio"
+        "name": "Sight",
+        "tip": "Only the chord — read and sing"
       },
       "home": {
-        "name": "0.3 Sing-It-Home · Single Note",
-        "blurb": "Hear the cadence + 1 mystery tone. Sing/play the mystery tone AND walk it home to Tonic Do (e.g. Mi → Re → Do)!",
-        "badge": "Functional Gravity"
+        "name": "Home",
+        "tip": "Hear one note, sing it home to Do"
       },
       "fill": {
-        "name": "0.4 Fill-in-the-Blank · Hybrid",
-        "blurb": "Sight-read the printed first half of the measure, then seamlessly ear-transcribe the hidden `?` ending.",
-        "badge": "Half Staff · Half Ear"
+        "name": "Fill",
+        "tip": "Read the first half, hear the rest"
       }
     },
-    "rungLabel": "Sing-It-Home · Scale Degree Ladder",
     "rungs": {
-      "1": "Rung 1 · Pillars (1̂ Do · 5̂ Sol)",
-      "2": "Rung 2 · Major Triad (1̂ Do · 3̂ Mi · 5̂ Sol)",
-      "3": "Rung 3 · Tonic Gravity (1̂ · 2̂ Re · 3̂ Mi · 7̂ Ti)",
-      "4": "Rung 4 · Pentatonic (1̂ · 2̂ · 3̂ · 5̂ · 6̂ La)",
-      "5": "Rung 5 · Full Diatonic Major (1̂–7̂)",
-      "6": "Rung 6 · Natural Minor Scale"
+      "1": "Do · Sol",
+      "2": "Do · Mi · Sol",
+      "3": "+ Re · Ti",
+      "4": "Pentatonic",
+      "5": "Full scale"
     },
-    "homeInstruction": "💡 Goal: After the cadence (1̂-5̂-1̂), you heard 1 mystery note. Sing/play that note AND resolve it home to Tonic D (1̂ Do)!",
-    "revealedFormulaLabel": "Resolution Path:",
-    "worldLabel": "Advanced Transcription Worlds",
-    "toleranceLabel": "Strictness",
-    "tolerance": {
-      "8": "Strict ±8¢",
-      "15": "Standard ±15¢",
-      "25": "Forgiving ±25¢",
-      "35": "Vocal ±35¢"
+    "loopToggle": "4-step run",
+    "nextLoopStep": "Next step",
+    "showSolfege": "Solfège",
+    "showSteppingStones": "Stepping stones",
+    "droneToggle": "Drone",
+    "playDemo": "Hear it",
+    "singLockPrompt": "① Sing it",
+    "singLockSuccess": "② Nailed it — now play it",
+    "start": "Start",
+    "replay": "Replay",
+    "replaysLeft": "{count}/{total}",
+    "recordVoice": "Sing",
+    "recordViolin": "Play",
+    "stop": "Done",
+    "grading": "Analysing",
+    "nextRound": "New one",
+    "revealedKey": "Key: {key}",
+    "details": "Pitch curve & per-note detail",
+    "hud": {
+      "level": "Lv {level}",
+      "xp": "{into}/{needed} XP",
+      "dayStreakTitle": "Days in a row",
+      "comboTitle": "Combo"
+    },
+    "reward": {
+      "xp": "+{xp} XP",
+      "combo": "{count} combo",
+      "levelUp": "Level up! Lv {level}",
+      "keyUnlocked": "Unlocked {key}"
+    },
+    "badgesTitle": "Badges {count}/{total}",
+    "badges": {
+      "first_blood": {
+        "name": "First note",
+        "desc": "Finish a round"
+      },
+      "flawless": {
+        "name": "Three stars",
+        "desc": "Get 3 stars"
+      },
+      "dead_centre": {
+        "name": "Dead centre",
+        "desc": "Median error ≤10¢"
+      },
+      "no_hints": {
+        "name": "Bare ears",
+        "desc": "3 stars with no hints"
+      },
+      "combo_5": {
+        "name": "Combo 5",
+        "desc": "5 starred rounds in a row"
+      },
+      "combo_10": {
+        "name": "Combo 10",
+        "desc": "10 starred rounds in a row"
+      },
+      "week_streak": {
+        "name": "Week streak",
+        "desc": "Practise 7 days running"
+      },
+      "key_cleared": {
+        "name": "Unlocked",
+        "desc": "Clear your first key"
+      },
+      "both_voices": {
+        "name": "Sing & play",
+        "desc": "Answer both ways"
+      },
+      "ladder_complete": {
+        "name": "All keys",
+        "desc": "Clear every key"
+      }
     },
     "worlds": {
       "1": {
@@ -149,22 +223,6 @@
         "blurb": "Longer phrases, closer to real music."
       }
     },
-    "startHint": "Ready when you are — current drill: {world}",
-    "start": "Start Round",
-    "replay": "Replay Prompt",
-    "replaysLeft": "{count}/{total} left",
-    "record": "Record Answer",
-    "recordVoice": "🎤 Sing Answer",
-    "recordViolin": "🎻 Play on Violin",
-    "stop": "Stop & Grade",
-    "grading": "Analysing",
-    "nextRound": "Next Phrase",
-    "hintsLabel": "Hints",
-    "micNotice": "The browser will ask for microphone access the first time you record. Octave-invariant grading supports both human voice and violin.",
-    "roundMeta": "{notes} target notes · {bpm} BPM · Key of {tonic}",
-    "revealedKey": "Key: {key}",
-    "revealedFirstNote": "First note: {note}",
-    "curveLabel": "Pitch Trace (green dashed = target pitch class, purple = your trajectory)",
     "phase": {
       "idle": "Ready to start",
       "prompt": "Playing prompt",
@@ -224,4 +282,3 @@
     }
   }
 }
-
